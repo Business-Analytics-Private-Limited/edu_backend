@@ -1,0 +1,49 @@
+{
+  "realm": "tenants",
+  "displayName": "EduPlatform",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": true,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "passwordPolicy": "length(10) and notUsername and notEmail and passwordHistory(3)",
+  "organizationsEnabled": true,
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "no-reply@eduplatform.local",
+    "fromDisplayName": "EduPlatform (local)"
+  },
+  "clients": [
+    {
+      "clientId": "web",
+      "name": "Institution web app",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-web-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3001/*"],
+      "webOrigins": ["http://localhost:3001"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "postman",
+      "name": "Postman (local only)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["https://oauth.pstmn.io/v1/callback"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ]
+}

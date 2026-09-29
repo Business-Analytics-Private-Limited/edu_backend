@@ -1,0 +1,285 @@
+{
+  "item": [
+    {
+      "id": "763d6c22-c798-8ba3-af50-cad38266d718",
+      "name": "system",
+      "description": {
+        "content": "Health checks",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "id": "b5a0f903-b95f-d401-1a10-6bef97a14034",
+          "name": "Liveness",
+          "request": {
+            "name": "Liveness",
+            "description": {
+              "content": "Returns 200 while the process is running. Used by container orchestration.",
+              "type": "text/plain"
+            },
+            "url": {
+              "path": [
+                "health"
+              ],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "header": [
+              {
+                "disabled": false,
+                "description": "Correlates logs and audit entries. Generated if absent and always returned.",
+                "key": "X-Request-Id",
+                "value": "<string>"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "method": "GET",
+            "auth": null
+          },
+          "response": [
+            {
+              "id": "9c7c668f-5ea6-56b5-a251-8021b55cc545",
+              "name": "The process is running",
+              "originalRequest": {
+                "url": {
+                  "path": [
+                    "health"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: oauth2",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "<token>"
+                  },
+                  {
+                    "disabled": false,
+                    "description": "Correlates logs and audit entries. Generated if absent and always returned.",
+                    "key": "X-Request-Id",
+                    "value": "0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "body": {}
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": {\n    \"status\": \"ok\"\n  }\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            }
+          ],
+          "event": [],
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          }
+        },
+        {
+          "id": "3aa358e5-0b1e-b346-4909-c09a68a88fc4",
+          "name": "Readiness",
+          "request": {
+            "name": "Readiness",
+            "description": {
+              "content": "Returns 200 when the API can reach its database; 503 otherwise.",
+              "type": "text/plain"
+            },
+            "url": {
+              "path": [
+                "health",
+                "ready"
+              ],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "query": [],
+              "variable": []
+            },
+            "header": [
+              {
+                "disabled": false,
+                "description": "Correlates logs and audit entries. Generated if absent and always returned.",
+                "key": "X-Request-Id",
+                "value": "<string>"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "method": "GET",
+            "auth": null
+          },
+          "response": [
+            {
+              "id": "890296e6-39d9-0b10-b38b-58b965de6556",
+              "name": "Ready to serve traffic",
+              "originalRequest": {
+                "url": {
+                  "path": [
+                    "health",
+                    "ready"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: oauth2",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "<token>"
+                  },
+                  {
+                    "disabled": false,
+                    "description": "Correlates logs and audit entries. Generated if absent and always returned.",
+                    "key": "X-Request-Id",
+                    "value": "0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "method": "GET",
+                "body": {}
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"data\": {\n    \"status\": \"ok\",\n    \"checks\": {\n      \"database\": \"ok\"\n    }\n  }\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "id": "776712cd-cc06-e3bf-e2d0-d9383ef5afdc",
+              "name": "A dependency is not available",
+              "originalRequest": {
+                "url": {
+                  "path": [
+                    "health",
+                    "ready"
+                  ],
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "query": [],
+                  "variable": []
+                },
+                "header": [
+                  {
+                    "description": {
+                      "content": "Added as a part of security scheme: oauth2",
+                      "type": "text/plain"
+                    },
+                    "key": "Authorization",
+                    "value": "<token>"
+                  },
+                  {
+                    "disabled": false,
+                    "description": "Correlates logs and audit entries. Generated if absent and always returned.",
+                    "key": "X-Request-Id",
+                    "value": "0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/problem+json"
+                  }
+                ],
+                "method": "GET",
+                "body": {}
+              },
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/problem+json"
+                }
+              ],
+              "body": "{\n  \"type\": \"https://docs.eduplatform.local/errors/validation_failed\",\n  \"title\": \"Validation failed\",\n  \"status\": 422,\n  \"code\": \"validation_failed\",\n  \"detail\": \"1 field(s) are invalid\",\n  \"requestId\": \"0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f\",\n  \"errors\": [\n    {\n      \"path\": \"dateOfBirth\",\n      \"code\": \"invalid_date\",\n      \"message\": \"Must be a valid date\"\n    }\n  ]\n}",
+              "cookie": [],
+              "_postman_previewlanguage": "json"
+            }
+          ],
+          "event": [],
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          }
+        }
+      ],
+      "event": []
+    }
+  ],
+  "event": [],
+  "variable": [
+    {
+      "type": "string",
+      "value": "http://localhost:3000/api/v1",
+      "key": "baseUrl"
+    }
+  ],
+  "auth": {
+    "type": "oauth2",
+    "oauth2": [
+      {
+        "key": "scope",
+        "value": "openid"
+      },
+      {
+        "key": "accessTokenUrl",
+        "value": "http://localhost:8080/realms/tenants/protocol/openid-connect/token"
+      },
+      {
+        "key": "authUrl",
+        "value": "http://localhost:8080/realms/tenants/protocol/openid-connect/auth"
+      },
+      {
+        "key": "grant_type",
+        "value": "authorization_code"
+      }
+    ]
+  },
+  "info": {
+    "_postman_id": "5e8060d3-3fc2-daad-53d5-9845c1b74292",
+    "name": "EduPlatform API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": {
+      "content": "Generated from packages/contracts/openapi. Conventions: docs/08-api-conventions.md. Module guides: docs/modules/.",
+      "type": "text/plain"
+    }
+  }
+}

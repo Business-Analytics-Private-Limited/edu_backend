@@ -1,0 +1,18 @@
+# Generated: rebuilt by pnpm install / pnpm build
+node_modules/
+dist/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# Local settings and secrets: never committed (copy .env.example to .env)
+.env
+.env.*
+!.env.example
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,33 @@
+{
+  "name": "eduplatform-backend",
+  "private": true,
+  "description": "EduPlatform backend: services, API host, worker, device gateway (ADR-0013)",
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm build:packages && pnpm db:migrate && turbo run dev",
+    "dev:api": "pnpm build:packages && pnpm db:migrate && turbo run dev --filter=@eduplatform/api...",
+    "build": "turbo run build",
+    "build:packages": "turbo run build --filter=./packages/* --filter=./services/*",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:integration": "turbo run test:integration",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "contracts:build": "pnpm --filter @eduplatform/contracts build",
+    "db:setup": "pnpm --filter @eduplatform/api db:setup",
+    "db:migrate": "pnpm --filter @eduplatform/api db:migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.33.0",
+    "eslint": "^9.33.0",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.6",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.40.0"
+  }
+}

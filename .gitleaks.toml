@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Development-only credentials for the local Docker environment"
+paths = [
+  '''^infra/docker/''',
+  '''^\.env\.example$''',
+]

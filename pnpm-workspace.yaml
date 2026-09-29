@@ -1,0 +1,10 @@
+# Packages of the backend repository (ADR-0013).
+packages:
+  - apps/* # runnable processes: api host, worker, device gateway
+  - services/* # one package per business service
+  - packages/* # shared libraries: server-kit, contracts, config
+
+# pnpm 10 blocks dependency install scripts unless listed here.
+onlyBuiltDependencies:
+  - '@swc/core'
+  - esbuild
