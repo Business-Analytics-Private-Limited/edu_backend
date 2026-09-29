@@ -47,7 +47,7 @@ From doc 4:
 | `students.enrolment.transfer` | Move between sections, shuffle |
 | `students.document.view` | View and download documents |
 | `students.document.manage` | Upload, verify, delete documents |
-| `students.settings.manage` | Tags, custom fields, document types (**new**; proposed for org admin and institution admin) |
+| `students.settings.manage` | Tags, custom fields, document types |
 
 ## Data model
 
@@ -284,5 +284,4 @@ interface StudentsFacade {
 
 ## Open questions
 
-- `students.settings.manage` is a new permission; confirm the matrix entry.
 - Which profile fields the first institution requires (from its current forms), for `requiredFields` defaults.

@@ -19,7 +19,9 @@
     "format:check": "prettier --check .",
     "contracts:build": "pnpm --filter @eduplatform/contracts build",
     "db:setup": "pnpm --filter @eduplatform/api db:setup",
-    "db:migrate": "pnpm --filter @eduplatform/api db:migrate"
+    "db:migrate": "pnpm --filter @eduplatform/api db:migrate",
+    "keycloak": "node infra/keycloak/keycloak.mjs start",
+    "keycloak:install": "node infra/keycloak/keycloak.mjs install"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

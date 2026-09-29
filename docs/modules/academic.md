@@ -34,7 +34,7 @@ Not this module: which students are in a section (`students`), attendance rules 
 | `academic.structure.manage` | Create, edit and deactivate nodes |
 | `academic.year.manage` | Create, activate and close academic years; set year offerings |
 | `academic.subject.manage` | Create and edit subjects and their mapping to nodes |
-| `academic.calendar.manage` | Manage holidays (**new**; not in doc 4's matrix; proposed for org admin and institution admin) |
+| `academic.calendar.manage` | Manage holidays |
 
 ## Data model
 
@@ -189,4 +189,4 @@ interface AcademicFacade {
 
 ## Open questions
 
-- `academic.calendar.manage` is a new permission; confirm the matrix entry.
+- None.

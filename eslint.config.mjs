@@ -62,7 +62,7 @@ export default tseslint.config(
   },
   {
     // Command-line scripts print to the terminal on purpose.
-    files: ['**/scripts/**/*.mjs', '**/*.cli.ts'],
+    files: ['**/scripts/**/*.mjs', '**/*.cli.ts', 'infra/**/*.mjs'],
     rules: { 'no-console': 'off' },
   },
 );

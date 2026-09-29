@@ -29,7 +29,7 @@ Not this module: business rules for the data. Every row goes through the owning 
 
 | Permission | Allows |
 |---|---|
-| `imports.job.view` | See jobs and their results (**new**) |
+| `imports.job.view` | See jobs and their results |
 | Kind-specific permission | Required to create and commit a job of that kind, e.g. `students.student.import` for `students` |
 
 ## Data model
@@ -104,5 +104,4 @@ None.
 
 ## Open questions
 
-- `imports.job.view` is a new permission; confirm the matrix entry.
 - The mapping from the first institution's current system is written when that onboarding is planned (ADR-0007).

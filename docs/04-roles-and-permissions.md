@@ -86,6 +86,7 @@ New tenants receive these as editable copies.
 | `academic.structure.manage` | ✓ | ✓ | | | | | |
 | `academic.year.manage` | ✓ | ✓ | | | | | |
 | `academic.subject.manage` | ✓ | ✓ | | | | | |
+| `academic.calendar.manage` | ✓ | ✓ | | | | | |
 | **students** | | | | | | | |
 | `students.student.view` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `students.student.create` | ✓ | ✓ | ✓ | | | | |
@@ -97,6 +98,7 @@ New tenants receive these as editable copies.
 | `students.enrolment.transfer` | ✓ | ✓ | ✓ | | | | |
 | `students.document.view` | ✓ | ✓ | ✓ | ✓ | | ✓ | ✓ |
 | `students.document.manage` | ✓ | ✓ | ✓ | | | | |
+| `students.settings.manage` | ✓ | ✓ | | | | | |
 | **attendance** | | | | | | | |
 | `attendance.record.view` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `attendance.record.mark` | | ✓ | ✓ | ✓ | ✓ | | |
@@ -104,6 +106,8 @@ New tenants receive these as editable copies.
 | `attendance.policy.manage` | ✓ | ✓ | | | | | |
 | `attendance.device.manage` | ✓ | ✓ | | ✓ | | | |
 | `attendance.report.view` | ✓ | ✓ | ✓ | ✓ | ✓ | | |
+| **imports** | | | | | | | |
+| `imports.job.view` | ✓ | ✓ | ✓ | | | | |
 
 For parents and students, `view` permissions are always limited to their `guardian` or `self` scope, whatever the matrix says.
 

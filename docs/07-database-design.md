@@ -1,6 +1,6 @@
 # 7. Database design (v1)
 
-Status: **Draft for review.** This document turns docs 2–5 and ADR-0002 / 0005 / 0006 into concrete tables. Per-module detail (every column, index and policy) lives in each module's document under [`modules/`](modules/). Migrations are written from these documents phase by phase; when a migration and a document disagree, fix one of them in the same change.
+Status: **Accepted** (2026-09-29). This document turns docs 2–5 and ADR-0002 / 0005 / 0006 into concrete tables. Per-module detail (every column, index and policy) lives in each module's document under [`modules/`](modules/). Migrations are written from these documents phase by phase; when a migration and a document disagree, fix one of them in the same change.
 
 ## 7.1 Scope
 
@@ -157,7 +157,7 @@ Run against real PostgreSQL 18 with all migrations applied: locally on your own 
 7. Rows created in tenant A are invisible, un-updatable and un-deletable from tenant B; inserting a row with tenant A's id while in tenant B's context fails.
 8. Every column marked [P] in a module document carries its `@pii` comment.
 
-## 7.9 Decisions this design makes (need owner review)
+## 7.9 Decisions this design makes (accepted by the project owner, 2026-09-29)
 
 | # | Decision | Alternative | Why this one |
 |---|---|---|---|

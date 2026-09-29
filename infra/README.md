@@ -3,7 +3,8 @@
 | Folder | What it is | Status |
 |---|---|---|
 | `database/roles.sql` | Creates the five database roles (ADR-0009). Used by `pnpm db:setup`, the integration tests, and Docker | In use |
-| `docker/` | Docker Compose for Postgres, Redis, Keycloak, MinIO, Mailpit, plus Keycloak realm files | **On hold** ([ADR-0012](../docs/adr/0012-local-development-without-docker.md)) |
+| `keycloak/` | Local Keycloak (login server): install/start script and the `platform` and `tenants` realms. Started by `pnpm dev` | In use ([ADR-0014](../docs/adr/0014-local-keycloak-and-in-memory-cache.md)) |
+| `docker/` | Docker Compose for Postgres, Redis, Keycloak, MinIO, Mailpit | **On hold** ([ADR-0012](../docs/adr/0012-local-development-without-docker.md)) |
 
 Local development uses your installed PostgreSQL 18: see [docs/guides/getting-started.md](../docs/guides/getting-started.md).
 

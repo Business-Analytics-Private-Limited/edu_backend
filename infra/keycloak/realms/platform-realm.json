@@ -1,6 +1,6 @@
 {
-  "realm": "tenants",
-  "displayName": "EduPlatform",
+  "realm": "platform",
+  "displayName": "EduPlatform – platform staff",
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
@@ -11,28 +11,37 @@
   "permanentLockout": false,
   "maxFailureWaitSeconds": 900,
   "accessTokenLifespan": 300,
-  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionIdleTimeout": 900,
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
-  "passwordPolicy": "length(10) and notUsername and notEmail and passwordHistory(3)",
-  "organizationsEnabled": true,
+  "passwordPolicy": "length(12) and notUsername and notEmail and passwordHistory(5)",
+  "requiredActions": [
+    {
+      "alias": "CONFIGURE_TOTP",
+      "name": "Configure OTP",
+      "providerId": "CONFIGURE_TOTP",
+      "enabled": true,
+      "defaultAction": true,
+      "priority": 10
+    }
+  ],
   "smtpServer": {
-    "host": "mailpit",
+    "host": "localhost",
     "port": "1025",
     "from": "no-reply@eduplatform.local",
     "fromDisplayName": "EduPlatform (local)"
   },
   "clients": [
     {
-      "clientId": "web",
-      "name": "Institution web app",
+      "clientId": "admin",
+      "name": "Super admin console",
       "enabled": true,
       "publicClient": false,
-      "secret": "dev-web-secret",
+      "secret": "dev-admin-secret",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:3001/*"],
-      "webOrigins": ["http://localhost:3001"],
+      "redirectUris": ["http://localhost:3003/*"],
+      "webOrigins": ["http://localhost:3003"],
       "attributes": { "pkce.code.challenge.method": "S256" }
     },
     {

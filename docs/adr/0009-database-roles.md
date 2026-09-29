@@ -1,6 +1,6 @@
 # ADR-0009: Database roles and cross-tenant access paths
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-28
 
 ## Context
