@@ -1,77 +1,110 @@
 # EduPlatform backend (working name)
 
-A multi-tenant, role-based, module-driven management platform for educational institutions.
+A multi-tenant management platform for educational institutions: many organizations (school groups, college societies) use one system, and each sees only its own data.
 
-This is the **backend repository**: services, API, database and all design documents. The web app and super admin console live in a separate repository, **eduplatform-frontend**, which talks to this one only through the API ([ADR-0013](docs/adr/0013-separate-frontend-and-backend-repositories.md)).
+This repository is the **backend API**. The web app and the super admin console are in the separate **eduplatform-frontend** repository.
 
-- **Multi-tenant:** one deployment serves many organizations. An organization can be a group of institutions (junior college + engineering college + school).
-- **Module-driven:** the platform super admin decides which modules (Students, Attendance, Exams, Fees, …) and which tool variants (manual vs biometric attendance, …) each organization gets.
-- **Role-based access:** each organization defines roles and scopes (organization, institution, campus, section) for its staff, parents and students.
+## What it does today
 
-> Status: **Phase 1 (foundation).** Start with the documents below.
+| Area | Who | What |
+|---|---|---|
+| **Login** | Everyone | Super admins log in at `/auth/super-admin/login`, organization users at `/auth/login`. `/auth/me` says who you are and what you may do. |
+| **Super admin area** | EduPlatform staff | Dashboard; create organizations (with their first admin); edit, suspend and activate them; switch modules on and off (Academic, Students, Attendance, Portal, Import). |
+| **Tenant admin area** | An organization's users | Dashboard; the organization's details; institutions and campuses; staff users; roles and their permissions; audit log. |
+| **Multi-tenancy** | Built in | Every query is limited to the user's organization, and PostgreSQL row security blocks mistakes. |
+
+Coming in later phases: academic structure, students, attendance, parent portal, data import (see `docs/06-roadmap.md`).
 
 ## Getting started
 
-Prerequisites: Node.js 24 LTS (see `.nvmrc`), pnpm 10 (`corepack enable`), PostgreSQL 18 installed locally. Docker is not needed for now ([ADR-0012](docs/adr/0012-local-development-without-docker.md)).
+Prerequisites: Node.js 22+ (24 recommended), PostgreSQL 18 installed locally, pnpm (`corepack enable`).
 
 ```sh
-copy .env.example .env    # then put your Postgres password in DATABASE_ADMIN_URL
+copy .env.example .env      # then put your Postgres password in DATABASE_ADMIN_URL
 pnpm install
-pnpm db:setup             # once: creates the database roles and the "eduplatform" database
-pnpm dev                  # builds shared packages, runs migrations, starts API, worker, device gateway
-pnpm test                 # unit and architecture tests
-pnpm test:integration     # database tests (tenant isolation, audit, outbox)
+pnpm db:setup               # creates the database and its two roles (once)
+pnpm db:migrate             # creates the tables
+pnpm db:seed                # adds the module list and the first super admin (from .env)
+pnpm dev                    # starts the API on http://localhost:3000, restarts on save
 ```
 
-| URL | What |
+- API documentation (try every endpoint): **http://localhost:3000/api/docs**
+- Postman: *Import → Link →* `http://localhost:3000/api/docs-json`
+- First login: `POST /api/v1/auth/super-admin/login` with `SEED_SUPER_ADMIN_EMAIL` / `SEED_SUPER_ADMIN_PASSWORD` from `.env`.
+
+## How a request flows
+
+```
+Browser / frontend
+   │  GET /api/v1/institutions   (header: Authorization: Bearer <token>)
+   ▼
+RequestLoggerMiddleware      logs the request                        src/common/middleware
+ThrottlerGuard               too many requests? → 429
+JwtAuthGuard + JwtStrategy   valid token? who is it? → 401           src/common/guards, src/modules/auth
+AccessGuard                  allowed by the endpoint's decorator? → 403
+   ▼
+Controller                   reads the request, calls the service    src/modules/organization/organization.controller.ts
+Service                      the logic; talks to the database        src/modules/organization/organization.service.ts
+PrismaService                runs the query for this organization    src/prisma/prisma.service.ts
+   ▼
+PostgreSQL                   row security: only this organization's rows
+```
+
+## Folders
+
+```
+src/
+  main.ts                    starts the server
+  app.module.ts              lists all modules and the guards
+  setup-app.ts               /api/v1 prefix, security headers, CORS, validation, Swagger
+  common/
+    decorators/              @Public, @LoggedIn, @SuperAdminOnly, @OrganizationUser, @RequirePermission,
+                             @CurrentUser, @OrganizationId
+    guards/                  jwt-auth.guard.ts (logged in?), access.guard.ts (allowed?)
+    middleware/              request logging
+    filters/                 database errors → 404 / 409
+    pagination.ts            ?page=&pageSize=
+  prisma/                    the database connection (+ forOrganization / forAllOrganizations)
+  modules/
+    auth/                    login, me, change password
+    super-admin/             dashboard, organizations, modules
+    organization/            the tenant's dashboard, organization, institutions, campuses
+    users/                   the tenant's staff users
+    roles/                   roles, and permissions.ts (the list of every permission)
+    audit/                   the audit log
+    health/                  GET /health
+prisma/
+  schema.prisma              every table, with comments
+  migrations/                how the database got to its current shape
+  seed.ts                    module list + first super admin
+test/                        end-to-end tests (real app, temporary database)
+scripts/db-setup.mjs         creates roles and the database on your PostgreSQL
+docs/                        product design and decisions
+```
+
+Each feature folder has the same four kinds of files: `*.controller.ts` (routes), `*.service.ts` (logic), `dto/` (what a request may contain) and `*.module.ts` (wiring).
+
+## Commands
+
+| Command | What it does |
 |---|---|
-| http://localhost:3000/api/docs | Swagger UI (API documentation) |
-| http://localhost:3000/api/docs/openapi.json | The API contract the frontend copies with `pnpm api:sync` |
-| http://localhost:3000/api/v1/health | API health |
-| http://localhost:3002/health | Device gateway health |
-
-Postman: import `packages/contracts/postman/eduplatform.postman_collection.json` and `packages/contracts/postman/local.postman_environment.json`.
-
-New to the project? Read, in order: [project structure](docs/guides/project-structure.md) → [getting started](docs/guides/getting-started.md) → [adding a service](docs/guides/adding-a-service.md).
-
-## Target institution types (in priority order)
-
-1. Junior / intermediate colleges (11th–12th, groups such as MPC, BiPC, CEC, MEC)
-2. Degree and engineering colleges (programs, branches, semesters, credits)
-3. Schools (classes and sections)
+| `pnpm dev` | Applies new migrations, then runs the API and restarts it on every save |
+| `pnpm test` | Unit tests (no database) |
+| `pnpm test:e2e` | End-to-end tests on a temporary database (deleted afterwards) |
+| `pnpm lint` / `pnpm typecheck` / `pnpm format` | Code checks and formatting |
+| `pnpm db:migration <name>` | Creates a migration after you edit `prisma/schema.prisma` |
+| `pnpm db:migrate` | Applies migrations |
+| `pnpm db:seed` | Adds the module list and the first super admin |
+| `pnpm db:studio` | Opens Prisma Studio, a browser view of the database |
+| `pnpm db:reset` | Deletes and recreates the development database (all data lost) |
 
 ## Documents
 
-| # | Document | What it answers |
-|---|---|---|
-| 1 | [Product requirements](docs/01-product-requirements.md) | Who uses it, what v1/v2/v3 contain, what "done" means |
-| 2 | [Domain map](docs/02-domain-map.md) | Which modules exist, what data each owns, how they talk |
-| 3 | [Tenancy and academic structure](docs/03-tenancy-and-academic-structure.md) | Organization → institution → campus hierarchy, data isolation, academic templates |
-| 4 | [Roles and permissions](docs/04-roles-and-permissions.md) | Permission naming, scopes, default roles, the permissions matrix |
-| 5 | [Module catalog](docs/05-module-catalog.md) | Module manifests, variants ("tools"), dependencies, entitlement rules |
-| 6 | [Roadmap](docs/06-roadmap.md) | Build phases, exit checks, open decisions |
-| 7 | [Database design](docs/07-database-design.md) | Conventions, database roles, RLS, cross-module references |
-| 8 | [API conventions](docs/08-api-conventions.md) | Paths, headers, pagination, errors, Swagger and Postman |
-| — | [Module documentation](docs/modules/) | Per module: purpose, permissions, tables, endpoints, events, facade, rules |
-| — | [Guides](docs/guides/) | Project structure, getting started, adding a service, running one service, deployment |
-| — | [Architecture decisions](docs/adr/) | Why the architecture looks the way it does |
-
-## Repository layout ([ADR-0011](docs/adr/0011-microservice-ready-services.md), [ADR-0013](docs/adr/0013-separate-frontend-and-backend-repositories.md))
-
-Every folder is explained in [docs/guides/project-structure.md](docs/guides/project-structure.md).
-
-```
-services/             one package per business service (audit, and more each phase)
-apps/
-  api/                host: runs every service listed in src/services.ts
-  worker/             background jobs: outbox relay, imports, notifications, reports
-  device-gateway/     receives biometric device punches
-packages/
-  server-kit/         tenant context, database, guards, outbox, audit, logging
-  contracts/          OpenAPI + event schemas, Swagger, Postman collection
-  config/             shared TypeScript settings
-infra/
-  database/           database roles script (used by pnpm db:setup and the tests)
-  docker/             Docker Compose: on hold (ADR-0012)
-docs/
-```
+| Document | What it answers |
+|---|---|
+| [docs/guides/getting-started.md](docs/guides/getting-started.md) | Setup, first login, troubleshooting |
+| [docs/guides/adding-a-feature.md](docs/guides/adding-a-feature.md) | How to add a new feature, step by step |
+| [docs/01-product-requirements.md](docs/01-product-requirements.md) | Who uses it, what v1/v2/v3 contain |
+| [docs/04-roles-and-permissions.md](docs/04-roles-and-permissions.md) | Roles and the permission matrix |
+| [docs/06-roadmap.md](docs/06-roadmap.md) | Build phases |
+| [docs/adr/](docs/adr/) | Decisions; ADR-0015 describes today's structure |

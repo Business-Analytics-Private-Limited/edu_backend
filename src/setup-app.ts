@@ -1,0 +1,48 @@
+/**
+ * Settings that apply to every request. Used by main.ts and by the tests, so the tests run the
+ * app exactly as it runs for real.
+ */
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
+import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+
+export function setupApp(app: INestApplication) {
+  // Every route starts with /api/v1, e.g. /api/v1/auth/login
+  app.setGlobalPrefix('api/v1');
+
+  // Security headers on every response.
+  app.use(helmet());
+
+  // Browsers may call the API only from our frontends (CORS_ORIGINS in .env).
+  const origins = (process.env.CORS_ORIGINS ?? '').split(',').filter(Boolean);
+  app.enableCors({ origin: origins });
+
+  // Checks every request body and query against its DTO class:
+  //   whitelist            drops fields the DTO doesn't declare
+  //   forbidNonWhitelisted  ...and answers 400 if someone sends them anyway
+  //   transform            turns "2" into 2 where the DTO says number
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+  );
+
+  // Database errors like "email already used" become clear 409 / 404 answers.
+  app.useGlobalFilters(new PrismaExceptionFilter());
+
+  // API documentation, built from the controllers and DTOs:
+  //   http://localhost:3000/api/docs        Swagger UI (try every endpoint in the browser)
+  //   http://localhost:3000/api/docs-json   the same as JSON: import this URL into Postman
+  const document = SwaggerModule.createDocument(
+    app,
+    new DocumentBuilder()
+      .setTitle('EduPlatform API')
+      .setDescription(
+        'Log in with POST /auth/login (organization users) or /auth/super-admin/login, ' +
+          'copy the accessToken, then press "Authorize" and paste it.',
+      )
+      .setVersion('0.2.0')
+      .addBearerAuth()
+      .build(),
+  );
+  SwaggerModule.setup('api/docs', app, document);
+}

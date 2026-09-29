@@ -1,12 +1,8 @@
 # Generated: rebuilt by pnpm install / pnpm build
 node_modules/
 dist/
-.turbo/
 coverage/
 *.tsbuildinfo
-
-# Locally installed tools and their data, e.g. Keycloak (ADR-0014)
-.local/
 
 # Local settings and secrets: never committed (copy .env.example to .env)
 .env

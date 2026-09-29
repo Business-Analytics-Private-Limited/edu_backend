@@ -1,8 +1,0 @@
-{
-  "extends": "@eduplatform/config/tsconfig.node.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "declaration": false
-  },
-  "include": ["src", "test"]
-}

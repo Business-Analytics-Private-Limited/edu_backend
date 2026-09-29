@@ -1,9 +1,6 @@
 pnpm-lock.yaml
-# Design documents are formatted by hand.
-*.md
 dist/
-.next/
-.turbo/
 coverage/
-packages/contracts/postman/
-packages/contracts/src/generated/
+prisma/migrations/
+# Documents are formatted by hand.
+*.md

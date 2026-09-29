@@ -1,5 +1,7 @@
 # Module documentation
 
+> **Note (2026-09-29):** the backend was simplified ([ADR-0015](../adr/0015-simplified-backend.md)). This document still describes the product's data and rules, but where it mentions one schema per module, the outbox, Keycloak, OpenAPI files in packages/contracts or service packages, today's code differs: one Prisma schema (`prisma/schema.prisma`), JWT login, Swagger generated from the controllers, and feature folders in `src/modules/`.
+
 One document per module. Each follows the same template so that anyone can find the same information in the same place.
 
 | Module | Schema | Phase | Document | OpenAPI |

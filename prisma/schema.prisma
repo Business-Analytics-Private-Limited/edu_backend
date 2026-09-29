@@ -1,0 +1,209 @@
+// =================================================================================================
+// DATABASE SCHEMA: every table of EduPlatform, in one file.
+//
+// How to change it:
+//   1. edit this file
+//   2. pnpm db:migration <what_changed>     → writes prisma/migrations/<date>_<what_changed>/migration.sql
+//   3. if you added a table with organization_id, add its row-security policy to that SQL file
+//      (copy the pattern from the first migration)
+//   4. pnpm db:migrate                       → applies it to your database
+//
+// Naming: models are PascalCase here (Organization); tables and columns are snake_case in
+// PostgreSQL (organizations, organization_id) through @@map / @map.
+// =================================================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // The app connects as edu_app: a limited role that row security applies to.
+  url       = env("DATABASE_URL")
+  // Migrations connect as edu_owner, the only role allowed to change tables.
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// -------------------------------------------------------------------------------------------------
+// SUPER ADMIN SIDE: EduPlatform staff who manage all organizations.
+// -------------------------------------------------------------------------------------------------
+
+/// People at EduPlatform who use the super admin console. Not part of any organization.
+model SuperAdmin {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("super_admins")
+}
+
+/// The modules an organization can be given (Students, Attendance, ...). Filled by prisma/seed.ts.
+model Module {
+  key         String   @id // e.g. "students"
+  name        String
+  description String
+  /// Modules that must be switched on first, e.g. attendance needs ["academic", "students"].
+  dependsOn   String[] @map("depends_on")
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  organizations OrganizationModule[]
+
+  @@map("modules")
+}
+
+// -------------------------------------------------------------------------------------------------
+// TENANTS: an organization (a school group, a college society, ...) and everything it owns.
+// Every table below has organization_id, and row security keeps organizations apart.
+// -------------------------------------------------------------------------------------------------
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED // its users can't log in; data is kept
+}
+
+/// A customer of EduPlatform: one organization = one tenant. It can run several institutions.
+model Organization {
+  id           String             @id @default(uuid(7)) @db.Uuid
+  name         String
+  /// Short unique name, e.g. "sri-vidya". Lowercase letters, digits and dashes.
+  slug         String             @unique
+  contactName  String?            @map("contact_name")
+  contactEmail String?            @map("contact_email")
+  contactPhone String?            @map("contact_phone")
+  status       OrganizationStatus @default(ACTIVE)
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  modules      OrganizationModule[]
+  institutions Institution[]
+  campuses     Campus[]
+  roles        Role[]
+  users        User[]
+
+  @@map("organizations")
+}
+
+/// Which modules the super admin switched on for an organization.
+model OrganizationModule {
+  organizationId String   @map("organization_id") @db.Uuid
+  moduleKey      String   @map("module_key")
+  enabled        Boolean  @default(true)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  module       Module       @relation(fields: [moduleKey], references: [key])
+
+  @@id([organizationId, moduleKey])
+  @@map("organization_modules")
+}
+
+enum InstitutionType {
+  JUNIOR_COLLEGE
+  DEGREE_COLLEGE
+  ENGINEERING_COLLEGE
+  SCHOOL
+}
+
+/// A college or school of the organization, e.g. "Sri Vidya Junior College".
+model Institution {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  name           String
+  /// Short code, unique inside the organization, e.g. "SVJC".
+  code           String
+  type           InstitutionType
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  campuses     Campus[]
+
+  @@unique([organizationId, code])
+  @@map("institutions")
+}
+
+/// A physical location of an institution, e.g. "Kukatpally".
+model Campus {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  institutionId  String   @map("institution_id") @db.Uuid
+  name           String
+  code           String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  institution  Institution  @relation(fields: [institutionId], references: [id])
+
+  @@unique([institutionId, code])
+  @@index([organizationId])
+  @@map("campuses")
+}
+
+/// A set of permissions, e.g. "Organization admin" or "Teacher". Each organization has its own.
+model Role {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  description    String?
+  /// Permission keys, e.g. ["access.user.view", "platform.institution.manage"].
+  /// The full list is in src/modules/roles/permissions.ts.
+  permissions    String[]
+  /// Created automatically (e.g. "Organization admin"): can't be deleted.
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  users        User[]
+
+  @@unique([organizationId, name])
+  @@map("roles")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE // can't log in
+}
+
+/// A person who logs in to an organization: admins, office staff, teachers.
+model User {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  roleId         String     @map("role_id") @db.Uuid
+  name           String
+  /// Login email, unique across EduPlatform.
+  email          String     @unique
+  passwordHash   String     @map("password_hash")
+  status         UserStatus @default(ACTIVE)
+  lastLoginAt    DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+/// Who changed what, and when. Written by AuditService for every create, update and delete.
+model AuditLog {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  /// The organization the change belongs to (empty for super admin actions on the platform).
+  organizationId String?  @map("organization_id") @db.Uuid
+  actorType      String   @map("actor_type") // "super_admin" or "user"
+  actorId        String   @map("actor_id") @db.Uuid
+  action         String // e.g. "create", "update", "delete", "suspend"
+  entity         String // e.g. "institution"
+  entityId       String?  @map("entity_id")
+  details        Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([organizationId, createdAt])
+  @@map("audit_logs")
+}
