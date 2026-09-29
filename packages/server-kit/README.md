@@ -7,7 +7,8 @@
 | `context/` | `runWithContext`, `requireTenantId`: who the current request is for, available anywhere | Tenant resolution (doc 3 §3.2) |
 | `db/transaction.ts` | `withTenantTransaction(pool, fn)`: runs queries with `app.tenant_id` set, so Row-Level Security applies | Rule 1 |
 | `db/migrations.ts` | `runMigrations`: applies each service's SQL files once, in order, with checksums | Rule 6 |
-| `access/` | `@RequireModule`, `@RequirePermission`, `@Public`, `@AuthenticatedOnly`, and the global `AccessGuard` (deny by default) | Rule 3 |
+| `auth/` | `KeycloakTokenVerifier` (signature, realm, audience, expiry of Keycloak tokens) and `KeycloakAuthenticator` (token → our own active user, through an `IdentityResolver`) | ADR-0003 |
+| `access/` | `@RequireModule`, `@RequirePermission`, `@Public`, `@AuthenticatedOnly`, `@PlatformEndpoint`, and the global `AccessGuard`: login first, then module and permission, deny by default | Rule 3 |
 | `audit/` | `recordAudit(tx, …)`: audit entry in the same transaction, secrets redacted | Rule 9 |
 | `outbox/` | `publishEvent(tx, …)` in the same transaction; `OutboxRelay` for the worker | Rule 8 |
 | `errors/`, `http/` | `NotFoundError`, `ValidationError`, …; `ProblemFilter` turns them into RFC 9457 responses; request-id middleware | docs/08 §8.6 |

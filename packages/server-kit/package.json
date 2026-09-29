@@ -27,6 +27,7 @@
   "dependencies": {
     "@eduplatform/contracts": "workspace:*",
     "drizzle-orm": "^0.44.5",
+    "jose": "^6.2.12",
     "pg": "^8.16.3",
     "pino": "^9.9.0",
     "reflect-metadata": "^0.2.2",

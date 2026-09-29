@@ -6,6 +6,10 @@
  *   @AuthenticatedOnly()                                                        the caller's own data (/me)
  *   @Public()                                                                   health checks only
  *
+ * Who may call an endpoint at all:
+ *   (nothing)             tenant users, logged in through the `tenants` realm (the default)
+ *   @PlatformEndpoint()   platform staff, logged in through the `platform` realm (/admin/...)
+ *
  * The decorators only attach labels; AccessGuard (access.guard.ts) reads them on every request.
  */
 import 'reflect-metadata';
@@ -14,6 +18,7 @@ import { SetMetadata } from '@nestjs/common';
 export const MODULE_METADATA_KEY = 'edu:module';
 export const PERMISSION_METADATA_KEY = 'edu:permission';
 export const ACCESS_MODE_METADATA_KEY = 'edu:access-mode';
+export const PLATFORM_ENDPOINT_METADATA_KEY = 'edu:platform-endpoint';
 
 export type AccessMode = 'public' | 'authenticated';
 
@@ -44,10 +49,21 @@ export function AuthenticatedOnly(): MethodDecorator & ClassDecorator {
   return SetMetadata(ACCESS_MODE_METADATA_KEY, 'authenticated' satisfies AccessMode);
 }
 
+/**
+ * Only platform staff (Keycloak realm `platform`) may call this endpoint. Put it on every
+ * super admin controller (`/admin/...`, docs/08-api-conventions.md §8.2). Tenant users are
+ * refused, and platform staff are refused everywhere else.
+ */
+export function PlatformEndpoint(): MethodDecorator & ClassDecorator {
+  return SetMetadata(PLATFORM_ENDPOINT_METADATA_KEY, true);
+}
+
 export interface AccessDeclaration {
   mode?: AccessMode;
   moduleKey?: string;
   permission?: string;
+  /** True for super admin endpoints (@PlatformEndpoint). */
+  platform: boolean;
 }
 
 /** What an endpoint declared; method-level metadata wins over class-level metadata. */
@@ -59,6 +75,7 @@ export function readAccessDeclaration(handler: object, controller: object): Acce
     mode: read<AccessMode>(ACCESS_MODE_METADATA_KEY),
     moduleKey: read<string>(MODULE_METADATA_KEY),
     permission: read<string>(PERMISSION_METADATA_KEY),
+    platform: read<boolean>(PLATFORM_ENDPOINT_METADATA_KEY) === true,
   };
 }
 

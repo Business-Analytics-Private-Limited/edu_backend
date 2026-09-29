@@ -13,6 +13,10 @@ export * from './context/request-context';
 export * from './db/migrations';
 export * from './db/transaction';
 
+// Authentication: checking Keycloak tokens and finding our own record of the caller.
+export * from './auth/authenticator';
+export * from './auth/token-verifier';
+
 // Access control: @RequireModule / @RequirePermission / @Public and the global guard.
 export * from './access/access.guard';
 export * from './access/decorators';

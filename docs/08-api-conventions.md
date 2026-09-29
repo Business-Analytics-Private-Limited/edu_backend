@@ -51,7 +51,7 @@ Two explicit exceptions satisfy the guard rule (CLAUDE.md rule 3) without a modu
 
 | Header | Direction | Purpose |
 |---|---|---|
-| `Authorization: Bearer <access token>` | request | Keycloak access token. Browsers never see it: the Next.js server holds the session and adds it. Postman uses its OAuth 2.0 helper against the local Keycloak. |
+| `Authorization: Bearer <access token>` | request | Keycloak access token. Browsers never see it: the Next.js server holds the session and adds it. Postman uses its OAuth 2.0 helper against the local Keycloak. The API checks signature, realm, expiry and the `eduplatform-api` audience, then that the person is an active user. Tenant endpoints accept only `tenants`-realm tokens (requested with scope `openid organization`); `/admin` endpoints accept only `platform`-realm tokens. |
 | `X-Institution-Id` | request, optional | The active institution for users who belong to several |
 | `X-Request-Id` | request (optional) and response | Correlates logs and audit entries; generated if absent |
 | `Idempotency-Key` | request, on create and bulk endpoints | Repeating a request with the same key within 24 h returns the first result instead of creating twice |

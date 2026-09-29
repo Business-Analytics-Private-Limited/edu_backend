@@ -257,7 +257,7 @@
     "oauth2": [
       {
         "key": "scope",
-        "value": "openid"
+        "value": "openid organization"
       },
       {
         "key": "accessTokenUrl",

@@ -21,6 +21,11 @@ const schema = z.object({
   // Connection for the edu_app role: every tenant query runs under Row-Level Security.
   DATABASE_APP_URL: requiredInProduction('postgres://edu_app:edu_app@localhost:5432/eduplatform'),
 
+  // Keycloak, the login server (ADR-0003). Tokens must come from its `tenants` or `platform`
+  // realm and name API_AUDIENCE in their `aud` claim.
+  KEYCLOAK_URL: requiredInProduction('http://localhost:8080'),
+  API_AUDIENCE: z.string().min(1).default('eduplatform-api'),
+
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   // Swagger UI at /api/docs. On by default everywhere except production.

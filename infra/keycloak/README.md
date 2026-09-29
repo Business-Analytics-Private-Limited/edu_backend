@@ -14,6 +14,12 @@ The login server for development, run from Keycloak's official zip without Docke
 - To reset (fresh realms, no test users): stop Keycloak and delete `.local/keycloak-<version>/data`.
 - Emails (invitations, password reset) go to `localhost:1025`. Nothing listens there yet, so Keycloak reports the email as failed; a local mail catcher is added when Phase 2 needs it.
 
+## What tokens contain
+
+- `aud` includes **`eduplatform-api`**: an audience mapper on each client adds it, and the API refuses tokens without it.
+- `organization`: the aliases of the organizations (tenants) the user belongs to, e.g. `["sri-vidya"]`. Keycloak adds it **only when the login requests the `organization` scope**, so tenant logins use `scope=openid organization`. Platform staff tokens don't have it.
+- No roles or permissions: those come from our access service (ADR-0003).
+
 | File | What it is |
 |---|---|
 | `keycloak.mjs` | The install and start script |
