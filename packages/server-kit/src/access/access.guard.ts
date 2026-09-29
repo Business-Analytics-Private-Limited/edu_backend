@@ -34,7 +34,7 @@ export interface AuthorizationPort {
   hasPermission(permission: string): Promise<boolean>;
 }
 
-export const AUTHORIZATION_PORT = Symbol('AUTHORIZATION_PORT');
+export const AUTHORIZATION_PORT = Symbol.for('eduplatform.AUTHORIZATION_PORT');
 
 export class DenyAllAuthorization implements AuthorizationPort {
   async isModuleEnabled(): Promise<boolean> {

@@ -133,7 +133,11 @@ const conversion = await new Promise((resolve, reject) => {
     {
       folderStrategy: 'Tags',
       requestNameSource: 'Fallback',
+      // Use the contract's examples, never generated values, so the file is identical on
+      // every build (both the current and the older option names, for converter versions).
       parametersResolution: 'Example',
+      requestParametersResolution: 'Example',
+      exampleParametersResolution: 'Example',
     },
     (err, result) => (err ? reject(err) : resolve(result)),
   );

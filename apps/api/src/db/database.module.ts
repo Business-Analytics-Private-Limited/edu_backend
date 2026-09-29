@@ -1,20 +1,17 @@
 /**
- * Opens the database connection pool and shares it with every service in this host.
+ * Opens the database connection pools and shares them with every service in this host.
  *
- * The pool connects as `edu_app`, a role that can never bypass Row-Level Security
- * (ADR-0009). Services receive it by injecting APP_POOL:
+ *   APP_POOL       role edu_app: tenant work under Row-Level Security
+ *   PLATFORM_POOL  role edu_platform: super admin work, schema "platform" only (ADR-0009)
+ *
+ * Services receive a pool by injecting its token (both tokens come from server-kit):
  *
  *   constructor(@Inject(APP_POOL) private readonly pool: Pool) {}
- *
- * and run tenant queries through withTenantTransaction() from @eduplatform/server-kit.
  */
 import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
-import { createPool } from '@eduplatform/server-kit';
+import { APP_POOL, createPool, PLATFORM_POOL } from '@eduplatform/server-kit';
 import type { Pool } from 'pg';
 import { loadConfig } from '../config';
-
-/** Injection token for the edu_app connection pool. */
-export const APP_POOL = Symbol('APP_POOL');
 
 @Global() // available to every module without importing DatabaseModule again
 @Module({
@@ -23,14 +20,21 @@ export const APP_POOL = Symbol('APP_POOL');
       provide: APP_POOL,
       useFactory: (): Pool => createPool(loadConfig().DATABASE_APP_URL),
     },
+    {
+      provide: PLATFORM_POOL,
+      useFactory: (): Pool => createPool(loadConfig().DATABASE_PLATFORM_URL, { max: 4 }),
+    },
   ],
-  exports: [APP_POOL],
+  exports: [APP_POOL, PLATFORM_POOL],
 })
 export class DatabaseModule implements OnApplicationShutdown {
-  constructor(@Inject(APP_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(APP_POOL) private readonly appPool: Pool,
+    @Inject(PLATFORM_POOL) private readonly platformPool: Pool,
+  ) {}
 
   /** Closes connections cleanly when the app stops. */
   async onApplicationShutdown(): Promise<void> {
-    await this.pool.end();
+    await Promise.all([this.appPool.end(), this.platformPool.end()]);
   }
 }

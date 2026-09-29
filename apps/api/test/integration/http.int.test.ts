@@ -1,39 +1,35 @@
 /**
  * The HTTP pipeline end to end: health, errors, security headers, Swagger, and login checks.
  *
- * Login is tested with tokens signed by keys generated here (no running Keycloak needed),
- * against two test-only endpoints: one for any logged-in user, one needing a permission.
+ * Login is tested with test-signed tokens (no running Keycloak needed) against two test-only
+ * endpoints: one for any logged-in user, one needing a module and a permission.
  */
 import { Controller, Get, Module } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { Test } from '@nestjs/testing';
 import {
-  AUTHENTICATOR,
   AuthenticatedOnly,
-  createLogger,
-  createPool,
   currentContext,
-  KeycloakAuthenticator,
-  KeycloakTokenVerifier,
+  IDENTITY_RESOLVER,
   RequireModule,
   RequirePermission,
   type AuthenticatedIdentity,
+  type IdentityResolver,
 } from '@eduplatform/server-kit';
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AppModule } from '../../src/app.module';
-import { configureApp } from '../../src/configure-app';
-import { APP_POOL } from '../../src/db/database.module';
-import { ALL_SERVICES } from '../../src/services';
+import { startTestApp } from '../support/app';
 import { startDatabase, type TestDatabase } from '../support/database';
+import { createTestTokens, type TestTokens } from '../support/tokens';
 
-const KEYCLOAK = 'http://keycloak.test';
-const AUDIENCE = 'eduplatform-api';
 const KNOWN_USER: AuthenticatedIdentity = {
   actorType: 'user',
   userId: '0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e90',
   tenantId: '0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f',
+};
+
+/** Only the Keycloak account "known" is an active tenant user in this test. */
+const testResolver: IdentityResolver = {
+  resolve: async (token) => (token.subject === 'known' ? KNOWN_USER : null),
 };
 
 @Controller('test-login')
@@ -58,42 +54,17 @@ class TestLoginModule {}
 
 let db: TestDatabase;
 let app: NestExpressApplication;
-let signToken: (subject: string) => Promise<string>;
+let tokens: TestTokens;
+const signToken = (subject: string) => tokens.sign('tenants', subject);
 
 beforeAll(async () => {
   db = await startDatabase();
-
-  const { publicKey, privateKey } = await generateKeyPair('RS256');
-  const keys = createLocalJWKSet({
-    keys: [{ ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256' }],
+  tokens = await createTestTokens();
+  app = await startTestApp(db, tokens, {
+    imports: [TestLoginModule],
+    swaggerEnabled: true,
+    configure: (builder) => builder.overrideProvider(IDENTITY_RESOLVER).useValue(testResolver),
   });
-  signToken = (subject) =>
-    new SignJWT({})
-      .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
-      .setSubject(subject)
-      .setIssuer(`${KEYCLOAK}/realms/tenants`)
-      .setAudience(AUDIENCE)
-      .setIssuedAt()
-      .setExpirationTime('5m')
-      .sign(privateKey);
-
-  // Only the Keycloak subject "known" is an active user in this test.
-  const authenticator = new KeycloakAuthenticator(
-    new KeycloakTokenVerifier({ keycloakUrl: KEYCLOAK, audience: AUDIENCE, keysFor: () => keys }),
-    { resolve: async (token) => (token.subject === 'known' ? KNOWN_USER : null) },
-  );
-
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.forRoot(ALL_SERVICES), TestLoginModule],
-  })
-    .overrideProvider(APP_POOL)
-    .useValue(createPool(db.url('edu_app'), { max: 2 }))
-    .overrideProvider(AUTHENTICATOR)
-    .useValue(authenticator)
-    .compile();
-  app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
-  configureApp(app, { logger: createLogger('api-test', 'silent'), swaggerEnabled: true });
-  await app.init();
 });
 
 afterAll(async () => {
@@ -128,6 +99,7 @@ describe('HTTP pipeline', () => {
   it('serves the OpenAPI contract for Swagger UI', async () => {
     const res = await request(app.getHttpServer()).get('/api/docs/openapi.json').expect(200);
     expect(res.body.paths['/health']).toBeDefined();
+    expect(res.body.paths['/admin/tenants']).toBeDefined();
   });
 
   it('sets security headers', async () => {
@@ -169,7 +141,8 @@ describe('login checks', () => {
     expect(res.body.data).toEqual({ userId: KNOWN_USER.userId, tenantId: KNOWN_USER.tenantId });
   });
 
-  it('still checks module and permission after login (deny by default until Phase 2)', async () => {
+  it('still checks module and permission after login', async () => {
+    // The user's tenant has no entitlements in this test database, so the module check fails.
     const res = await request(server())
       .get('/api/v1/test-login/guarded')
       .set('Authorization', `Bearer ${await signToken('known')}`)

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "platform.module.disabled/1",
+  "title": "platform.module.disabled",
+  "description": "A module was taken away from an organization. Its data stays read-only until readOnlyUntil. Subject: '<tenantId>:<moduleKey>'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["moduleKey", "readOnlyUntil"],
+  "properties": {
+    "moduleKey": { "type": "string" },
+    "readOnlyUntil": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

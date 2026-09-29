@@ -45,6 +45,42 @@ export function diffForAudit(
 }
 
 /**
+ * Writes an audit entry for an action by PLATFORM STAFF (super admin endpoints) into
+ * audit.platform_entries. Use it inside the same transaction as the change, from code that
+ * runs on the PLATFORM_POOL.
+ *
+ * @param targetTenantId the organization the action concerned, if any (e.g. the tenant whose
+ *                       entitlements changed); null for platform-wide actions (e.g. a plan)
+ */
+export async function recordPlatformAudit(
+  tx: Tx,
+  input: Omit<AuditInput, 'entityId'> & { entityId?: string; targetTenantId: string | null },
+): Promise<void> {
+  const context = requireContext();
+  await tx.client.query(
+    `insert into audit.platform_entries
+       (id, target_tenant_id, occurred_at, actor_type, actor_id, module_key, entity_type,
+        entity_id, action, changes, reason, request_id, ip, user_agent)
+     values ($1, $2, now(), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+    [
+      newId(),
+      input.targetTenantId,
+      context.actorType,
+      context.userId ?? null,
+      input.moduleKey,
+      input.entityType,
+      input.entityId ?? null,
+      input.action,
+      JSON.stringify(diffForAudit(input.before, input.after)),
+      input.reason ?? null,
+      context.requestId,
+      context.ip ?? null,
+      context.userAgent?.slice(0, 500) ?? null,
+    ],
+  );
+}
+
+/**
  * Writes an audit entry inside the caller's transaction (CLAUDE.md rule 9). If the entry
  * can't be written, the business change fails with it. Actor, tenant, request id and client
  * details come from the request context.

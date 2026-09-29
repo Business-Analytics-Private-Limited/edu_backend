@@ -14,11 +14,13 @@
  * and start the host with `pnpm dev:api`. See docs/guides/running-one-service.md.
  */
 import { auditService } from '@eduplatform/audit-service';
+import { platformService } from '@eduplatform/platform-service';
 import type { ServiceDefinition } from '@eduplatform/server-kit';
 
 export const ALL_SERVICES: ServiceDefinition[] = [
+  platformService,
   auditService,
-  // Phase 2: platformService, identityService, accessService, filesService
+  // Phase 2: identityService, accessService, filesService
   // Phase 3: academicService
   // Phase 4: studentsService
   // Phase 5: attendanceService
@@ -26,6 +28,9 @@ export const ALL_SERVICES: ServiceDefinition[] = [
 
 /**
  * Picks the services this process runs.
+ *
+ * Core services (manifest `core: true`: platform, identity, access, audit, files) always run,
+ * because every request needs them for login and permission checks.
  *
  * @param enabled service keys from ENABLED_SERVICES, e.g. ['students', 'academic'];
  *                an empty list means every service.
@@ -47,8 +52,8 @@ export function selectServices(
     );
   }
 
-  // Keep the registry order, so dependencies still start first.
-  const selected = registry.filter((s) => enabled.includes(s.manifest.key));
+  // Keep the registry order, so dependencies still start first. Core services always run.
+  const selected = registry.filter((s) => s.manifest.core || enabled.includes(s.manifest.key));
 
   const missing = selected.flatMap((s) =>
     s.manifest.dependsOn

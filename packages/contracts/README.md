@@ -18,4 +18,10 @@ The frontend repository never imports this package. It copies the built contract
 
 After editing a YAML file: `pnpm contracts:build`, and commit the regenerated files (CI fails if they are stale).
 
-The build rejects an operation without `operationId` (`module.resource.action`), `summary`, `tags`, `x-module` or `x-permission`, and any reference that doesn't resolve. Give every schema field an `example`, so the generated Postman collection is stable.
+The build rejects an operation without `operationId` (`module.resource.action`), `summary`, `tags`, `x-module` or `x-permission`, and any reference that doesn't resolve.
+
+Examples keep the generated Postman collection identical between builds (CI checks this). Wherever a value is missing, the converter invents a random one, so:
+
+- give every schema field an `example`;
+- a nullable field needs a **non-null** example (`example: null` counts as missing);
+- an object with free-form keys (`additionalProperties`) needs an example on the object itself.

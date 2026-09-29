@@ -38,6 +38,9 @@ importers:
       '@eduplatform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@eduplatform/platform-service':
+        specifier: workspace:*
+        version: link:../../services/platform
       '@eduplatform/server-kit':
         specifier: workspace:*
         version: link:../../packages/server-kit
@@ -72,7 +75,7 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       zod:
-        specifier: ^4.1.5
+        specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
       '@eduplatform/config':
@@ -276,6 +279,9 @@ importers:
       uuid:
         specifier: ^11.1.0
         version: 11.1.1
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@eduplatform/config':
         specifier: workspace:*
@@ -320,6 +326,49 @@ importers:
       '@types/node':
         specifier: ^22.17.0
         version: 22.20.4
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
+      rxjs:
+        specifier: ^7.8.2
+        version: 7.8.2
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.4)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
+
+  services/platform:
+    dependencies:
+      '@eduplatform/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@eduplatform/server-kit':
+        specifier: workspace:*
+        version: link:../../packages/server-kit
+      drizzle-orm:
+        specifier: ^0.44.5
+        version: 0.44.7(@types/pg@8.23.1)(pg@8.23.0)
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.0
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@eduplatform/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@nestjs/common':
+        specifier: ^11.1.6
+        version: 11.2.6(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@types/node':
+        specifier: ^22.17.0
+        version: 22.20.4
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.23.1
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2

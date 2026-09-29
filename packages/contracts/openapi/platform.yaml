@@ -1,0 +1,1205 @@
+# Platform service: organizations (tenants), institutions, campuses, the module catalog and
+# entitlements (docs/modules/platform.md).
+#
+# Two audiences:
+#   tag "admin"     super admin endpoints (/admin/...), platform staff only (Keycloak realm "platform")
+#   tag "platform"  the tenant side (/platform/...), tenant users (Keycloak realm "tenants")
+#
+# Operations marked x-planned are designed but not built yet (Phase 2 step 2b).
+openapi: 3.1.0
+info:
+  title: Platform
+  version: 1.0.0
+tags:
+  - name: admin
+    description: Super admin console. Platform staff only; every action is audited.
+  - name: platform
+    description: The organization, its institutions, campuses and module settings.
+paths:
+  # ------------------------------------------------------------------------------------------
+  # Super admin: module catalog
+  /admin/modules:
+    get:
+      operationId: admin.module.list
+      summary: Module catalog
+      description: Every module with its variants, dependencies and permissions, synced from the module manifests at startup.
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.view
+      x-audit: false
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: The catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModuleListResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+
+  # ------------------------------------------------------------------------------------------
+  # Super admin: tenants
+  /admin/tenants:
+    get:
+      operationId: admin.tenant.list
+      summary: Search organizations
+      description: Newest first. Filter by name or slug (`q`) and by status.
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.view
+      x-audit: false
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+        - name: q
+          in: query
+          required: false
+          description: Part of the slug or display name
+          schema:
+            type: string
+            maxLength: 100
+          example: sri
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/TenantStatus'
+        - $ref: 'common.yaml#/components/parameters/Limit'
+        - $ref: 'common.yaml#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: One page of organizations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantListResponse'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+    post:
+      operationId: admin.tenant.create
+      summary: Start onboarding an organization
+      description: >
+        Creates the organization in status `onboarding`, with the core modules (platform, identity,
+        access, audit, files) enabled. Next steps: add institutions, grant modules, invite the first
+        admin, then activate.
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.manage
+      x-audit: true
+      x-events: [platform.tenant.created]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+        - $ref: 'common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: 'common.yaml#/components/responses/ValidationFailed'
+
+  /admin/tenants/{tenantId}:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    get:
+      operationId: admin.tenant.get
+      summary: One organization with its institutions, campuses and entitlements
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.view
+      x-audit: false
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: The organization
+          headers:
+            ETag:
+              description: The current version, for If-Match
+              schema:
+                type: string
+              example: '"1"'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantDetailResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+    patch:
+      operationId: admin.tenant.update
+      summary: Edit organization details
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.manage
+      x-audit: true
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+        - $ref: 'common.yaml#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTenantRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: 'common.yaml#/components/responses/ValidationFailed'
+
+  /admin/tenants/{tenantId}/institutions:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      operationId: admin.tenant.add_institution
+      summary: Add an institution (with its first campus) to an organization
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.manage
+      x-audit: true
+      x-events: [platform.institution.changed]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddInstitutionRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstitutionResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: 'common.yaml#/components/responses/ValidationFailed'
+
+  /admin/tenants/{tenantId}/activate:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      operationId: admin.tenant.activate
+      summary: Finish onboarding
+      description: Moves the organization from `onboarding` to `active`. It must have at least one institution.
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.manage
+      x-audit: true
+      x-events: [platform.tenant.status_changed]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '422':
+          $ref: 'common.yaml#/components/responses/ValidationFailed'
+
+  /admin/tenants/{tenantId}/suspend:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      operationId: admin.tenant.suspend
+      summary: Suspend an organization
+      description: Its users can no longer sign in. Data is kept. Requires a reason.
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.manage
+      x-audit: true
+      x-events: [platform.tenant.status_changed]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusChangeRequest'
+      responses:
+        '200':
+          description: Suspended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '422':
+          $ref: 'common.yaml#/components/responses/ValidationFailed'
+
+  /admin/tenants/{tenantId}/reactivate:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      operationId: admin.tenant.reactivate
+      summary: Reactivate a suspended organization
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.manage
+      x-audit: true
+      x-events: [platform.tenant.status_changed]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusChangeRequest'
+      responses:
+        '200':
+          description: Reactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '422':
+          $ref: 'common.yaml#/components/responses/ValidationFailed'
+
+  # ------------------------------------------------------------------------------------------
+  # Super admin: entitlements (layer 1)
+  /admin/tenants/{tenantId}/entitlements:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    get:
+      operationId: admin.entitlement.list
+      summary: Modules granted to an organization
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.tenant.view
+      x-audit: false
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Entitlements, one per module that was ever granted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementListResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+
+  /admin/tenants/{tenantId}/entitlements/{moduleKey}:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - $ref: '#/components/parameters/ModuleKey'
+    put:
+      operationId: admin.entitlement.put
+      summary: Grant a module (or change its variants, limits and dates)
+      description: >
+        Every module it depends on must already be granted (e.g. attendance needs academic and
+        students). Without `allowedVariants`, the module's default variant is granted.
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.entitlement.manage
+      x-audit: true
+      x-events: [platform.module.enabled]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutEntitlementRequest'
+      responses:
+        '200':
+          description: Granted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '422':
+          $ref: 'common.yaml#/components/responses/ValidationFailed'
+    delete:
+      operationId: admin.entitlement.disable
+      summary: Take a module away
+      description: >
+        No data is deleted: the module becomes read-only for 90 days, then hidden. Blocked while a
+        granted module depends on it, and for core modules.
+      tags: [admin]
+      x-module: platform
+      x-permission: admin.entitlement.manage
+      x-audit: true
+      x-events: [platform.module.disabled]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '422':
+          $ref: 'common.yaml#/components/responses/ValidationFailed'
+
+  # ------------------------------------------------------------------------------------------
+  # Super admin: planned for step 2b
+  /admin/tenants/{tenantId}/usage:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    get:
+      operationId: admin.tenant.usage
+      summary: Students, users, storage and devices of an organization
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.tenant.view
+      responses:
+        '200':
+          description: Usage figures
+  /admin/plans:
+    get:
+      operationId: admin.plan.list
+      summary: Plans
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.tenant.view
+      responses:
+        '200':
+          description: Plans
+    post:
+      operationId: admin.plan.create
+      summary: Create a plan
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.plan.manage
+      responses:
+        '201':
+          description: Created
+  /admin/plans/{planId}:
+    parameters:
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f
+    get:
+      operationId: admin.plan.get
+      summary: One plan with its modules
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.tenant.view
+      responses:
+        '200':
+          description: The plan
+    patch:
+      operationId: admin.plan.update
+      summary: Edit a plan
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.plan.manage
+      responses:
+        '200':
+          description: Updated
+  /admin/feature-flags:
+    get:
+      operationId: admin.flag.list
+      summary: Feature flags
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.tenant.view
+      responses:
+        '200':
+          description: Flags
+  /admin/tenants/{tenantId}/feature-flags/{flagKey}:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - name: flagKey
+        in: path
+        required: true
+        schema:
+          type: string
+        example: new_dashboard
+    put:
+      operationId: admin.flag.put
+      summary: Switch a feature flag for one organization
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.flag.manage
+      responses:
+        '200':
+          description: Saved
+  /admin/impersonations:
+    post:
+      operationId: admin.impersonation.start
+      summary: Start impersonating a tenant user (reason required, at most 60 minutes)
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.impersonation.start
+      responses:
+        '201':
+          description: Started
+  /admin/impersonations/{sessionId}/end:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f
+    post:
+      operationId: admin.impersonation.end
+      summary: End an impersonation session early
+      tags: [admin]
+      x-planned: true
+      x-module: platform
+      x-permission: admin.impersonation.start
+      responses:
+        '200':
+          description: Ended
+
+  # ------------------------------------------------------------------------------------------
+  # Tenant side
+  /platform/organization:
+    get:
+      operationId: platform.organization.get
+      summary: The signed-in user's organization
+      tags: [platform]
+      x-module: platform
+      x-permission: authenticated
+      x-audit: false
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: The organization
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+
+  /platform/entitlements:
+    get:
+      operationId: platform.entitlement.list
+      summary: Modules the organization may use
+      description: Only modules that are enabled now.
+      tags: [platform]
+      x-module: platform
+      x-permission: platform.institution.view
+      x-audit: false
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Enabled modules with their allowed variants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementListResponse'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthenticated'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+
+  /platform/institutions:
+    get:
+      operationId: platform.institution.list
+      summary: Institutions the user can see
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.institution.view
+      responses:
+        '200':
+          description: Institutions
+    post:
+      operationId: platform.institution.create
+      summary: Create an institution (with its first campus)
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.institution.manage
+      responses:
+        '201':
+          description: Created
+  /platform/institutions/{institutionId}:
+    parameters:
+      - $ref: '#/components/parameters/InstitutionIdPath'
+    get:
+      operationId: platform.institution.get
+      summary: One institution
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.institution.view
+      responses:
+        '200':
+          description: The institution
+    patch:
+      operationId: platform.institution.update
+      summary: Edit an institution
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.institution.manage
+      responses:
+        '200':
+          description: Updated
+    delete:
+      operationId: platform.institution.delete
+      summary: Soft-delete an institution
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.institution.manage
+      responses:
+        '200':
+          description: Deleted
+  /platform/institutions/{institutionId}/campuses:
+    parameters:
+      - $ref: '#/components/parameters/InstitutionIdPath'
+    get:
+      operationId: platform.campus.list
+      summary: Campuses of an institution
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.institution.view
+      responses:
+        '200':
+          description: Campuses
+    post:
+      operationId: platform.campus.create
+      summary: Add a campus
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.campus.manage
+      responses:
+        '201':
+          description: Created
+  /platform/campuses/{campusId}:
+    parameters:
+      - name: campusId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e92
+    patch:
+      operationId: platform.campus.update
+      summary: Edit a campus
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.campus.manage
+      responses:
+        '200':
+          description: Updated
+    delete:
+      operationId: platform.campus.delete
+      summary: Soft-delete a campus
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.campus.manage
+      responses:
+        '200':
+          description: Deleted
+  /platform/module-settings:
+    get:
+      operationId: platform.module_setting.list
+      summary: Module settings at one scope, with inherited values
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.institution.view
+      responses:
+        '200':
+          description: Settings
+    put:
+      operationId: platform.module_setting.put
+      summary: Set variants and settings at one scope
+      tags: [platform]
+      x-planned: true
+      x-module: platform
+      x-permission: platform.settings.manage
+      responses:
+        '200':
+          description: Saved
+
+components:
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f
+    InstitutionIdPath:
+      name: institutionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e91
+    ModuleKey:
+      name: moduleKey
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z_]+$'
+      example: students
+
+  schemas:
+    TenantStatus:
+      type: string
+      enum: [onboarding, active, suspended, closed]
+      example: active
+
+    InstitutionType:
+      type: string
+      enum: [junior_college, degree_college, engineering_college, school]
+      example: junior_college
+
+    Contact:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: K. Srinivas
+        phone:
+          type: string
+          maxLength: 20
+          example: '+919876543210'
+        email:
+          type: string
+          format: email
+          maxLength: 200
+          example: correspondent@demo-society.in
+
+    Tenant:
+      type: object
+      required: [id, slug, legalName, displayName, status, createdAt, updatedAt, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f
+        slug:
+          type: string
+          example: demo-society
+        legalName:
+          type: string
+          example: Demo Educational Society
+        displayName:
+          type: string
+          example: Demo Educational Society
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+        statusReason:
+          type: [string, 'null']
+          example: null
+        keycloakOrgId:
+          type: [string, 'null']
+          example: null
+        primaryContact:
+          oneOf:
+            - $ref: '#/components/schemas/Contact'
+            - type: 'null'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-09-29T09:30:00.000Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2026-09-29T09:30:00.000Z'
+        version:
+          type: integer
+          example: 1
+
+    Campus:
+      type: object
+      required: [id, code, name, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e92
+        code:
+          type: string
+          example: KKP
+        name:
+          type: string
+          example: Kukatpally
+        status:
+          type: string
+          enum: [active, inactive]
+          example: active
+
+    Institution:
+      type: object
+      required:
+        [id, code, name, type, structureTemplateKey, timezone, locale, currency, status, campuses]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e91
+        code:
+          type: string
+          example: DJC
+        name:
+          type: string
+          example: Demo Junior College
+        shortName:
+          type: [string, 'null']
+          example: DJC
+        type:
+          $ref: '#/components/schemas/InstitutionType'
+        structureTemplateKey:
+          type: string
+          example: junior_college_v1
+        timezone:
+          type: string
+          example: Asia/Kolkata
+        locale:
+          type: string
+          example: en-IN
+        currency:
+          type: string
+          example: INR
+        status:
+          type: string
+          enum: [active, inactive]
+          example: active
+        campuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/Campus'
+
+    Entitlement:
+      type: object
+      required: [moduleKey, moduleName, enabled, allowedVariants, limits, startsAt, source, version]
+      properties:
+        moduleKey:
+          type: string
+          example: attendance
+        moduleName:
+          type: string
+          example: Attendance
+        enabled:
+          type: boolean
+          example: true
+        allowedVariants:
+          type: array
+          items:
+            type: string
+          example: [manual, biometric]
+        limits:
+          type: object
+          additionalProperties:
+            type: number
+          example:
+            devices.max: 5
+        startsAt:
+          type: string
+          format: date-time
+          example: '2026-09-29T09:30:00.000Z'
+        endsAt:
+          type: [string, 'null']
+          format: date-time
+          example: '2027-03-31T23:59:59.000Z'
+        source:
+          type: string
+          enum: [plan, override, core]
+          example: override
+        readOnlyUntil:
+          type: [string, 'null']
+          format: date-time
+          example: '2026-12-28T09:30:00.000Z'
+        version:
+          type: integer
+          example: 1
+
+    TenantDetail:
+      allOf:
+        - $ref: '#/components/schemas/Tenant'
+        - type: object
+          required: [institutions, entitlements]
+          properties:
+            institutions:
+              type: array
+              items:
+                $ref: '#/components/schemas/Institution'
+            entitlements:
+              type: array
+              items:
+                $ref: '#/components/schemas/Entitlement'
+
+    ModuleVariant:
+      type: object
+      required: [key, name, isDefault, status]
+      properties:
+        key:
+          type: string
+          example: manual
+        name:
+          type: string
+          example: Manual marking
+        isDefault:
+          type: boolean
+          example: true
+        status:
+          type: string
+          enum: [available, planned, retired]
+          example: available
+
+    ModulePermission:
+      type: object
+      required: [key, description]
+      properties:
+        key:
+          type: string
+          example: attendance.record.mark
+        description:
+          type: string
+          example: Mark attendance for sections in scope
+
+    Module:
+      type: object
+      required: [key, name, category, isCore, dependsOn, appliesTo, status, variants, permissions]
+      properties:
+        key:
+          type: string
+          example: attendance
+        name:
+          type: string
+          example: Attendance
+        category:
+          type: string
+          example: academics
+        isCore:
+          type: boolean
+          example: false
+        dependsOn:
+          type: array
+          items:
+            type: string
+          example: [academic, students]
+        appliesTo:
+          type: array
+          items:
+            type: string
+          example: [junior_college, degree_college, engineering_college, school]
+        status:
+          type: string
+          enum: [available, planned, retired]
+          example: available
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModuleVariant'
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModulePermission'
+
+    Organization:
+      type: object
+      required: [id, slug, displayName, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 0192a5f4-7c1e-7b3a-9d2e-1f4b5c6d7e8f
+        slug:
+          type: string
+          example: demo-society
+        displayName:
+          type: string
+          example: Demo Educational Society
+        status:
+          $ref: '#/components/schemas/TenantStatus'
+
+    # Requests ---------------------------------------------------------------------------------
+    CreateTenantRequest:
+      type: object
+      additionalProperties: false
+      required: [slug, legalName, displayName]
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          minLength: 3
+          maxLength: 40
+          description: Short unique name used in URLs and for login; lowercase letters, digits and dashes.
+          example: demo-society
+        legalName:
+          type: string
+          minLength: 2
+          maxLength: 200
+          example: Demo Educational Society
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: Demo Educational Society
+        primaryContact:
+          $ref: '#/components/schemas/Contact'
+
+    UpdateTenantRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        legalName:
+          type: string
+          minLength: 2
+          maxLength: 200
+          example: Demo Educational Society (Regd.)
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: Demo Society
+        primaryContact:
+          $ref: '#/components/schemas/Contact'
+
+    AddInstitutionRequest:
+      type: object
+      additionalProperties: false
+      required: [code, name, type, campus]
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9_-]{2,20}$'
+          example: DJC
+        name:
+          type: string
+          minLength: 2
+          maxLength: 200
+          example: Demo Junior College
+        shortName:
+          type: string
+          maxLength: 50
+          example: DJC
+        type:
+          $ref: '#/components/schemas/InstitutionType'
+        timezone:
+          type: string
+          description: IANA time zone
+          example: Asia/Kolkata
+        campus:
+          type: object
+          additionalProperties: false
+          required: [code, name]
+          description: The institution's first campus (every institution has at least one)
+          properties:
+            code:
+              type: string
+              pattern: '^[A-Z0-9_-]{2,20}$'
+              example: KKP
+            name:
+              type: string
+              minLength: 2
+              maxLength: 200
+              example: Kukatpally
+
+    StatusChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          example: Unpaid invoices for three months
+
+    PutEntitlementRequest:
+      type: object
+      additionalProperties: false
+      example:
+        allowedVariants: [manual, biometric]
+        limits:
+          devices.max: 5
+        startsAt: '2026-10-01T00:00:00.000Z'
+        endsAt: '2027-03-31T23:59:59.000Z'
+      properties:
+        allowedVariants:
+          type: array
+          items:
+            type: string
+          example: [manual, biometric]
+        limits:
+          type: object
+          additionalProperties:
+            type: number
+          example:
+            devices.max: 5
+        startsAt:
+          type: string
+          format: date-time
+          example: '2026-10-01T00:00:00.000Z'
+        endsAt:
+          type: [string, 'null']
+          format: date-time
+          example: '2027-03-31T23:59:59.000Z'
+
+    # Responses --------------------------------------------------------------------------------
+    TenantResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Tenant'
+    TenantDetailResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TenantDetail'
+    TenantListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tenant'
+        page:
+          $ref: 'common.yaml#/components/schemas/PageInfo'
+    InstitutionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Institution'
+    EntitlementResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Entitlement'
+    EntitlementListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entitlement'
+    ModuleListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Module'
+    OrganizationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Organization'

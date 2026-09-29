@@ -18,6 +18,11 @@ export interface DomainEvent<TData = unknown> {
   /** Payload schema id, e.g. `students.student.admitted/1`. */
   dataSchema: string;
   data: TData;
+  /**
+   * The tenant the event is about. Leave it out in tenant requests (it comes from the request
+   * context); platform staff code, which has no tenant context, must set it.
+   */
+  tenantId?: string;
 }
 
 /**
@@ -44,7 +49,7 @@ export async function publishEvent<TData>(
      values ($1, $2, $3, $4, $5, $6)`,
     [
       id,
-      requireTenantId(),
+      event.tenantId ?? requireTenantId(),
       event.type,
       event.subject,
       event.dataSchema,

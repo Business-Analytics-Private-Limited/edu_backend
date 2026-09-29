@@ -10,8 +10,13 @@ import { join } from 'node:path';
 export * from './context/request-context';
 
 // Database: pools, transactions scoped to one tenant, and the migration runner.
+export * from './db/errors';
 export * from './db/migrations';
+export * from './db/pools';
 export * from './db/transaction';
+
+// Caching of frequently asked answers (entitlements, permissions).
+export * from './cache/memory-cache';
 
 // Authentication: checking Keycloak tokens and finding our own record of the caller.
 export * from './auth/authenticator';
@@ -28,8 +33,11 @@ export * from './outbox/relay';
 
 // HTTP: error responses (problem details) and the per-request middleware.
 export * from './errors/problem';
+export * from './http/pagination';
 export * from './http/problem.filter';
 export * from './http/request-context.middleware';
+export * from './http/uuid.pipe';
+export * from './http/validation';
 
 // Everything else.
 export * from './config/local-env';

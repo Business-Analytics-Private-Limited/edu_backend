@@ -30,7 +30,7 @@ export interface IdentityResolver {
   resolve(token: VerifiedToken): Promise<AuthenticatedIdentity | null>;
 }
 
-export const IDENTITY_RESOLVER = Symbol('IDENTITY_RESOLVER');
+export const IDENTITY_RESOLVER = Symbol.for('eduplatform.IDENTITY_RESOLVER');
 
 /** Used until the identity and platform services exist: nobody is a known user yet. */
 export class NoIdentityResolver implements IdentityResolver {
@@ -48,7 +48,10 @@ export interface Authenticator {
   authenticate(authorizationHeader: string | undefined): Promise<AuthenticatedIdentity | null>;
 }
 
-export const AUTHENTICATOR = Symbol('AUTHENTICATOR');
+export const AUTHENTICATOR = Symbol.for('eduplatform.AUTHENTICATOR');
+
+/** Injection token for the KeycloakTokenVerifier (tests replace it with one using local keys). */
+export const TOKEN_VERIFIER = Symbol.for('eduplatform.TOKEN_VERIFIER');
 
 export class KeycloakAuthenticator implements Authenticator {
   constructor(

@@ -21,6 +21,11 @@ const schema = z.object({
   // Connection for the edu_app role: every tenant query runs under Row-Level Security.
   DATABASE_APP_URL: requiredInProduction('postgres://edu_app:edu_app@localhost:5432/eduplatform'),
 
+  // Connection for the edu_platform role: super admin endpoints only (ADR-0009).
+  DATABASE_PLATFORM_URL: requiredInProduction(
+    'postgres://edu_platform:edu_platform@localhost:5432/eduplatform',
+  ),
+
   // Keycloak, the login server (ADR-0003). Tokens must come from its `tenants` or `platform`
   // realm and name API_AUDIENCE in their `aud` claim.
   KEYCLOAK_URL: requiredInProduction('http://localhost:8080'),

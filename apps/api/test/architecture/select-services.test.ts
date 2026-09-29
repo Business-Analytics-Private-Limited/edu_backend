@@ -56,4 +56,13 @@ describe('selectServices', () => {
       /Unknown service\(s\).*studnets.*Available: academic, students, attendance/,
     );
   });
+
+  it('always runs core services, even when not listed', () => {
+    const core = fakeService('platform');
+    core.manifest.core = true;
+    expect(keys(selectServices(['academic'], [core, ...registry]))).toEqual([
+      'platform',
+      'academic',
+    ]);
+  });
 });

@@ -162,7 +162,7 @@ platform.tenant_entitlements            layer 1                                 
   limits          jsonb not null default '{}'    { "students.max": 2000, "devices.max": 5 }
   starts_at       timestamptz not null
   ends_at         timestamptz
-  source          text check (plan | override)
+  source          text check (plan | override | core)   core = enabled automatically for every tenant
   read_only_until timestamptz           set when disabled (read-only grace period)
   unique (tenant_id, module_key)
 
@@ -253,17 +253,27 @@ Consumed: none.
 
 ## Public facade
 
+Built (step 2a), in `services/platform/src/public/index.ts`:
+
 ```ts
 interface PlatformFacade {
-  getTenant(tenantId): Promise<TenantSummary>;
+  isModuleEnabled(tenantId, moduleKey): Promise<boolean>;             // check 1, cached 60 s
+  findActiveStaff(keycloakSubject): Promise<{ id; role } | null>;     // platform-realm logins
+  staffHasPermission(staffId, permission): Promise<boolean>;          // admin.* permissions
+  getTenant(tenantId): Promise<TenantSummary | null>;
+  findTenantBySlug(slug): Promise<TenantSummary | null>;              // Keycloak organization alias
+}
+```
+
+Added with step 2b and later phases:
+
+```ts
   getInstitution(institutionId): Promise<Institution | null>;
   getCampus(campusId): Promise<Campus | null>;
-  isModuleEnabled(moduleKey, variantKey?): Promise<boolean>;          // check 1, cached
   isVariantActive(moduleKey, variantKey, scope): Promise<boolean>;    // check 2, cached
   resolveSettings<T>(moduleKey, scope: { institutionId?, campusId? }): Promise<T>;
   getLimit(moduleKey, limitKey): Promise<number | null>;
-  resolvePlacement(tenantId): Promise<Placement>;                     // used by server-kit
-}
+  resolvePlacement(tenantId): Promise<Placement>;
 ```
 
 ## Business rules
@@ -274,7 +284,11 @@ interface PlatformFacade {
 4. Every institution has at least one campus.
 5. Suspending a tenant blocks all logins for that tenant at the next token check (at most 5 minutes, the access token lifetime).
 6. Impersonation lasts at most 60 minutes, requires a reason, and appears in the tenant's audit log.
-7. Cache keys for checks 1 and 2 are dropped when `platform.module.*` or `platform.settings.changed` events are relayed; changes take effect within seconds.
+7. Checks 1 and 2 are cached in memory for 60 seconds; a change made by the same API process clears the cache at once (ADR-0014). With Redis, the cache is dropped when `platform.module.*` or `platform.settings.changed` events are relayed.
+8. Core modules (`platform`, `identity`, `access`, `audit`, `files`) are enabled for every new organization (`source = core`) and can't be taken away.
+9. Every super admin action writes `audit.platform_entries` (with the organization as `target_tenant_id`) and an event, in the same transaction.
+
+**Known gap (step 2a):** a disabled module is treated as not enabled at once; the 90-day read-only mode (rule 2) is enforced when modules with data exist (Phase 3 onwards).
 
 ## Tests
 

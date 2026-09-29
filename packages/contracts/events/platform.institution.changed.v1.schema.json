@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "platform.institution.changed/1",
+  "title": "platform.institution.changed",
+  "description": "An institution was created, updated or deleted. Subject: the institution id. Consumers: academic records the institution's structure template.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["institutionId", "change"],
+  "properties": {
+    "institutionId": { "type": "string", "format": "uuid" },
+    "change": { "enum": ["created", "updated", "deleted"] },
+    "type": { "enum": ["junior_college", "degree_college", "engineering_college", "school"] }
+  }
+}

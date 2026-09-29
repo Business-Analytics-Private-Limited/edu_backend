@@ -6,9 +6,8 @@
  * Contract: packages/contracts/openapi/system.yaml
  */
 import { Controller, Get, Inject } from '@nestjs/common';
-import { Public, ServiceUnavailableError } from '@eduplatform/server-kit';
+import { APP_POOL, Public, ServiceUnavailableError } from '@eduplatform/server-kit';
 import type { Pool } from 'pg';
-import { APP_POOL } from '../db/database.module';
 
 @Controller('health')
 export class HealthController {

@@ -30,10 +30,22 @@ This is used only to create roles and databases (`pnpm db:setup`, integration te
 ```sh
 pnpm install          # downloads libraries
 pnpm db:setup         # creates roles edu_owner, edu_app, … and the database "eduplatform"
-pnpm dev              # builds shared packages, runs migrations, starts every app
+pnpm keycloak:install # downloads Keycloak and a private Java 21 into .local/ (once, ~400 MB)
+pnpm dev              # builds shared packages, runs migrations, starts Keycloak and every app
 ```
 
 Open http://localhost:3000/api/docs for the API documentation (Swagger).
+
+### Become the first platform owner (super admin)
+
+1. Open http://localhost:8080, sign in with `admin` / `admin`, switch to the realm **platform**, and add a user under **Users** (email, first and last name; then **Credentials → Set password**, not temporary).
+2. Link that account as platform owner:
+
+   ```sh
+   pnpm platform:add-staff -- --email you@example.com --role platform_owner
+   ```
+
+The super admin endpoints (`/api/v1/admin/...`) then accept that person's login.
 
 ## 4. Everyday commands
 

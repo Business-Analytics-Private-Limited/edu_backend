@@ -13,11 +13,13 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "db:setup": "tsx src/db/setup.cli.ts",
-    "db:migrate": "tsx src/db/migrate.cli.ts"
+    "db:migrate": "tsx src/db/migrate.cli.ts",
+    "platform:add-staff": "tsx src/cli/add-platform-staff.cli.ts"
   },
   "dependencies": {
     "@eduplatform/audit-service": "workspace:*",
     "@eduplatform/contracts": "workspace:*",
+    "@eduplatform/platform-service": "workspace:*",
     "@eduplatform/server-kit": "workspace:*",
     "@nestjs/common": "^11.1.6",
     "@nestjs/core": "^11.1.6",
@@ -29,7 +31,7 @@
     "pino": "^9.9.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^4.1.5"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@eduplatform/config": "workspace:*",

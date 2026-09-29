@@ -21,7 +21,8 @@
     "db:setup": "pnpm --filter @eduplatform/api db:setup",
     "db:migrate": "pnpm --filter @eduplatform/api db:migrate",
     "keycloak": "node infra/keycloak/keycloak.mjs start",
-    "keycloak:install": "node infra/keycloak/keycloak.mjs install"
+    "keycloak:install": "node infra/keycloak/keycloak.mjs install",
+    "platform:add-staff": "pnpm --filter @eduplatform/api platform:add-staff"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

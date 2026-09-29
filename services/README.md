@@ -5,7 +5,8 @@ One package per business service ([ADR-0011](../docs/adr/0011-microservice-ready
 | Service | Package | Phase | Documentation |
 |---|---|---|---|
 | audit | `@eduplatform/audit-service` | 1 | [docs/modules/audit.md](../docs/modules/audit.md) |
-| platform, identity, access, files | — | 2 | [docs/modules/](../docs/modules/) |
+| platform | `@eduplatform/platform-service` | 2 | [docs/modules/platform.md](../docs/modules/platform.md) |
+| identity, access, files | — | 2 | [docs/modules/](../docs/modules/) |
 | academic | — | 3 | [docs/modules/academic.md](../docs/modules/academic.md) |
 | students | — | 4 | [docs/modules/students.md](../docs/modules/students.md) |
 | attendance | — | 5 | [docs/modules/attendance.md](../docs/modules/attendance.md) |

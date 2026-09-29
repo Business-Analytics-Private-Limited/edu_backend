@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "platform.tenant.created/1",
+  "title": "platform.tenant.created",
+  "description": "An organization was created (status onboarding). Subject: the tenant id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tenantId", "slug", "displayName"],
+  "properties": {
+    "tenantId": { "type": "string", "format": "uuid" },
+    "slug": { "type": "string" },
+    "displayName": { "type": "string" }
+  }
+}
