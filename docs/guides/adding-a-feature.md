@@ -26,7 +26,7 @@ Also add `subjects Subject[]` to `model Organization`.
 ## 2. The migration
 
 ```sh
-pnpm db:migration add_subjects
+npm run db:migration -- add_subjects
 ```
 
 Open the new `prisma/migrations/<date>_add_subjects/migration.sql` and add the **row security** lines at the end (the table belongs to an organization):
@@ -41,7 +41,7 @@ CREATE POLICY organization_isolation ON "subjects"
          OR "organization_id"::text = current_setting('app.organization_id', true));
 ```
 
-Then `pnpm db:migrate`.
+Then `npm run db:migrate`.
 
 ## 3. The permission: `src/modules/roles/permissions.ts`
 
@@ -95,7 +95,7 @@ At least: the happy path, a user without the permission gets 403, and **organiza
 ## 7. Check
 
 ```sh
-pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e
+npm run lint && npm run typecheck && npm run test && npm run test:e2e
 ```
 
 Swagger (`/api/docs`) shows the new routes automatically.

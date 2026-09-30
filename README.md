@@ -17,15 +17,15 @@ Coming in later phases: academic structure, students, attendance, parent portal,
 
 ## Getting started
 
-Prerequisites: Node.js 22+ (24 recommended), PostgreSQL 18 installed locally, pnpm (`corepack enable`).
+Prerequisites: Node.js 22+ (24 recommended), PostgreSQL 18 installed locally. npm comes with Node.js.
 
 ```sh
-copy .env.example .env      # then put your Postgres password in DATABASE_ADMIN_URL
-pnpm install
-pnpm db:setup               # creates the database and its two roles (once)
-pnpm db:migrate             # creates the tables
-pnpm db:seed                # adds the module list and the first super admin (from .env)
-pnpm dev                    # starts the API on http://localhost:3000, restarts on save
+copy .env.example .env  # then put your Postgres password in DATABASE_ADMIN_URL
+npm install
+npm run db:setup        # creates the database and its two roles (once)
+npm run db:migrate      # creates the tables
+npm run db:seed         # adds the module list and the first super admin (from .env)
+npm run dev             # starts the API on http://localhost:3000, restarts on save
 ```
 
 - API documentation (try every endpoint): **http://localhost:3000/api/docs**
@@ -88,15 +88,15 @@ Each feature folder has the same four kinds of files: `*.controller.ts` (routes)
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Applies new migrations, then runs the API and restarts it on every save |
-| `pnpm test` | Unit tests (no database) |
-| `pnpm test:e2e` | End-to-end tests on a temporary database (deleted afterwards) |
-| `pnpm lint` / `pnpm typecheck` / `pnpm format` | Code checks and formatting |
-| `pnpm db:migration <name>` | Creates a migration after you edit `prisma/schema.prisma` |
-| `pnpm db:migrate` | Applies migrations |
-| `pnpm db:seed` | Adds the module list and the first super admin |
-| `pnpm db:studio` | Opens Prisma Studio, a browser view of the database |
-| `pnpm db:reset` | Deletes and recreates the development database (all data lost) |
+| `npm run dev` | Applies new migrations, then runs the API and restarts it on every save |
+| `npm run test` | Unit tests (no database) |
+| `npm run test:e2e` | End-to-end tests on a temporary database (deleted afterwards) |
+| `npm run lint` / `npm run typecheck` / `npm run format` | Code checks and formatting |
+| `npm run db:migration -- <name>` | Creates a migration after you edit `prisma/schema.prisma` |
+| `npm run db:migrate` | Applies migrations |
+| `npm run db:seed` | Adds the module list and the first super admin |
+| `npm run db:studio` | Opens Prisma Studio, a browser view of the database |
+| `npm run db:reset` | Deletes and recreates the development database (all data lost) |
 
 ## Documents
 

@@ -1,8 +1,8 @@
 /**
  * Prepares your local PostgreSQL for this project.
  *
- *   pnpm db:setup     creates the roles and the databases (safe to repeat)
- *   pnpm db:reset     DELETES the development database and creates it again empty,
+ *   npm run db:setup     creates the roles and the databases (safe to repeat)
+ *   npm run db:reset     DELETES the development database and creates it again empty,
  *                     then migrates and seeds it (see package.json)
  *
  * Creates the development database "eduplatform". (Automated tests make their own temporary one.)
@@ -41,7 +41,7 @@ try {
     }
     await client.query(`grant connect on database ${name} to edu_app`);
   }
-  console.log('Roles and databases are ready. Next: pnpm db:migrate && pnpm db:seed');
+  console.log('Roles and databases are ready. Next: npm run db:migrate && npm run db:seed');
 } finally {
   await client.end();
 }

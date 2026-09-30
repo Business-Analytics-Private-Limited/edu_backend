@@ -1,4 +1,4 @@
-# Generated: rebuilt by pnpm install / pnpm build
+# Generated: rebuilt by npm install / npm run build
 node_modules/
 dist/
 coverage/

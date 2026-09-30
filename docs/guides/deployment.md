@@ -8,7 +8,7 @@ The frontend apps and the API are deployed independently, each on its own domain
 |---|---|---|
 | `app.example.com` | Web app for organization staff (and later parents, students) | `eduplatform-frontend/apps/web` |
 | `admin.example.com` | Super admin console (optionally IP-restricted) | `eduplatform-frontend/apps/admin` |
-| `api.example.com` | This API | `eduplatform-backend` (`pnpm build`, then `pnpm start`) |
+| `api.example.com` | This API | `eduplatform-backend` (`npm run build`, then `npm run start`) |
 
 ## Why it works across domains
 
@@ -32,6 +32,6 @@ The frontend apps and the API are deployed independently, each on its own domain
 - HTTPS on every domain.
 - Secrets from the hosting provider's secret manager, never `.env` files.
 - Production database roles with strong passwords (not `infra/database/roles.sql`).
-- `pnpm db:migrate` runs in the deploy pipeline before the new API version starts.
+- `npm run db:migrate` runs in the deploy pipeline before the new API version starts.
 - Change the seeded super admin's password immediately.
 - Consider multi-factor login and password reset by email before real users arrive.

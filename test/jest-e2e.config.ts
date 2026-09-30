@@ -1,4 +1,4 @@
-// End-to-end tests (`pnpm test:e2e`): files named *.e2e-spec.ts in this folder. They start the
+// End-to-end tests (`npm run test:e2e`): files named *.e2e-spec.ts in this folder. They start the
 // real app and call it over HTTP, against a temporary database made for this run.
 import type { Config } from 'jest';
 

@@ -3,10 +3,10 @@
 //
 // How to change it:
 //   1. edit this file
-//   2. pnpm db:migration <what_changed>     → writes prisma/migrations/<date>_<what_changed>/migration.sql
+//   2. npm run db:migration -- <what_changed>     → writes prisma/migrations/<date>_<what_changed>/migration.sql
 //   3. if you added a table with organization_id, add its row-security policy to that SQL file
 //      (copy the pattern from the first migration)
-//   4. pnpm db:migrate                       → applies it to your database
+//   4. npm run db:migrate                       → applies it to your database
 //
 // Naming: models are PascalCase here (Organization); tables and columns are snake_case in
 // PostgreSQL (organizations, organization_id) through @@map / @map.

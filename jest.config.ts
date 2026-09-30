@@ -1,4 +1,4 @@
-// Unit tests (`pnpm test`): files named *.spec.ts next to the code. No database needed.
+// Unit tests (`npm run test`): files named *.spec.ts next to the code. No database needed.
 import type { Config } from 'jest';
 
 const config: Config = {

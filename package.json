@@ -3,12 +3,11 @@
   "version": "0.2.0",
   "private": true,
   "description": "EduPlatform backend: one NestJS app with PostgreSQL (Prisma) and JWT login",
-  "packageManager": "pnpm@10.12.1",
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
-    "dev": "pnpm db:migrate && nest start --watch",
+    "dev": "npm run db:migrate && nest start --watch",
     "start:dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main",
@@ -19,7 +18,7 @@
     "test": "jest",
     "test:e2e": "jest --config test/jest-e2e.config.ts --runInBand",
     "db:setup": "node scripts/db-setup.mjs",
-    "db:reset": "node scripts/db-setup.mjs --reset && pnpm db:migrate && pnpm db:seed",
+    "db:reset": "node scripts/db-setup.mjs --reset && npm run db:migrate && npm run db:seed",
     "db:migrate": "prisma migrate deploy",
     "db:migration": "prisma migrate dev --create-only --name",
     "db:seed": "prisma db seed",
@@ -70,13 +69,5 @@
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.40.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@nestjs/core",
-      "@prisma/client",
-      "@prisma/engines",
-      "prisma"
-    ]
   }
 }

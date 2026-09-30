@@ -1,5 +1,5 @@
 -- =============================================================================
--- Database roles for LOCAL DEVELOPMENT and TESTS (run by `pnpm db:setup`).
+-- Database roles for LOCAL DEVELOPMENT and TESTS (run by `npm run db:setup`).
 -- Safe to run many times. Passwords equal the role names: fine on a developer
 -- machine, NEVER anywhere else (production roles come from infrastructure setup).
 --

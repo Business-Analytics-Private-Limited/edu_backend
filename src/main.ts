@@ -1,5 +1,5 @@
 /**
- * Starts the API: `pnpm dev` (development, restarts on save) or `pnpm start` (after `pnpm build`).
+ * Starts the API: `npm run dev` (development, restarts on save) or `npm run start` (after `npm run build`).
  */
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';

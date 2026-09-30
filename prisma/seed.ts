@@ -1,5 +1,5 @@
 /**
- * Fills the database with what every installation needs (`pnpm db:seed`, safe to repeat):
+ * Fills the database with what every installation needs (`npm run db:seed`, safe to repeat):
  *   1. the list of modules the super admin can switch on for organizations,
  *   2. the first super admin account (from SEED_SUPER_ADMIN_EMAIL / SEED_SUPER_ADMIN_PASSWORD).
  */

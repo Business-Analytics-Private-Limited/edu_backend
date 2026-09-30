@@ -1,4 +1,4 @@
-// Code rules (`pnpm lint`). Standard recommended rules for JavaScript and TypeScript.
+// Code rules (`npm run lint`). Standard recommended rules for JavaScript and TypeScript.
 import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';

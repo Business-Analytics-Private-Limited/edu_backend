@@ -38,7 +38,7 @@ The code must be easy for a fresher to read and change:
 2. **Every endpoint declares who may call it:** `@Public`, `@LoggedIn`, `@SuperAdminOnly`, `@OrganizationUser` or `@RequirePermission('module.resource.action')`. The AccessGuard refuses endpoints without one.
 3. **Every feature ships with an isolation test**: data created in organization A is invisible from organization B.
 4. **IDs are UUIDv7. Timestamps are `timestamptz` in UTC.** Time zone, currency and locale come from organization or institution settings.
-5. **Schema changes only through Prisma migrations** (`pnpm db:migration <name>`, then `pnpm db:migrate`). Never edit a production database by hand.
+5. **Schema changes only through Prisma migrations** (`npm run db:migration -- <name>`, then `npm run db:migrate`). Never edit a production database by hand.
 6. **Every create, update and delete of business data is written to the audit log** (`AuditService.log`, in the same transaction).
 7. **Request bodies are DTO classes with class-validator rules**, so they are checked and documented in Swagger automatically.
 8. Don't reuse the previous single-institute product's name anywhere in this repository. "EduPlatform" is a working name until the product is named.
@@ -51,6 +51,6 @@ The code must be easy for a fresher to read and change:
 
 ## Stack
 
-NestJS 11 + TypeScript, PostgreSQL 18 with Prisma 6, JWT login (`@nestjs/jwt`, passport-jwt, bcryptjs), class-validator, `@nestjs/swagger`, Jest. One package, pnpm. Local PostgreSQL, no Docker for now (ADR-0012).
+NestJS 11 + TypeScript, PostgreSQL 18 with Prisma 6, JWT login (`@nestjs/jwt`, passport-jwt, bcryptjs), class-validator, `@nestjs/swagger`, Jest. One package, npm. Local PostgreSQL, no Docker for now (ADR-0012).
 
 This is the backend repository. The Next.js web and admin apps live in the separate `eduplatform-frontend` repository (ADR-0013); they call this API over HTTP.
