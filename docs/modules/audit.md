@@ -1,101 +1,41 @@
-# Module: audit
+# Module: audit (who changed what, where, when)
 
 | | |
 |---|---|
-| Schema | `audit` |
-| Phase | 1 (writer and table), 2 (viewing endpoints) |
-| Depends on | none |
-| Code | `services/audit/`; writer in `packages/server-kit/src/audit/` |
+| Status | **Built** |
+| Code | `src/modules/audit/` |
+| Table | `audit_logs` |
+| Decisions | ADR-0015, ADR-0018 |
 
-## Purpose
+## What it does
 
-An append-only record of who changed what, when, from where, and why (ADR-0005, CLAUDE.md rule 9).
+Every create, update and delete of business data writes one row to `audit_logs`, **in the same database transaction** as the change (both are saved, or neither):
 
-## Responsibilities
-
-- Storing audit entries in the same transaction as the change they describe.
-- Showing a tenant its audit log, including platform staff impersonation.
-- Platform-level audit for super admin actions.
-- Redacting personal data on a DPDP erasure request.
-
-## Manifest
-
-- Always enabled.
-- Settings (organization level): `retention.years` (default 7).
-
-## Permissions
-
-| Permission | Allows |
+| Column | Example |
 |---|---|
-| `audit.log.view` | Read the tenant's audit log within scope |
-
-## Data model
-
-```
-audit.entries                           partitioned by range (occurred_at), monthly
-  id              uuid not null
-  tenant_id       uuid not null
-  occurred_at     timestamptz not null
-  actor_type      text check (user | platform_user | system | device)
-  actor_id        uuid
-  impersonator_id uuid                  platform user acting as actor_id
-  module_key      text not null
-  entity_type     text not null         'students.student'
-  entity_id       uuid not null
-  action          text not null         create | update | delete | restore | a domain verb
-  changes         jsonb          [P]   { "field": [before, after] }, changed fields only
-  reason          text
-  request_id      text
-  ip              inet           [P]
-  user_agent      text
-  redacted_at     timestamptz           set when personal data was erased
-  primary key (id, occurred_at)
-  index (tenant_id, entity_type, entity_id, occurred_at desc)
-  index (tenant_id, actor_id, occurred_at desc)
-
-audit.platform_entries                  super admin actions; no RLS; edu_platform only
-  same columns, with target_tenant_id uuid (nullable) instead of tenant_id
-```
-
-Grants: `edu_app` has `insert, select` on `audit.entries` and nothing on `platform_entries`. No runtime role has `update` or `delete`.
-
-Secrets are never recorded: fields named like `password`, `secret`, `token` are removed from `changes` by the writer.
-
-## API
-
-| Method | Path | operationId | Permission | Description |
-|---|---|---|---|---|
-| GET | `/audit/entries` | `audit.entry.list` | `audit.log.view` | `?entityType&entityId&actorId&action&from&to`, newest first |
-| GET | `/audit/entries/{entryId}` | `audit.entry.get` | `audit.log.view` | One entry with its full change set |
-| GET | `/admin/audit/entries` | `admin.audit.list` | `admin.tenant.view` | Platform entries, filterable by tenant |
-
-## Events
-
-None published or consumed.
-
-## Public facade
-
-Modules don't call a facade; they use the server-kit writer inside their transaction:
+| `actor_type`, `actor_id`, `actor_name` | `user`, …, `Ravi Kumar` (or `super_admin`) |
+| `action`, `entity`, `entity_id` | `update`, `campus`, … |
+| `organization_id` | the organization (empty for super admin actions on the platform itself) |
+| `institution_id`, `campus_id` | where it happened, if in one institution / campus |
+| `details` | what changed, e.g. `{ "name": "Kukatpally Campus" }` — never passwords |
+| `created_at` | when |
 
 ```ts
-await audit.record(tx, {
-  entityType: 'students.student', entityId, action: 'update',
-  before, after, reason,
-});   // actor, tenant, request id, IP come from the request context
+await this.audit.log(db, user, {
+  action: 'update', entity: 'campus', entityId: id,
+  institutionId, campusId,                 // the place, so local admins see it
+  details: { ...dto },
+});
 ```
 
-## Business rules
+## Reading it
 
-1. Every create, update and delete of business data writes an entry in the same transaction. If the audit insert fails, the change fails.
-2. Entries are never updated or deleted, except redaction for erasure, run by a maintenance function under `edu_owner` that also writes an entry recording the redaction.
-3. Partitions older than the retention setting are detached and archived, not deleted, until the retention period ends.
+`GET /api/v1/audit-logs?page=&pageSize=` with `audit.log.view`:
+- with the permission for the whole organization: every entry of the organization;
+- a Principal / Campus admin: only entries of their institution / campus.
 
-## Tests
+The web app's **Audit log** page shows who (by name), where, what and when.
 
-- `edu_app` can't update or delete an audit row (permission error).
-- A service that changes a student and then throws leaves neither the change nor an audit entry.
-- Password-like fields never appear in `changes`.
+## Later
 
-## Open questions
-
-- None.
+Filters (by person, place, date, entity), export, and keeping logs for a set number of years.

@@ -10,10 +10,12 @@ This repository is the **backend API**. The web app and the super admin console 
 |---|---|---|
 | **Login** | Everyone | Super admins log in at `/auth/super-admin/login`, organization users at `/auth/login`. `/auth/me` says who you are and what you may do. |
 | **Super admin area** | EduPlatform staff | Dashboard; create organizations (with their first admin); edit, suspend and activate them; switch modules on and off (Academic, Students, Attendance, Portal, Import). |
-| **Tenant admin area** | An organization's users | Dashboard; the organization's details; institutions and campuses; staff users; roles and their permissions; audit log. |
+| **Predefined roles** | EduPlatform staff | Organization admin, Director, Principal, Campus admin, Senior / Junior faculty, DTP operator, Parent, Student. The super admin sets their permissions for all organizations at once. |
+| **Organization area** | An organization's users | Dashboard; the organization's details; institutions and campuses; staff users; own roles (View / Create / Edit / Delete grid); audit log. |
+| **Roles at places** | Built in | A user has one or more roles, each for the whole organization, one institution or one campus. A Campus admin sees and manages only their campus. Nobody can hand out more than they have. |
 | **Multi-tenancy** | Built in | Every query is limited to the user's organization, and PostgreSQL row security blocks mistakes. |
 
-Coming in later phases: academic structure, students, attendance, parent portal, data import (see `docs/06-roadmap.md`).
+Coming next: academic structure (Phase 3), then students, attendance, parent portal, data import (see `docs/06-roadmap.md`). Module by module: [docs/modules/README.md](docs/modules/README.md).
 
 ## Getting started
 
@@ -105,6 +107,7 @@ Each feature folder has the same four kinds of files: `*.controller.ts` (routes)
 | [docs/guides/getting-started.md](docs/guides/getting-started.md) | Setup, first login, troubleshooting |
 | [docs/guides/adding-a-feature.md](docs/guides/adding-a-feature.md) | How to add a new feature, step by step |
 | [docs/01-product-requirements.md](docs/01-product-requirements.md) | Who uses it, what v1/v2/v3 contain |
-| [docs/04-roles-and-permissions.md](docs/04-roles-and-permissions.md) | Roles and the permission matrix |
+| [docs/modules/README.md](docs/modules/README.md) | Every module: what is built, its endpoints and rules |
+| [docs/04-roles-and-permissions.md](docs/04-roles-and-permissions.md) | Roles, places and permissions |
 | [docs/06-roadmap.md](docs/06-roadmap.md) | Build phases |
-| [docs/adr/](docs/adr/) | Decisions; ADR-0015 describes today's structure |
+| [docs/adr/](docs/adr/) | Decisions; ADR-0015 describes today's structure, ADR-0017 / 0018 the roles |

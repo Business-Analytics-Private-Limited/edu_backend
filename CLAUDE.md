@@ -41,7 +41,8 @@ The code must be easy for a fresher to read and change:
 5. **Schema changes only through Prisma migrations** (`npm run db:migration -- <name>`, then `npm run db:migrate`). Never edit a production database by hand.
 6. **Every create, update and delete of business data is written to the audit log** (`AuditService.log`, in the same transaction).
 7. **Request bodies are DTO classes with class-validator rules**, so they are checked and documented in Swagger automatically.
-8. Don't reuse the previous single-institute product's name anywhere in this repository. "EduPlatform" is a working name until the product is named.
+8. **Records that belong to an institution or campus store `institution_id` / `campus_id`, and services check permissions at that place** (`can`, `reachOf` in `src/common/scope.ts`, ADR-0018). The isolation test also proves a campus admin can't see or change another campus's records.
+9. Don't reuse the previous single-institute product's name anywhere in this repository. "EduPlatform" is a working name until the product is named.
 
 ## Naming
 

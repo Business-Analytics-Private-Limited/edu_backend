@@ -1,53 +1,30 @@
 # Module documentation
 
-> **Note (2026-09-29):** the backend was simplified ([ADR-0015](../adr/0015-simplified-backend.md)). This document still describes the product's data and rules, but where it mentions one schema per module, the outbox, Keycloak, OpenAPI files in packages/contracts or service packages, today's code differs: one Prisma schema (`prisma/schema.prisma`), JWT login, Swagger generated from the controllers, and feature folders in `src/modules/`.
+One document per module of EduPlatform: what it is for, its screens / endpoints and its rules.
 
-One document per module. Each follows the same template so that anyone can find the same information in the same place.
-
-| Module | Schema | Phase | Document | OpenAPI |
+| Module | In plain words | Status | Document | Code |
 |---|---|---|---|---|
-| platform | `platform` | 2 | [platform.md](platform.md) | `packages/contracts/openapi/platform.yaml` |
-| identity | `identity` | 2 | [identity.md](identity.md) | `packages/contracts/openapi/identity.yaml` |
-| access | `access` | 2 | [access.md](access.md) | `packages/contracts/openapi/access.yaml` |
-| audit | `audit` | 1–2 | [audit.md](audit.md) | `packages/contracts/openapi/audit.yaml` |
-| files | `files` | 2 | [files.md](files.md) | none (no public endpoints) |
-| academic | `academic` | 3 | [academic.md](academic.md) | `packages/contracts/openapi/academic.yaml` |
-| students | `students` | 4 | [students.md](students.md) | `packages/contracts/openapi/students.yaml` |
-| attendance | `attendance` | 5 | [attendance.md](attendance.md) | `packages/contracts/openapi/attendance.yaml`, `device-gateway.yaml` |
-| portal | none | 6 | [portal.md](portal.md) | `packages/contracts/openapi/portal.yaml` |
-| imports | `imports` | 7 | [imports.md](imports.md) | `packages/contracts/openapi/imports.yaml` |
+| platform | Organizations, institutions, campuses; which modules each organization has | **Built** | [platform.md](platform.md) | `src/modules/super-admin`, `src/modules/organization` |
+| access | Login, users, roles and permissions, roles at places | **Built** | [access.md](access.md) | `src/modules/auth`, `users`, `roles`, `src/common/scope.ts` |
+| audit | Who changed what, where, when | **Built** | [audit.md](audit.md) | `src/modules/audit` |
+| academic | Academic years, classes / groups / sections, subjects, holidays | Next (design) | [academic.md](academic.md) | — |
+| students | Admissions, profiles, guardians, documents, promotion | Design | [students.md](students.md) | — |
+| attendance | Manual and biometric attendance, corrections, reports | Design | [attendance.md](attendance.md) | — |
+| portal | Parents and students see profile and attendance | Design | [portal.md](portal.md) | — |
+| imports | Import students and other data from Excel / CSV | Design | [imports.md](imports.md) | — |
+| files | Storing uploaded documents | Design | [files.md](files.md) | — |
 
-The OpenAPI file for a module is written at the start of the module's phase (contracts first). Until then, the endpoint table in the module document is the plan.
+`identity.md` was merged into `access.md`.
 
-## Conventions used in these documents
+## Reading the design documents
 
-- Table notation: `[std]` = standard columns, `[sd]` = soft delete, `[P]` = personal data, `[S]` = sensitive personal data. See [doc 7 §7.2](../07-database-design.md).
-- Every tenant table has `tenant_id uuid not null`, `unique (tenant_id, id)`, and the forced `tenant_isolation` RLS policy. The tables below don't repeat this.
-- Every module that publishes events has `<schema>.outbox`; every module that consumes events has `<schema>.inbox` ([doc 7 §7.5](../07-database-design.md)). Not repeated below.
-- Endpoints: path prefix `/api/v1` omitted. Super admin endpoints live under `/admin/...` and accept only tokens from the `platform` realm.
-- Every endpoint also returns the standard errors from [doc 8 §8.6](../08-api-conventions.md).
+The documents marked **Design** were written before the backend was simplified ([ADR-0015](../adr/0015-simplified-backend.md)). Their purpose, data and rules still describe the product; their technical parts do not match today's code:
 
-## Template
-
-```md
-# Module: <key>
-
-| | |
+| They say | Today |
 |---|---|
-| Schema | ... |
-| Phase | ... |
-| Depends on | ... |
-| Code | services/<key>/ |
+| a PostgreSQL schema per module, `tenant_id` | one Prisma schema (`prisma/schema.prisma`), `organization_id`, same row security |
+| paths like `/academic/...`, `/admin/...` | paths like `/api/v1/academic-years`, super admin under `/api/v1/super-admin/...` |
+| permissions ending in `.manage` | view / create / update / delete ([access.md](access.md)) |
+| outbox events, Keycloak, OpenAPI files in `packages/contracts` | direct service calls, JWT login, Swagger generated from the code |
 
-## Purpose
-## Responsibilities (and what this module does not do)
-## Manifest (variants, settings, limits)
-## Permissions
-## Data model
-## API
-## Events (published / consumed)
-## Public facade (for other modules)
-## Business rules
-## Tests (beyond the standard isolation and contract tests)
-## Open questions
-```
+When a module is built, its document is rewritten to match the code (as platform, access and audit were).

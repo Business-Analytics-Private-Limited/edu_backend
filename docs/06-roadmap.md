@@ -2,6 +2,17 @@
 
 Each phase ends with something that runs and is tested. No phase starts until the previous one's exit check passes.
 
+## Where we are (2026-09-30)
+
+| Phase | Status |
+|---|---|
+| 0. Design | Done |
+| 1. Foundation | Done, simplified (ADR-0015, ADR-0016): one NestJS app, Prisma, JWT login, local PostgreSQL, npm; no Docker / Redis / Keycloak yet |
+| 2. Platform core | **Done.** Super admin console and web app; organizations, modules, institutions, campuses; users with several roles at places (organization / institution / campus); predefined roles managed by the super admin; audit log with names and places (ADR-0017, ADR-0018) |
+| 3. Academic | **Next** |
+
+The original plan per phase is below; where it names Docker, Redis, Keycloak or outbox, see ADR-0015.
+
 | Phase | Goal | Exit check |
 |---|---|---|
 | **0. Design** (this folder) | Requirements, domain map, tenancy, permissions, module catalog, ADRs | Project owner has reviewed and accepted docs 1–5 and the ADRs |

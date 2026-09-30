@@ -45,11 +45,13 @@ Then `npm run db:migrate`.
 
 ## 3. The permission: `src/modules/roles/permissions.ts`
 
+Permissions are listed per resource, with its actions:
+
 ```ts
-{ key: 'academic.subject.manage', module: 'academic', group: 'Academic', description: 'Manage subjects' },
+{ key: 'academic.subject', module: 'academic', group: 'Academic', label: 'Subjects', actions: CRUD },
 ```
 
-(This one already exists. `module: 'academic'` means it only works when the Academic module is switched on.)
+This gives `academic.subject.view`, `.create`, `.update` and `.delete` (this one already exists). `module: 'academic'` means they only work when the Academic module is switched on. The Organization admin gets new permissions automatically; for other predefined roles, add them in `predefined-roles.ts` (new organizations) or ask the super admin to tick them (existing ones).
 
 ## 4. The feature folder: `src/modules/subjects/`
 
@@ -61,23 +63,31 @@ subjects/
   subjects.module.ts        @Module({ controllers: [...], providers: [...] })
 ```
 
-The service always works inside the organization, and writes the audit log:
+The service always works inside the organization, checks the permission **at the record's place** (if the record belongs to an institution or campus), and writes the audit log with that place:
 
 ```ts
 create(organizationId: string, dto: CreateSubjectDto, actor: CurrentUser) {
+  const place = { institutionId: dto.institutionId };
+  if (!can(actor, 'academic.subject.create', place)) {       // src/common/scope.ts
+    throw new ForbiddenException('Your roles don\'t allow this for this institution');
+  }
   return this.prisma.forOrganization(organizationId, async (db) => {
     const subject = await db.subject.create({ data: { ...dto, organizationId } });
-    await this.audit.log(db, actor, { action: 'create', entity: 'subject', entityId: subject.id });
+    await this.audit.log(db, actor, {
+      action: 'create', entity: 'subject', entityId: subject.id, ...place,
+    });
     return subject;
   });
 }
 ```
 
+Lists are filtered to what the user may see with `reachOf(actor, 'academic.subject.view')` (see `src/modules/organization/organization.service.ts`).
+
 Every controller method says who may call it:
 
 ```ts
 @Post('subjects')
-@RequirePermission('academic.subject.manage')
+@RequirePermission('academic.subject.create')   // has it somewhere; the service checks the place
 create(@OrganizationId() organizationId: string, @Body() body: CreateSubjectDto,
        @CurrentUser() user: CurrentUserType) {
   return this.subjects.create(organizationId, body, user);
@@ -90,7 +100,7 @@ Add `SubjectsModule` to `imports`.
 
 ## 6. Test it: `test/subjects.e2e-spec.ts`
 
-At least: the happy path, a user without the permission gets 403, and **organization B can't see organization A's subjects** (404 / empty list). Copy the pattern from `test/organization.e2e-spec.ts`.
+At least: the happy path, a user without the permission gets 403, **organization B can't see organization A's subjects** (404 / empty list), and **a campus / institution admin can't touch another campus / institution**. Copy the patterns from `test/organization.e2e-spec.ts` and `test/places.e2e-spec.ts`.
 
 ## 7. Check
 

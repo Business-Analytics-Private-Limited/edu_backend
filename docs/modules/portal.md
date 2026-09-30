@@ -1,5 +1,7 @@
 # Module: portal
 
+> **Status: design, not built yet.** Written before the backend was simplified; the purpose, data and rules still apply, the technical details (schemas, paths, `.manage` permissions, events) will follow today's conventions when it is built. See [README.md](README.md#reading-the-design-documents).
+
 | | |
 |---|---|
 | Schema | none (reads through other modules' facades) |

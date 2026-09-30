@@ -1,148 +1,91 @@
-# Module: access
+# Module: access (login, users, roles, permissions)
 
 | | |
 |---|---|
-| Schema | `access` |
-| Phase | 2 |
-| Depends on | platform, identity |
-| Code | `services/access/` |
+| Status | **Built** |
+| Code | `src/modules/auth/`, `src/modules/users/`, `src/modules/roles/`, `src/common/scope.ts`, `src/common/guards/` |
+| Tables | `super_admins`, `users`, `roles`, `role_templates`, `user_roles` |
+| Decisions | ADR-0015 (JWT login), ADR-0017 (predefined roles, several roles), ADR-0018 (places) |
+| Design | [docs/04-roles-and-permissions.md](../04-roles-and-permissions.md) |
 
-## Purpose
+## In one paragraph
 
-Decides checks 3 and 4 of every request: does one of the user's roles grant the permission, and is the target inside the scope of that role assignment (doc 4).
+People log in with email and password and get a token (JWT, 8 hours). **Super admins** (EduPlatform staff) use the super admin console. **Users** belong to one organization. A user has one or more **roles**, each **at a place**: the whole organization, one institution, or one campus. A role is a list of **permissions** such as `platform.institution.update`. A user may do what their roles allow, in each role's place.
 
-## Responsibilities
+## Login
 
-- Permission catalog, synced from every module's manifest at startup.
-- Role templates (platform-provided) and tenant roles (editable copies).
-- Role assignments at a scope, with validity dates.
-- Resolving a user's effective permissions and scopes, cached in Redis per user.
+| Method | Path | Who |
+|---|---|---|
+| POST | `/auth/super-admin/login` | super admins |
+| POST | `/auth/login` | organization users |
+| GET | `/auth/me` | anyone logged in: who you are, `roleNames`, `permissions` (anywhere) and `grants` (each role with its place), `enabledModules` |
+| POST | `/auth/change-password` | anyone logged in |
 
-Not this module: authentication (`identity` / Keycloak), module entitlement (`platform`).
-
-## Manifest
-
-- Always enabled.
-- Settings: none.
+Every request reloads the user, so deactivating a user or suspending an organization works at once. Passwords are stored as bcrypt hashes. The first super admin is created by `npm run db:seed` from `SEED_SUPER_ADMIN_*` in `.env`; no screen can create super admins.
 
 ## Permissions
 
-| Permission | Allows |
-|---|---|
-| `access.role.manage` | Create, edit and delete roles; assign and revoke roles |
-| `access.user.view` | View users' role assignments (also used by `identity`) |
+`module.resource.action`, with actions **view, create, update (Edit), delete** plus special ones (mark, correct, import, export, promote, transfer). The full list is `src/modules/roles/permissions.ts`; screens show it as a grid. A permission of a module the organization doesn't have does nothing.
 
-## Data model
+## Roles
 
-```
-access.permissions                      platform-level; synced from manifests
-  key             text pk               'students.student.create'
-  module_key      text not null
-  description     text not null
-  synced_at       timestamptz not null
+**Predefined roles** (every organization has them; only the super admin changes their permissions, for all organizations at once):
 
-access.role_templates                   platform-level; copied to new tenants                [std]
-  id uuid pk, key text unique, name text not null, description text,
-  default_scope_type text check (organization | institution | campus | node | self | guardian)
-
-access.role_template_permissions        platform-level
-  template_id     uuid references access.role_templates
-  permission_key  text references access.permissions
-  primary key (template_id, permission_key)
-
-access.roles                                                                                 [std][sd]
-  id, tenant_id
-  key             text not null         unique (tenant_id, key) where deleted_at is null
-  name            text not null
-  description     text
-  based_on_template_key text
-
-access.role_permissions
-  tenant_id, role_id                    fk (tenant_id, role_id) → roles
-  permission_key  text not null references access.permissions
-  primary key (tenant_id, role_id, permission_key)
-
-access.role_assignments                                                                      [std]
-  id, tenant_id
-  user_id         uuid not null         → identity.users
-  role_id         uuid not null         fk (tenant_id, role_id) → roles
-  scope_type      text check (organization | institution | campus | node | self | guardian)
-  scope_id        uuid                  null for organization, self, guardian
-  valid_from      timestamptz not null default now()
-  valid_to        timestamptz
-  reason          text
-  revoked_at      timestamptz
-  revoked_by      uuid
-  revoke_reason   text
-  check ((scope_type in ('organization','self','guardian')) = (scope_id is null))
-  index (tenant_id, user_id) where revoked_at is null
-```
-
-## API
-
-| Method | Path | operationId | Permission | Description |
-|---|---|---|---|---|
-| GET | `/access/permissions` | `access.permission.list` | `access.role.manage` | Catalog, limited to modules the tenant is entitled to |
-| GET | `/access/role-templates` | `access.role_template.list` | `access.role.manage` | Platform templates |
-| GET | `/access/roles` | `access.role.list` | `access.user.view` | Roles with permission counts |
-| POST | `/access/roles` | `access.role.create` | `access.role.manage` | Create, optionally copying a template or another role |
-| GET | `/access/roles/{roleId}` | `access.role.get` | `access.user.view` | One role with permissions |
-| PATCH | `/access/roles/{roleId}` | `access.role.update` | `access.role.manage` | Rename, describe |
-| PUT | `/access/roles/{roleId}/permissions` | `access.role.set_permissions` | `access.role.manage` | Replace the permission list |
-| DELETE | `/access/roles/{roleId}` | `access.role.delete` | `access.role.manage` | Soft delete; blocked while assigned |
-| GET | `/access/role-assignments` | `access.assignment.list` | `access.user.view` | `?userId&roleId&scopeType&scopeId` |
-| POST | `/access/role-assignments` | `access.assignment.create` | `access.role.manage` | Assign a role at a scope, with reason |
-| POST | `/access/role-assignments/{assignmentId}/revoke` | `access.assignment.revoke` | `access.role.manage` | Revoke with reason |
-| GET | `/access/users/{userId}/effective-permissions` | `access.user.effective_permissions` | `access.user.view` | Resolved permissions and scopes, for support and debugging |
-
-## Events
-
-Published:
-
-| Type | When | Data |
+| Role | Usually given at | |
 |---|---|---|
-| `access.role.changed` | Role created, updated, permissions changed, deleted | `roleId, change` |
-| `access.assignment.changed` | Assignment created or revoked | `assignmentId, userId, roleId, scopeType, scopeId, change` |
+| Organization admin | whole organization (always) | everything, can't be changed |
+| Director | whole organization | sees everything, manages institutions and campuses |
+| Principal | an institution | runs the institution; everything a Campus admin can do, in all its campuses |
+| Campus admin | a campus | runs the campus: staff, students, documents, attendance |
+| Senior faculty / Junior faculty | a campus | teaching, attendance (Junior: fewer rights) |
+| DTP operator | a campus | data entry, no delete |
+| Parent / Student | from a student's record | not given from the Users page |
 
-Consumed: `platform.module.disabled` (drops cached permissions of that module), `identity.user.deactivated` (drops the user's cache), `academic.node.updated` (node scope cache).
+Starting permissions: `src/modules/roles/predefined-roles.ts`; afterwards the database (`role_templates`) is the source of truth.
 
-## Public facade
+**Own roles**: an organization creates its own (with the permission for the whole organization).
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/permissions` | `access.role.view` |
+| GET | `/roles`, `/roles/:id` | `access.role.view` |
+| POST / PATCH / DELETE | `/roles`, `/roles/:id` | `access.role.create` / `update` / `delete`, **whole organization**; own roles only (predefined: 403) |
+| GET | `/super-admin/permissions`, `/super-admin/predefined-roles` | super admin |
+| PUT | `/super-admin/predefined-roles/:key` | super admin; not for Organization admin |
+
+## Users and their roles
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/users?search=&status=` | `access.user.view` — only users with a role in your reach |
+| POST | `/users` | `access.user.create` — `{ name, email, password, roles: [{ roleId, institutionId?, campusId? }] }` |
+| GET | `/users/:id` | `access.user.view` |
+| PATCH | `/users/:id` | `access.user.update` — name |
+| POST | `/users/:id/deactivate` / `activate` | `access.user.update` |
+| POST | `/users/:id/roles` | `access.user.update` — `{ roleId, institutionId?, campusId? }` |
+| DELETE | `/users/:id/roles/:assignmentId` | `access.user.update` |
+
+Place: neither id = whole organization; `institutionId` = that institution and its campuses; `campusId` = that campus.
+
+## Rules (all tested in `test/organization.e2e-spec.ts` and `test/places.e2e-spec.ts`)
+
+1. **Nobody hands out more than they have.** A role you create, and a role you give at a place, must be within your own permissions (at that place). You can't change a role or a user that has more than you.
+2. **Places.** You see and manage users only in your places. Renaming or deactivating a user needs all their places to be yours (a teacher at two campuses is managed by the principal, or each campus admin removes only their own campus's role).
+3. The Organization admin role always applies to the whole organization, and every organization keeps at least one active Organization admin.
+4. A user keeps at least one role; to block someone, deactivate them.
+5. Predefined roles can't be changed or deleted by organizations; Parent / Student can't be given from the Users page.
+6. Every change goes to the audit log.
+
+## How to check a permission in new code
 
 ```ts
-interface AccessFacade {
-  // check 3 + 4 for one target; used by the guard and by services for row-level checks
-  can(user: UserRef, permission: string, target?: ScopeTarget): Promise<boolean>;
-  // for list endpoints: turns the user's scopes into filters the owning module applies
-  scopeFilter(user: UserRef, permission: string): Promise<ScopeFilter>;
-  effectivePermissions(userId): Promise<EffectivePermission[]>;
-}
-
-type ScopeTarget = { institutionId?; campusId?; nodeId?; nodeAncestorIds?; studentId? };
-type ScopeFilter =
-  | { kind: 'all' }                                  // organization scope
-  | { kind: 'restricted'; institutionIds; campusIds; nodeIds; selfStudentIds; guardianStudentIds }
-  | { kind: 'none' };
+@RequirePermission('students.student.update')          // on the endpoint: has it SOMEWHERE?
+...
+if (!can(user, 'students.student.update', { institutionId, campusId }))  // in the service: at the record's place?
+  throw new ForbiddenException(...);
+const reach = reachOf(user, 'students.student.view');  // to filter a list
 ```
 
-`guardian` and `self` scopes resolve through `StudentsFacade` (which students a guardian user is linked to; which student a student user is).
+## Later
 
-## Business rules
-
-1. Deny by default.
-2. A permission of a module the tenant isn't entitled to is ignored, even if a role contains it.
-3. For parents and students, `view` permissions apply only at `guardian` or `self` scope, whatever the role says.
-4. A tenant must always keep at least one active user with `access.role.manage`; revoking or deactivating the last one is blocked.
-5. Every role or assignment change is audited with who and why; a reason is required for revocation.
-6. Assignments outside `valid_from`–`valid_to` don't count.
-7. New tenants receive copies of all active role templates.
-
-## Tests
-
-- A teacher assigned at node "1st-year MPC A" can mark attendance for that section and gets `404` for section B.
-- A parent sees only their linked children, even if their role contains `students.student.view` at a broader scope.
-- Revoking the last `access.role.manage` holder fails with `422`.
-- Removing a permission takes effect on the next request (cache invalidated by the event).
-
-## Open questions
-
-- None.
+Password reset by email, multi-factor login for admins, class-level places (faculty see only their classes), guardian / self places for parents and students.
