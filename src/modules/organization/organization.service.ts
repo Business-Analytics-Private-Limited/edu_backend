@@ -11,16 +11,12 @@
  * only their own campus. Creating institutions and editing the organization need the
  * permission for the whole organization.
  */
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
-import { can, describePlace, Place, reachOf } from '../../common/scope';
+import { assertCan, can, reachOf } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
+import { DEFAULT_LEVELS } from '../academic/default-levels';
 import { AuditService } from '../audit/audit.service';
 import {
   CreateCampusDto,
@@ -173,6 +169,15 @@ export class OrganizationService {
     assertCan(actor, 'platform.institution.create', {});
     return this.prisma.forOrganization(organizationId, async (db) => {
       const institution = await db.institution.create({ data: { ...dto, organizationId } });
+      // Class levels to start with (Academic module), e.g. Year -> Group -> Section; renameable.
+      await db.classLevel.createMany({
+        data: DEFAULT_LEVELS[institution.type].map((name, index) => ({
+          organizationId,
+          institutionId: institution.id,
+          position: index + 1,
+          name,
+        })),
+      });
       await this.audit.log(db, actor, {
         action: 'create',
         entity: 'institution',
@@ -303,14 +308,5 @@ export class OrganizationService {
     const campus = await db.campus.findFirst({ where: { id, organizationId } });
     if (!campus) throw new NotFoundException('Campus not found');
     return campus;
-  }
-}
-
-/** Throws 403 unless the user has `permission` at `place` (see src/common/scope.ts). */
-function assertCan(actor: CurrentUser, permission: string, place: Place) {
-  if (!can(actor, permission, place)) {
-    throw new ForbiddenException(
-      `Your roles don't allow "${permission}" for ${describePlace(place)}`,
-    );
   }
 }

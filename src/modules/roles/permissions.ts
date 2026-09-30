@@ -87,6 +87,13 @@ export const RESOURCES: ResourceInfo[] = [
     actions: CRUD,
   },
   {
+    key: 'academic.batch',
+    module: 'academic',
+    group: 'Academic',
+    label: 'Batches',
+    actions: CRUD,
+  },
+  {
     key: 'academic.structure',
     module: 'academic',
     group: 'Academic',

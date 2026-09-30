@@ -145,6 +145,20 @@ describe('Super admin', () => {
     expect(otherOrg).toBeDefined();
   });
 
+  it('puts a predefined role back to its starting permissions', async () => {
+    await api()
+      .put('/api/v1/super-admin/predefined-roles/director')
+      .set(auth())
+      .send({ permissions: ['audit.log.view'] })
+      .expect(200);
+    const reset = await api()
+      .post('/api/v1/super-admin/predefined-roles/director/reset')
+      .set(auth())
+      .expect(200);
+    expect(reset.body.permissions.length).toBeGreaterThan(1);
+    expect(reset.body.permissions).toContain('platform.institution.create');
+  });
+
   it('refuses to change the Organization admin role or unknown permissions', async () => {
     await api()
       .put('/api/v1/super-admin/predefined-roles/org_admin')

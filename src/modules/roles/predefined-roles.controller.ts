@@ -5,8 +5,9 @@
  *   GET /api/v1/super-admin/permissions                 every resource and its actions
  *   GET /api/v1/super-admin/predefined-roles
  *   PUT /api/v1/super-admin/predefined-roles/:key       { permissions: [...] }
+ *   POST /api/v1/super-admin/predefined-roles/:key/reset back to EduPlatform's starting permissions
  */
-import { Body, Controller, Get, Param, Put } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { CurrentUser as CurrentUserType } from '../../common/current-user';
 import { SuperAdminOnly } from '../../common/decorators/access.decorators';
@@ -39,5 +40,11 @@ export class PredefinedRolesController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.predefinedRoles.updateTemplate(key, body.permissions, user);
+  }
+
+  @Post('predefined-roles/:key/reset')
+  @HttpCode(200)
+  reset(@Param('key') key: string, @CurrentUser() user: CurrentUserType) {
+    return this.predefinedRoles.resetTemplate(key, user);
   }
 }

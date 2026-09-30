@@ -12,6 +12,7 @@
  *   if (!can(user, 'access.user.update', { institutionId, campusId })) throw new ForbiddenException();
  *   const where = placeFilter(user, 'access.user.view');   // only what the user may see
  */
+import { ForbiddenException } from '@nestjs/common';
 import type { CurrentUser, Grant } from './current-user';
 
 export interface Place {
@@ -34,6 +35,23 @@ export function can(user: CurrentUser, permission: string, place: Place): boolea
 /** The permissions from `wanted` that the user does NOT have at `place`. */
 export function missingAt(user: CurrentUser, wanted: string[], place: Place): string[] {
   return wanted.filter((p) => !can(user, p, place));
+}
+
+/**
+ * May the user use `permission` anywhere inside this institution (the institution itself or one
+ * of its campuses)? For VIEWING institution-wide things, e.g. a Campus admin sees their
+ * institution's academic years and class levels.
+ */
+export function canSomewhereIn(
+  user: CurrentUser,
+  permission: string,
+  institutionId: string,
+): boolean {
+  return user.grants.some(
+    (g) =>
+      g.permissions.includes(permission) &&
+      ((!g.institutionId && !g.campusId) || g.institutionId === institutionId),
+  );
 }
 
 /** Has the user got `permission` for the whole organization? */
@@ -67,6 +85,15 @@ export function inReach(reach: Reach, place: Place): boolean {
     (!!place.campusId && reach.campusIds.includes(place.campusId)) ||
     (!!place.institutionId && reach.institutionIds.includes(place.institutionId))
   );
+}
+
+/** Throws 403 unless the user has `permission` at `place`. */
+export function assertCan(user: CurrentUser, permission: string, place: Place): void {
+  if (!can(user, permission, place)) {
+    throw new ForbiddenException(
+      `Your roles don't allow "${permission}" for ${describePlace(place)}`,
+    );
+  }
 }
 
 /** A short text for a place, for error messages. */

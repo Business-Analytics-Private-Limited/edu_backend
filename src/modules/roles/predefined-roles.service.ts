@@ -78,6 +78,16 @@ export class PredefinedRolesService implements OnApplicationBootstrap {
   }
 
   /**
+   * Puts a predefined role back to the starting permissions in predefined-roles.ts (e.g. after
+   * a new version improved them), for every organization at once.
+   */
+  resetTemplate(key: string, actor: CurrentUser) {
+    const role = PREDEFINED_ROLES.find((r) => r.key === key);
+    if (!role) throw new BadRequestException(`No predefined role "${key}"`);
+    return this.updateTemplate(key, role.permissions.filter(isKnownPermission), actor);
+  }
+
+  /**
    * Gives an organization an up-to-date copy of every predefined role (used for a new
    * organization, and at startup). Returns the copies by template key.
    */

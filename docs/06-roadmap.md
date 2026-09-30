@@ -9,7 +9,7 @@ Each phase ends with something that runs and is tested. No phase starts until th
 | 0. Design | Done |
 | 1. Foundation | Done, simplified (ADR-0015, ADR-0016): one NestJS app, Prisma, JWT login, local PostgreSQL, npm; no Docker / Redis / Keycloak yet |
 | 2. Platform core | **Done.** Super admin console and web app; organizations, modules, institutions, campuses; users with several roles at places (organization / institution / campus); predefined roles managed by the super admin; audit log with names and places (ADR-0017, ADR-0018) |
-| 3. Academic | **Next** |
+| 3. Academic | **In progress.** Part 1 done: academic years, configurable class levels, classes per campus, batches (ADR-0019). Next: subjects, holidays |
 
 The original plan per phase is below; where it names Docker, Redis, Keycloak or outbox, see ADR-0015.
 

@@ -27,6 +27,10 @@ export const ORG_ADMIN = 'org_admin';
 
 /** What a Campus admin may do at their campus. A Principal gets all of it too (see below). */
 const CAMPUS_ADMIN_PERMISSIONS = [
+  'academic.structure.create',
+  'academic.structure.update',
+  'academic.structure.delete',
+  'academic.batch.view',
   'platform.organization.view',
   'platform.institution.view',
   'platform.campus.update',
@@ -93,6 +97,8 @@ export const PREDEFINED_ROLES: PredefinedRole[] = [
       // (so they can also appoint Campus admins), plus institution-level work.
       ...new Set([
         ...CAMPUS_ADMIN_PERMISSIONS,
+        'academic.batch.create',
+        'academic.batch.update',
         'platform.organization.view',
         'platform.institution.view',
         'platform.institution.update',

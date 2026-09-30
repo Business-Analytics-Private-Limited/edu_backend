@@ -103,6 +103,11 @@ model Organization {
   users        User[]
   userRoles    UserRole[]
 
+  academicYears AcademicYear[]
+  classLevels   ClassLevel[]
+  classes       Class[]
+  batches       Batch[]
+
   @@map("organizations")
 }
 
@@ -142,6 +147,11 @@ model Institution {
   campuses     Campus[]
   userRoles    UserRole[]
 
+  academicYears AcademicYear[]
+  classLevels   ClassLevel[]
+  classes       Class[]
+  batches       Batch[]
+
   @@unique([organizationId, code])
   @@map("institutions")
 }
@@ -159,6 +169,7 @@ model Campus {
   organization Organization @relation(fields: [organizationId], references: [id])
   institution  Institution  @relation(fields: [institutionId], references: [id])
   userRoles    UserRole[]
+  classes      Class[]
 
   @@unique([institutionId, code])
   @@index([organizationId])
@@ -263,4 +274,119 @@ model AuditLog {
 
   @@index([organizationId, createdAt])
   @@map("audit_logs")
+}
+
+// -------------------------------------------------------------------------------------------------
+// ACADEMIC MODULE (ADR-0019): academic years, class levels and classes, batches.
+// Only for organizations that have the Academic module switched on.
+// -------------------------------------------------------------------------------------------------
+
+enum AcademicYearStatus {
+  PLANNED
+  ACTIVE
+  CLOSED
+}
+
+/// An institution's academic year, e.g. "2026-27" from 1 June 2026 to 31 March 2027.
+/// At most one is ACTIVE per institution; years of one institution don't overlap.
+model AcademicYear {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  institutionId  String             @map("institution_id") @db.Uuid
+  name           String
+  startsOn       DateTime           @map("starts_on") @db.Date
+  endsOn         DateTime           @map("ends_on") @db.Date
+  status         AcademicYearStatus @default(PLANNED)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  institution  Institution  @relation(fields: [institutionId], references: [id])
+
+  @@unique([institutionId, name])
+  @@index([organizationId])
+  @@map("academic_years")
+}
+
+/// The LEVELS of an institution's classes, top to bottom, e.g.
+///   junior college:  1 Year   -> 2 Group  -> 3 Section
+///   school:          1 Class  -> 2 Section
+///   or anything the institution needs, e.g. Type -> Group -> Stream -> Section.
+/// The last level is where students are placed (a section). Each institution gets defaults for
+/// its type (src/modules/academic/default-levels.ts) and can rename them.
+model ClassLevel {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  institutionId  String   @map("institution_id") @db.Uuid
+  /// 1 = top level.
+  position       Int
+  name           String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  institution  Institution  @relation(fields: [institutionId], references: [id])
+
+  @@unique([institutionId, position])
+  @@index([organizationId])
+  @@map("class_levels")
+}
+
+/// A class at one level, on one campus: a tree that follows the institution's levels, e.g.
+///   1st year (level 1) -> MPC (level 2) -> Section A (level 3).
+/// Classes of the last level are the sections students will be placed in.
+model Class {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  institutionId  String   @map("institution_id") @db.Uuid
+  campusId       String   @map("campus_id") @db.Uuid
+  /// Empty for a class of the top level.
+  parentId       String?  @map("parent_id") @db.Uuid
+  /// Which level this class is at (ClassLevel.position).
+  level          Int
+  name           String
+  /// Short code, unique among its siblings, e.g. "MPC" or "A".
+  code           String
+  sortOrder      Int      @default(0) @map("sort_order")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  institution  Institution  @relation(fields: [institutionId], references: [id])
+  campus       Campus       @relation(fields: [campusId], references: [id])
+  parent       Class?       @relation("ClassTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Class[]      @relation("ClassTree")
+
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([parentId])
+  @@map("classes")
+}
+
+enum BatchStatus {
+  ACTIVE
+  COMPLETED
+}
+
+/// A BATCH: students who joined together and move on together, e.g. "2026-28" or
+/// "Long term 2026". `stage` says where the batch is now, in the institution's own words
+/// (e.g. "Junior", "Senior", "Long term", "Passed out"); promotion (Students module) moves it on.
+model Batch {
+  id             String      @id @default(uuid(7)) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  institutionId  String      @map("institution_id") @db.Uuid
+  name           String
+  code           String
+  stage          String
+  status         BatchStatus @default(ACTIVE)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  institution  Institution  @relation(fields: [institutionId], references: [id])
+
+  @@unique([institutionId, code])
+  @@index([organizationId])
+  @@map("batches")
 }
