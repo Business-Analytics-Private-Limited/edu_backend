@@ -2,9 +2,9 @@
  * Request bodies and filters for organization users.
  */
 import { UserStatus } from '@prisma/client';
+import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
-  ArrayUnique,
   IsArray,
   IsEmail,
   IsEnum,
@@ -13,8 +13,28 @@ import {
   IsUUID,
   Length,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { PaginationQuery } from '../../../common/pagination';
+
+/**
+ * A role and the place it applies to:
+ *   neither institutionId nor campusId  -> the whole organization
+ *   institutionId                       -> that institution and all its campuses
+ *   campusId                            -> that campus only (its institution is filled in)
+ */
+export class RoleAssignmentDto {
+  @IsUUID()
+  roleId: string;
+
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  campusId?: string;
+}
 
 export class CreateUserDto {
   /** @example Suresh Kumar */
@@ -31,15 +51,12 @@ export class CreateUserDto {
   @MinLength(10)
   password: string;
 
-  /**
-   * The user's roles (at least one). With several roles, the user may do everything any of
-   * them allows, e.g. Principal AND Senior faculty.
-   */
+  /** At least one role, each with its place. More can be added later. */
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayUnique()
-  @IsUUID('all', { each: true })
-  roleIds: string[];
+  @ValidateNested({ each: true })
+  @Type(() => RoleAssignmentDto)
+  roles: RoleAssignmentDto[];
 }
 
 export class UpdateUserDto {
@@ -47,14 +64,6 @@ export class UpdateUserDto {
   @IsString()
   @Length(2, 100)
   name?: string;
-
-  /** Replaces all the user's roles. */
-  @IsOptional()
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayUnique()
-  @IsUUID('all', { each: true })
-  roleIds?: string[];
 }
 
 export class ListUsersQuery extends PaginationQuery {

@@ -9,8 +9,10 @@
  *
  * Rules for own roles:
  *   - permissions must come from the list in permissions.ts;
- *   - you can only put permissions in a role that you have yourself, and only change roles
- *     that don't have more than you;
+ *   - roles are the same across the organization, so creating, editing and deleting them needs
+ *     the permission for the WHOLE organization (a Campus admin only gives existing roles);
+ *   - you can only put permissions in a role that you have yourself (for the whole
+ *     organization), and only change roles that don't have more than you;
  *   - a role that users still have can't be deleted.
  */
 import {
@@ -20,10 +22,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { CurrentUser } from '../../common/current-user';
+import { canEverywhere, missingAt } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateRoleDto, UpdateRoleDto } from './dto/role.dto';
-import { isKnownPermission, missingPermissions, RESOURCES } from './permissions';
+import { isKnownPermission, RESOURCES } from './permissions';
 
 const PREDEFINED_IS_LOCKED = 'Predefined roles can only be changed by EduPlatform';
 
@@ -65,6 +68,7 @@ export class RolesService {
   }
 
   create(organizationId: string, dto: CreateRoleDto, actor: CurrentUser) {
+    assertWholeOrganization(actor, 'access.role.create');
     this.checkPermissions(dto.permissions, actor);
     return this.prisma.forOrganization(organizationId, async (db) => {
       const role = await db.role.create({ data: { ...dto, organizationId } });
@@ -79,11 +83,12 @@ export class RolesService {
   }
 
   update(organizationId: string, id: string, dto: UpdateRoleDto, actor: CurrentUser) {
+    assertWholeOrganization(actor, 'access.role.update');
     if (dto.permissions) this.checkPermissions(dto.permissions, actor);
     return this.prisma.forOrganization(organizationId, async (db) => {
       const existing = await this.findRole(db, organizationId, id);
       if (existing.templateKey) throw new ForbiddenException(PREDEFINED_IS_LOCKED);
-      if (missingPermissions(existing.permissions, actor.permissions).length > 0) {
+      if (missingAt(actor, existing.permissions, {}).length > 0) {
         throw new ForbiddenException(
           "This role has permissions you don't have, so you can't change it",
         );
@@ -100,6 +105,7 @@ export class RolesService {
   }
 
   delete(organizationId: string, id: string, actor: CurrentUser) {
+    assertWholeOrganization(actor, 'access.role.delete');
     return this.prisma.forOrganization(organizationId, async (db) => {
       const role = await this.findRole(db, organizationId, id);
       if (role.templateKey) throw new ForbiddenException(PREDEFINED_IS_LOCKED);
@@ -133,12 +139,21 @@ export class RolesService {
     if (unknown.length > 0) {
       throw new BadRequestException(`Unknown permissions: ${unknown.join(', ')}`);
     }
-    const notYours = missingPermissions(permissions, actor.permissions);
+    const notYours = missingAt(actor, permissions, {});
     if (notYours.length > 0) {
       throw new ForbiddenException(
         `You can only give permissions you have yourself. Not yours: ${notYours.join(', ')}`,
       );
     }
+  }
+}
+
+/** Roles are organization-wide: managing them needs `permission` for the whole organization. */
+function assertWholeOrganization(actor: CurrentUser, permission: string) {
+  if (!canEverywhere(actor, permission)) {
+    throw new ForbiddenException(
+      'Roles are shared by the whole organization; only someone with this permission for the whole organization can change them',
+    );
   }
 }
 

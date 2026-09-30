@@ -23,6 +23,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0015](0015-simplified-backend.md) | A simple, conventional backend | Accepted (package manager: see ADR-0016) |
 | [0016](0016-npm-instead-of-pnpm.md) | npm instead of pnpm, in both repositories | Accepted |
 | [0017](0017-predefined-roles-and-multiple-roles.md) | Predefined roles managed by the super admin, several roles per user | Accepted |
+| [0018](0018-roles-at-places.md) | Roles apply at a place: organization, institution or campus | Accepted |
 
 Template for new ADRs:
 

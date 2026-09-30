@@ -140,6 +140,7 @@ model Institution {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   campuses     Campus[]
+  userRoles    UserRole[]
 
   @@unique([organizationId, code])
   @@map("institutions")
@@ -157,6 +158,7 @@ model Campus {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   institution  Institution  @relation(fields: [institutionId], references: [id])
+  userRoles    UserRole[]
 
   @@unique([institutionId, code])
   @@index([organizationId])
@@ -179,7 +181,7 @@ model Role {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization  @relation(fields: [organizationId], references: [id])
-  template     RoleTemplate? @relation(fields: [templateKey], references: [key])
+  template     RoleTemplate? @relation(fields: [templateKey], references: [key], onDelete: Restrict)
   users        UserRole[]
 
   @@unique([organizationId, name])
@@ -212,20 +214,31 @@ model User {
   @@map("users")
 }
 
-/// Which roles a user has. A user can have several (e.g. Principal AND Senior faculty); they
-/// may do everything any of their roles allows.
+/// Which roles a user has, and WHERE each one applies (a "role assignment"):
+///   no institution, no campus  -> the whole organization
+///   institutionId only         -> one institution and all its campuses
+///   campusId (+ institutionId) -> one campus only
+/// A user can have several, e.g. Principal of an institution AND Senior faculty at two
+/// campuses. They may do what each role allows, in that role's place.
 model UserRole {
-  userId         String @map("user_id") @db.Uuid
-  roleId         String @map("role_id") @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
+  id             String  @id @default(uuid(7)) @db.Uuid
+  userId         String  @map("user_id") @db.Uuid
+  roleId         String  @map("role_id") @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  institutionId  String? @map("institution_id") @db.Uuid
+  campusId       String? @map("campus_id") @db.Uuid
 
   user         User         @relation(fields: [userId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id])
+  institution  Institution? @relation(fields: [institutionId], references: [id], onDelete: Restrict)
+  campus       Campus?      @relation(fields: [campusId], references: [id], onDelete: Restrict)
 
-  @@id([userId, roleId])
+  @@index([userId])
   @@index([roleId])
   @@index([organizationId])
+  @@index([institutionId])
+  @@index([campusId])
   @@map("user_roles")
 }
 
@@ -236,6 +249,12 @@ model AuditLog {
   organizationId String?  @map("organization_id") @db.Uuid
   actorType      String   @map("actor_type") // "super_admin" or "user"
   actorId        String   @map("actor_id") @db.Uuid
+  /// The person's name at the time of the change, so the log reads "Ravi Kumar", not an id.
+  actorName      String?  @map("actor_name")
+  /// Where the change happened, so campus and institution admins see their own part of the log.
+  /// Kept as plain ids (no foreign key): the log stays even if the campus is deleted.
+  institutionId  String?  @map("institution_id") @db.Uuid
+  campusId       String?  @map("campus_id") @db.Uuid
   action         String // e.g. "create", "update", "delete", "suspend"
   entity         String // e.g. "institution"
   entityId       String?  @map("entity_id")

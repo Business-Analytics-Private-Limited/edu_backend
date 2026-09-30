@@ -118,6 +118,7 @@ describe('Super admin', () => {
       'org_admin',
       'director',
       'principal',
+      'campus_admin',
       'senior_faculty',
       'junior_faculty',
       'dtp_operator',

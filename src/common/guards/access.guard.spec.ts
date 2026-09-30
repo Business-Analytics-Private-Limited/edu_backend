@@ -15,6 +15,7 @@ const superAdmin: CurrentUser = {
   email: 's@x',
   organizationId: null,
   roleNames: [],
+  grants: [],
   permissions: [],
   enabledModules: [],
 };
@@ -26,6 +27,7 @@ const teacher: CurrentUser = {
   email: 't@x',
   organizationId: 'org1',
   roleNames: ['Teacher'],
+  grants: [],
   permissions: ['platform.institution.view', 'students.student.view'],
   enabledModules: [],
 };

@@ -19,6 +19,12 @@ export interface AuditEntry {
   entityId?: string;
   /** The organization the change belongs to. Defaults to the user's own organization. */
   organizationId?: string | null;
+  /**
+   * Where in the organization it happened, if it belongs to one institution or campus.
+   * Campus and institution admins see only the log of their own place.
+   */
+  institutionId?: string | null;
+  campusId?: string | null;
   /** Anything useful to understand the change later. Never passwords. */
   details?: Prisma.InputJsonValue;
 }
@@ -32,6 +38,9 @@ export class AuditService {
           entry.organizationId !== undefined ? entry.organizationId : actor.organizationId,
         actorType: actor.type,
         actorId: actor.id,
+        actorName: actor.name,
+        institutionId: entry.institutionId ?? null,
+        campusId: entry.campusId ?? null,
         action: entry.action,
         entity: entry.entity,
         entityId: entry.entityId,

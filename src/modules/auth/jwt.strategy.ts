@@ -38,6 +38,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         organizationId: null,
         roleNames: [],
         permissions: [],
+        grants: [],
         enabledModules: [],
       };
     }
@@ -62,9 +63,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       name: user.name,
       email: user.email,
       organizationId: user.organizationId,
-      roleNames: user.roles.map((r) => r.role.name),
-      // A user with several roles may do everything any of them allows.
+      roleNames: [...new Set(user.roles.map((r) => r.role.name))],
+      // A user with several roles may do everything any of them allows (each in its own place).
       permissions: [...new Set(user.roles.flatMap((r) => r.role.permissions))],
+      grants: user.roles.map((r) => ({
+        roleName: r.role.name,
+        permissions: r.role.permissions,
+        institutionId: r.institutionId,
+        campusId: r.campusId,
+      })),
       enabledModules: user.organization.modules.map((m) => m.moduleKey),
     };
   }

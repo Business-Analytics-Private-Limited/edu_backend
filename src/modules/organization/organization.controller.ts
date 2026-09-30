@@ -36,8 +36,8 @@ export class OrganizationController {
 
   @Get('dashboard')
   @OrganizationUser()
-  dashboard(@OrganizationId() organizationId: string) {
-    return this.organization.dashboard(organizationId);
+  dashboard(@OrganizationId() organizationId: string, @CurrentUser() user: CurrentUserType) {
+    return this.organization.dashboard(organizationId, user);
   }
 
   @Get('organization')
@@ -58,8 +58,8 @@ export class OrganizationController {
 
   @Get('institutions')
   @RequirePermission('platform.institution.view')
-  listInstitutions(@OrganizationId() organizationId: string) {
-    return this.organization.listInstitutions(organizationId);
+  listInstitutions(@OrganizationId() organizationId: string, @CurrentUser() user: CurrentUserType) {
+    return this.organization.listInstitutions(organizationId, user);
   }
 
   @Post('institutions')
@@ -74,8 +74,12 @@ export class OrganizationController {
 
   @Get('institutions/:id')
   @RequirePermission('platform.institution.view')
-  getInstitution(@OrganizationId() organizationId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.organization.getInstitution(organizationId, id);
+  getInstitution(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.organization.getInstitution(organizationId, id, user);
   }
 
   @Patch('institutions/:id')

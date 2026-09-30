@@ -6,6 +6,9 @@
  * apply to every organization at once. Organization admins can assign these roles to users but
  * can't change or delete them; they create their own roles for anything else.
  *
+ * Each role is given to a user AT A PLACE: the whole organization, one institution or one campus
+ * (ADR-0018). E.g. "Principal" at Sri Vidya Junior College, "Campus admin" at Kukatpally.
+ *
  * `assignable: false` = not given from the Users page. Parent and Student logins will be created
  * from a student's record (Students module), so they only ever see their own children / record.
  */
@@ -21,6 +24,43 @@ export interface PredefinedRole {
 
 /** The key of the role that always has every permission and can never be changed. */
 export const ORG_ADMIN = 'org_admin';
+
+/** What a Campus admin may do at their campus. A Principal gets all of it too (see below). */
+const CAMPUS_ADMIN_PERMISSIONS = [
+  'platform.organization.view',
+  'platform.institution.view',
+  'platform.campus.update',
+  'access.user.view',
+  'access.user.create',
+  'access.user.update',
+  'access.role.view',
+  'audit.log.view',
+  'academic.year.view',
+  'academic.structure.view',
+  'academic.subject.view',
+  'academic.calendar.view',
+  'academic.calendar.create',
+  'academic.calendar.update',
+  'students.student.view',
+  'students.student.create',
+  'students.student.update',
+  'students.student.import',
+  'students.student.export',
+  'students.enrolment.transfer',
+  'students.document.view',
+  'students.document.create',
+  'students.document.update',
+  'students.document.delete',
+  'attendance.record.view',
+  'attendance.record.mark',
+  'attendance.record.correct',
+  'attendance.policy.view',
+  'attendance.device.view',
+  'attendance.device.create',
+  'attendance.device.update',
+  'attendance.report.view',
+  'imports.job.view',
+];
 
 export const PREDEFINED_ROLES: PredefinedRole[] = [
   {
@@ -49,39 +89,54 @@ export const PREDEFINED_ROLES: PredefinedRole[] = [
     name: 'Principal',
     description: 'Runs an institution: academics, students and attendance',
     permissions: [
-      'platform.organization.view',
-      'platform.institution.view',
-      'platform.institution.update',
-      'platform.campus.create',
-      'platform.campus.update',
-      'access.user.view',
-      'access.role.view',
-      'academic.year.view',
-      'academic.year.create',
-      'academic.year.update',
-      'academic.structure.view',
-      'academic.structure.create',
-      'academic.structure.update',
-      'academic.subject.view',
-      'academic.subject.create',
-      'academic.subject.update',
-      'academic.calendar.view',
-      'academic.calendar.create',
-      'academic.calendar.update',
-      'students.student.view',
-      'students.student.create',
-      'students.student.update',
-      'students.student.export',
-      'students.enrolment.promote',
-      'students.enrolment.transfer',
-      'students.document.view',
-      'students.document.update',
-      'attendance.record.view',
-      'attendance.record.correct',
-      'attendance.policy.view',
-      'attendance.policy.update',
-      'attendance.report.view',
+      // A Principal can do everything a Campus admin can, in every campus of the institution
+      // (so they can also appoint Campus admins), plus institution-level work.
+      ...new Set([
+        ...CAMPUS_ADMIN_PERMISSIONS,
+        'platform.organization.view',
+        'platform.institution.view',
+        'platform.institution.update',
+        'platform.campus.create',
+        'platform.campus.update',
+        'access.user.view',
+        'access.user.create',
+        'access.user.update',
+        'access.role.view',
+        'audit.log.view',
+        'academic.year.view',
+        'academic.year.create',
+        'academic.year.update',
+        'academic.structure.view',
+        'academic.structure.create',
+        'academic.structure.update',
+        'academic.subject.view',
+        'academic.subject.create',
+        'academic.subject.update',
+        'academic.calendar.view',
+        'academic.calendar.create',
+        'academic.calendar.update',
+        'students.student.view',
+        'students.student.create',
+        'students.student.update',
+        'students.student.export',
+        'students.enrolment.promote',
+        'students.enrolment.transfer',
+        'students.document.view',
+        'students.document.update',
+        'attendance.record.view',
+        'attendance.record.correct',
+        'attendance.policy.view',
+        'attendance.policy.update',
+        'attendance.report.view',
+      ]),
     ],
+    assignable: true,
+  },
+  {
+    key: 'campus_admin',
+    name: 'Campus admin',
+    description: 'Runs one campus: its staff, students, documents and attendance',
+    permissions: CAMPUS_ADMIN_PERMISSIONS,
     assignable: true,
   },
   {

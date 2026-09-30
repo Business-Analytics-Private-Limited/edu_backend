@@ -63,7 +63,7 @@ export class AuthService {
         email: user.email,
         type: 'user' as const,
         organization: { id: user.organization.id, name: user.organization.name },
-        roleNames: user.roles.map((r) => r.role.name),
+        roleNames: [...new Set(user.roles.map((r) => r.role.name))],
       },
     };
   }

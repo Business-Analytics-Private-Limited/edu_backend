@@ -13,10 +13,23 @@ export interface CurrentUser {
   organizationId: string | null;
   /** Names of the user's roles, e.g. ["Principal", "Senior faculty"]. */
   roleNames: string[];
-  /** Everything any of the user's roles allows, e.g. "access.user.create". */
+  /**
+   * Everything any of the user's roles allows, anywhere, e.g. "access.user.create". Enough to
+   * decide which menus and endpoints they may open; WHERE they may use it is in `grants`.
+   */
   permissions: string[];
+  /** Each role of the user with the place it applies to (see src/common/scope.ts). */
+  grants: Grant[];
   /** Keys of the modules switched on for the user's organization, e.g. "students". */
   enabledModules: string[];
+}
+
+/** One role assignment: its permissions, and where they apply (no ids = whole organization). */
+export interface Grant {
+  roleName: string;
+  permissions: string[];
+  institutionId: string | null;
+  campusId: string | null;
 }
 
 /** What we put inside a login token (keep it small: identity only, no permissions). */

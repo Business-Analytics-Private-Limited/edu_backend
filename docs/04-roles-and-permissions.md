@@ -40,6 +40,8 @@ Example: Ms. Rao has the role *Teacher* at scope `node: 1st-year MPC section A` 
 
 `permissions(key, module_key, description)` · `roles(id, tenant_id, key, name, is_system_template, based_on)` · `role_permissions(role_id, permission_key)` · `role_assignments(id, tenant_id, user_id, role_id, scope_type, scope_id, valid_from, valid_to)`
 
+**Built so far (ADR-0018):** `organization`, `institution` and `campus` scopes, as a place on each role assignment (`user_roles.institution_id` / `campus_id`). `node`, `self` and `guardian` come with the Academic and Students modules.
+
 ## 4.4 Platform roles (outside tenants)
 
 | Role | Can do |
@@ -52,13 +54,14 @@ Platform users are in a separate Keycloak realm and never appear in tenant user 
 
 ## 4.5 Predefined roles (ADR-0017)
 
-Every organization has these roles. **Only the super admin changes their permissions** (super admin console, *Predefined roles*), and a change applies to that role in every organization at once. Organization admins can **assign** them to users but can't change or delete them; for anything else they **create their own roles**.
+Every organization has these roles. Each is given to a user **at a place** (whole organization, one institution, or one campus); see ADR-0018. **Only the super admin changes their permissions** (super admin console, *Predefined roles*), and a change applies to that role in every organization at once. Organization admins can **assign** them to users but can't change or delete them; for anything else they **create their own roles**.
 
 | Role | Given by | Typical scope (planned) | Starting permissions |
 |---|---|---|---|
 | Organization admin | organization | organization | Everything, always (can't be changed, even by the super admin) |
 | Director | organization | organization | Every *view*, plus create/edit institutions and campuses, export students |
 | Principal | organization | institution | Academics, students (no delete), promotion/transfer, attendance corrections and rules |
+| Campus admin | organization | campus | Runs one campus: its staff, students, documents and attendance (not roles, not institutions) |
 | Senior faculty | organization | node (classes) | View academics and students, mark and correct attendance, attendance reports |
 | Junior faculty | organization | node (classes) | View academics and students, mark attendance |
 | DTP operator | organization | institution or campus | Data entry: create/edit/import students and documents, no delete |
