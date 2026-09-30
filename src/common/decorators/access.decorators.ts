@@ -6,7 +6,7 @@
  *   @LoggedIn()                           anyone logged in (e.g. "who am I")
  *   @SuperAdminOnly()                     EduPlatform staff only (the super admin area)
  *   @OrganizationUser()                   any user of an organization (e.g. its dashboard)
- *   @RequirePermission('access.user.manage')
+ *   @RequirePermission('access.user.create')
  *                                         a user of an organization whose role has this permission,
  *                                         when the permission's module is switched on
  */

@@ -16,6 +16,11 @@ describe('Organization area', () => {
   let institutionA: string;
   const api = () => request(app.getHttpServer());
   const as = (token: string) => ({ Authorization: `Bearer ${token}` });
+  /** The id of organization A's role with this name. */
+  const roleId = async (name: string): Promise<string> => {
+    const roles = await api().get('/api/v1/roles').set(as(adminA)).expect(200);
+    return roles.body.find((r: { name: string }) => r.name === name).id;
+  };
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -51,7 +56,8 @@ describe('Organization area', () => {
     expect(detail.body.campuses).toHaveLength(1);
 
     const dashboard = await api().get('/api/v1/dashboard').set(as(adminA)).expect(200);
-    expect(dashboard.body).toMatchObject({ institutions: 1, campuses: 1, users: 1, roles: 1 });
+    // roles: the 8 predefined roles every organization gets
+    expect(dashboard.body).toMatchObject({ institutions: 1, campuses: 1, users: 1, roles: 8 });
   });
 
   it("organization B can't see or change organization A's data", async () => {
@@ -96,7 +102,7 @@ describe('Organization area', () => {
         name: 'Ravi Teacher',
         email: 'ravi@org-a.test',
         password: 'Teacher@123',
-        roleId: role.body.id,
+        roleIds: [role.body.id],
       })
       .expect(201);
     const teacher = await loginUser(app, 'ravi@org-a.test', 'Teacher@123');
@@ -108,26 +114,192 @@ describe('Organization area', () => {
       .send({ name: 'Not allowed', code: 'NOPE', type: 'SCHOOL' })
       .expect(403);
     expect(denied.body.message).toBe(
-      'Your role needs the permission "platform.institution.manage"',
+      'Your role needs the permission "platform.institution.create"',
     );
     await api().get('/api/v1/users').set(as(teacher)).expect(403);
   });
 
-  it('refuses unknown permissions and protects the admin role', async () => {
+  it('every organization gets the predefined roles', async () => {
+    const roles = await api().get('/api/v1/roles').set(as(adminA)).expect(200);
+    const predefined = roles.body.filter((r: { predefined: boolean }) => r.predefined);
+    expect(predefined.map((r: { name: string }) => r.name)).toEqual([
+      'Organization admin',
+      'Director',
+      'Principal',
+      'Senior faculty',
+      'Junior faculty',
+      'DTP operator',
+      'Parent',
+      'Student',
+    ]);
+    const parent = predefined.find((r: { name: string }) => r.name === 'Parent');
+    expect(parent.assignable).toBe(false);
+  });
+
+  it('an organization admin can add roles but not change or delete predefined ones', async () => {
+    const director = await roleId('Director');
+    await api()
+      .patch(`/api/v1/roles/${director}`)
+      .set(as(adminA))
+      .send({ permissions: ['audit.log.view'] })
+      .expect(403);
+    await api().delete(`/api/v1/roles/${director}`).set(as(adminA)).expect(403);
+    const adminRole = await roleId('Organization admin');
+    await api().delete(`/api/v1/roles/${adminRole}`).set(as(adminA)).expect(403);
     await api()
       .post('/api/v1/roles')
       .set(as(adminA))
       .send({ name: 'Broken', permissions: ['make.me.boss'] })
       .expect(400);
+  });
 
-    const roles = await api().get('/api/v1/roles').set(as(adminA)).expect(200);
-    const adminRole = roles.body.find((r: { isSystem: boolean }) => r.isSystem);
-    await api().delete(`/api/v1/roles/${adminRole.id}`).set(as(adminA)).expect(400);
+  it('a user with several roles may do what any of them allows', async () => {
+    const roleIds = [await roleId('Principal'), await roleId('Senior faculty')];
+    await api()
+      .post('/api/v1/users')
+      .set(as(adminA))
+      .send({
+        name: 'Lakshmi Principal',
+        email: 'lakshmi@org-a.test',
+        password: 'Principal@123',
+        roleIds,
+      })
+      .expect(201);
+    const token = await loginUser(app, 'lakshmi@org-a.test', 'Principal@123');
+
+    const me = await api().get('/api/v1/auth/me').set(as(token)).expect(200);
+    expect(me.body.roleNames.sort()).toEqual(['Principal', 'Senior faculty']);
+    expect(me.body.permissions).toEqual(
+      expect.arrayContaining(['students.enrolment.promote', 'attendance.record.mark']),
+    );
+    // Principal may edit institutions; neither role may delete them.
+    await api()
+      .patch(`/api/v1/institutions/${institutionA}`)
+      .set(as(token))
+      .send({ name: 'Org A Junior College' })
+      .expect(200);
+    await api().delete(`/api/v1/institutions/${institutionA}`).set(as(token)).expect(403);
+  });
+
+  it("parent and student roles can't be given from the Users page", async () => {
+    const parentRole = await roleId('Parent');
+    const res = await api()
+      .post('/api/v1/users')
+      .set(as(adminA))
+      .send({
+        name: 'A Parent',
+        email: 'parent@org-a.test',
+        password: 'Parent@12345',
+        roleIds: [parentRole],
+      })
+      .expect(400);
+    expect(res.body.message).toBe("The Parent role is given from a student's record, not here");
+  });
+
+  it('nobody can hand out more than they have', async () => {
+    // An office manager who may manage users and create roles, but little else.
+    const manager = await api()
+      .post('/api/v1/roles')
+      .set(as(adminA))
+      .send({
+        name: 'Office manager',
+        permissions: [
+          'access.user.view',
+          'access.user.create',
+          'access.user.update',
+          'access.role.view',
+          'access.role.create',
+        ],
+      })
+      .expect(201);
+    await api()
+      .post('/api/v1/users')
+      .set(as(adminA))
+      .send({
+        name: 'Manager',
+        email: 'manager@org-a.test',
+        password: 'Manager@123',
+        roleIds: [manager.body.id],
+      })
+      .expect(201);
+    const token = await loginUser(app, 'manager@org-a.test', 'Manager@123');
+
+    // A role with a permission the manager doesn't have: refused.
+    await api()
+      .post('/api/v1/roles')
+      .set(as(token))
+      .send({ name: 'Sneaky', permissions: ['platform.institution.delete'] })
+      .expect(403);
+    // Changing a role that has more than the manager has: refused.
+    await api()
+      .patch(`/api/v1/roles/${manager.body.id}`)
+      .set(as(adminA))
+      .send({ permissions: [...manager.body.permissions, 'access.role.update'] })
+      .expect(200);
+    const bigger = await api()
+      .post('/api/v1/roles')
+      .set(as(adminA))
+      .send({ name: 'Bigger', permissions: ['platform.institution.delete'] })
+      .expect(201);
+    await api()
+      .patch(`/api/v1/roles/${bigger.body.id}`)
+      .set(as(token))
+      .send({ permissions: [] })
+      .expect(403);
+    // Giving someone the Director role (more than the manager has): refused.
+    const director = await roleId('Director');
+    await api()
+      .post('/api/v1/users')
+      .set(as(token))
+      .send({
+        name: 'Fake Director',
+        email: 'fake@org-a.test',
+        password: 'Director@123',
+        roleIds: [director],
+      })
+      .expect(403);
+    // Deactivating the organization admin (who may do more): refused.
+    const admin = await api().get('/api/v1/auth/me').set(as(adminA)).expect(200);
+    await api().post(`/api/v1/users/${admin.body.id}/deactivate`).set(as(token)).expect(403);
+    // Adding someone with the manager's own role: fine.
+    await api()
+      .post('/api/v1/users')
+      .set(as(token))
+      .send({
+        name: 'Assistant',
+        email: 'assistant@org-a.test',
+        password: 'Assistant@123',
+        roleIds: [manager.body.id],
+      })
+      .expect(201);
   });
 
   it('an admin cannot lock the organization out', async () => {
     const me = await api().get('/api/v1/auth/me').set(as(adminA)).expect(200);
     await api().post(`/api/v1/users/${me.body.id}/deactivate`).set(as(adminA)).expect(400);
+
+    // Taking away the only admin's Organization admin role: refused.
+    const [adminRole, directorRole, juniorRole] = [
+      await roleId('Organization admin'),
+      await roleId('Director'),
+      await roleId('Junior faculty'),
+    ];
+    const res = await api()
+      .patch(`/api/v1/users/${me.body.id}`)
+      .set(as(adminA))
+      .send({ roleIds: [juniorRole] })
+      .expect(400);
+    expect(res.body.message).toBe(
+      'The organization must keep at least one active Organization admin',
+    );
+
+    // Keeping it and adding a second role: fine.
+    const both = await api()
+      .patch(`/api/v1/users/${me.body.id}`)
+      .set(as(adminA))
+      .send({ roleIds: [adminRole, directorRole] })
+      .expect(200);
+    expect(both.body.roles).toHaveLength(2);
   });
 
   it('a deactivated user can no longer log in', async () => {

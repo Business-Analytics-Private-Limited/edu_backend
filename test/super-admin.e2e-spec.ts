@@ -1,5 +1,5 @@
 /**
- * The super admin area: organizations and their modules.
+ * The super admin area: organizations, their modules, and the predefined roles.
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
@@ -107,6 +107,63 @@ describe('Super admin', () => {
       .set(auth())
       .expect(200);
     await api().get('/api/v1/auth/me').set('Authorization', `Bearer ${adminToken}`).expect(200);
+  });
+
+  it('changes a predefined role for every organization at once', async () => {
+    const otherOrg = await createOrganization(app, token, 'blue-hills', 'admin@bluehills.test');
+    const permissions = ['students.student.view', 'attendance.record.mark'];
+
+    const list = await api().get('/api/v1/super-admin/predefined-roles').set(auth()).expect(200);
+    expect(list.body.map((r: { key: string }) => r.key)).toEqual([
+      'org_admin',
+      'director',
+      'principal',
+      'senior_faculty',
+      'junior_faculty',
+      'dtp_operator',
+      'parent',
+      'student',
+    ]);
+
+    await api()
+      .put('/api/v1/super-admin/predefined-roles/junior_faculty')
+      .set(auth())
+      .send({ permissions })
+      .expect(200);
+
+    // Both organizations' copies of "Junior faculty" changed.
+    for (const email of ['admin@greenvalley.test', 'admin@bluehills.test']) {
+      const admin = await loginUser(app, email, 'Admin@12345');
+      const roles = await api()
+        .get('/api/v1/roles')
+        .set('Authorization', `Bearer ${admin}`)
+        .expect(200);
+      const junior = roles.body.find((r: { name: string }) => r.name === 'Junior faculty');
+      expect(junior).toMatchObject({ predefined: true, permissions });
+    }
+    expect(otherOrg).toBeDefined();
+  });
+
+  it('refuses to change the Organization admin role or unknown permissions', async () => {
+    await api()
+      .put('/api/v1/super-admin/predefined-roles/org_admin')
+      .set(auth())
+      .send({ permissions: [] })
+      .expect(400);
+    await api()
+      .put('/api/v1/super-admin/predefined-roles/director')
+      .set(auth())
+      .send({ permissions: ['make.me.boss'] })
+      .expect(400);
+  });
+
+  it('only the super admin can change predefined roles', async () => {
+    const adminToken = await loginUser(app, 'admin@greenvalley.test', 'Admin@12345');
+    await api()
+      .put('/api/v1/super-admin/predefined-roles/director')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ permissions: [] })
+      .expect(403);
   });
 
   it('shows dashboard numbers', async () => {

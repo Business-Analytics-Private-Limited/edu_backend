@@ -3,16 +3,16 @@
  * Only users of an organization reach these routes, and only their own organization's data.
  *
  *   GET    /api/v1/dashboard                              any organization user
- *   GET    /api/v1/organization                           platform.institution.view
- *   PATCH  /api/v1/organization                           platform.settings.manage
+ *   GET    /api/v1/organization                           platform.organization.view
+ *   PATCH  /api/v1/organization                           platform.organization.update
  *   GET    /api/v1/institutions                           platform.institution.view
- *   POST   /api/v1/institutions                           platform.institution.manage
+ *   POST   /api/v1/institutions                           platform.institution.create
  *   GET    /api/v1/institutions/:id                       platform.institution.view
- *   PATCH  /api/v1/institutions/:id                       platform.institution.manage
- *   DELETE /api/v1/institutions/:id                       platform.institution.manage
- *   POST   /api/v1/institutions/:id/campuses              platform.campus.manage
- *   PATCH  /api/v1/campuses/:id                           platform.campus.manage
- *   DELETE /api/v1/campuses/:id                           platform.campus.manage
+ *   PATCH  /api/v1/institutions/:id                       platform.institution.update
+ *   DELETE /api/v1/institutions/:id                       platform.institution.delete
+ *   POST   /api/v1/institutions/:id/campuses              platform.campus.create
+ *   PATCH  /api/v1/campuses/:id                           platform.campus.update
+ *   DELETE /api/v1/campuses/:id                           platform.campus.delete
  */
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -41,13 +41,13 @@ export class OrganizationController {
   }
 
   @Get('organization')
-  @RequirePermission('platform.institution.view')
+  @RequirePermission('platform.organization.view')
   getOwn(@OrganizationId() organizationId: string) {
     return this.organization.getOwn(organizationId);
   }
 
   @Patch('organization')
-  @RequirePermission('platform.settings.manage')
+  @RequirePermission('platform.organization.update')
   updateOwn(
     @OrganizationId() organizationId: string,
     @Body() body: UpdateOwnOrganizationDto,
@@ -63,7 +63,7 @@ export class OrganizationController {
   }
 
   @Post('institutions')
-  @RequirePermission('platform.institution.manage')
+  @RequirePermission('platform.institution.create')
   createInstitution(
     @OrganizationId() organizationId: string,
     @Body() body: CreateInstitutionDto,
@@ -79,7 +79,7 @@ export class OrganizationController {
   }
 
   @Patch('institutions/:id')
-  @RequirePermission('platform.institution.manage')
+  @RequirePermission('platform.institution.update')
   updateInstitution(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -90,7 +90,7 @@ export class OrganizationController {
   }
 
   @Delete('institutions/:id')
-  @RequirePermission('platform.institution.manage')
+  @RequirePermission('platform.institution.delete')
   deleteInstitution(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -100,7 +100,7 @@ export class OrganizationController {
   }
 
   @Post('institutions/:id/campuses')
-  @RequirePermission('platform.campus.manage')
+  @RequirePermission('platform.campus.create')
   createCampus(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) institutionId: string,
@@ -111,7 +111,7 @@ export class OrganizationController {
   }
 
   @Patch('campuses/:id')
-  @RequirePermission('platform.campus.manage')
+  @RequirePermission('platform.campus.update')
   updateCampus(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -122,7 +122,7 @@ export class OrganizationController {
   }
 
   @Delete('campuses/:id')
-  @RequirePermission('platform.campus.manage')
+  @RequirePermission('platform.campus.delete')
   deleteCampus(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,

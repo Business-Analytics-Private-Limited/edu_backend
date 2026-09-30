@@ -41,7 +41,7 @@ export class AuthService {
     const user = await this.prisma.forAllOrganizations((db) =>
       db.user.findUnique({
         where: { email: email.toLowerCase() },
-        include: { organization: true, role: true },
+        include: { organization: true, roles: { include: { role: true } } },
       }),
     );
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
@@ -63,7 +63,7 @@ export class AuthService {
         email: user.email,
         type: 'user' as const,
         organization: { id: user.organization.id, name: user.organization.name },
-        roleName: user.role.name,
+        roleNames: user.roles.map((r) => r.role.name),
       },
     };
   }

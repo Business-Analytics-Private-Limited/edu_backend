@@ -50,70 +50,36 @@ Example: Ms. Rao has the role *Teacher* at scope `node: 1st-year MPC section A` 
 
 Platform users are in a separate Keycloak realm and never appear in tenant user lists.
 
-## 4.5 Default tenant role templates
+## 4.5 Predefined roles (ADR-0017)
 
-New tenants receive these as editable copies.
+Every organization has these roles. **Only the super admin changes their permissions** (super admin console, *Predefined roles*), and a change applies to that role in every organization at once. Organization admins can **assign** them to users but can't change or delete them; for anything else they **create their own roles**.
 
-| Role | Typical scope |
-|---|---|
-| Organization admin | organization |
-| Institution admin (principal / dean) | institution |
-| Office staff | institution or campus |
-| Campus in-charge | campus |
-| Teacher / lecturer | node |
-| Accountant (v2) | institution or campus |
-| Parent | guardian |
-| Student | self |
+| Role | Given by | Typical scope (planned) | Starting permissions |
+|---|---|---|---|
+| Organization admin | organization | organization | Everything, always (can't be changed, even by the super admin) |
+| Director | organization | organization | Every *view*, plus create/edit institutions and campuses, export students |
+| Principal | organization | institution | Academics, students (no delete), promotion/transfer, attendance corrections and rules |
+| Senior faculty | organization | node (classes) | View academics and students, mark and correct attendance, attendance reports |
+| Junior faculty | organization | node (classes) | View academics and students, mark attendance |
+| DTP operator | organization | institution or campus | Data entry: create/edit/import students and documents, no delete |
+| Parent | student record | guardian | View their children's profile, documents, attendance |
+| Student | student record | self | View their own profile, documents, attendance |
 
-## 4.6 v1 permissions matrix
+The starting permissions are in `src/modules/roles/predefined-roles.ts`; after that, the database (`role_templates`) is the source of truth.
 
-✓ = granted by default. Tenant admins can change their copies.
+**Parent and Student** are not given from the Users page. Their logins will be created from a student's record (Students module), linked to that student, so a parent sees only their own children and a student only themselves. Until then the API refuses to assign them.
 
-| Permission | Org admin | Inst admin | Office staff | Campus in-charge | Teacher | Parent | Student |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| **platform (tenant side)** | | | | | | | |
-| `platform.institution.view` | ✓ | ✓ | ✓ | ✓ | | | |
-| `platform.institution.manage` | ✓ | | | | | | |
-| `platform.campus.manage` | ✓ | ✓ | | | | | |
-| `platform.settings.manage` | ✓ | ✓ | | | | | |
-| **access** | | | | | | | |
-| `access.user.view` | ✓ | ✓ | ✓ | ✓ | | | |
-| `access.user.manage` | ✓ | ✓ | | | | | |
-| `access.role.manage` | ✓ | ✓ | | | | | |
-| `audit.log.view` | ✓ | ✓ | | | | | |
-| **academic** | | | | | | | |
-| `academic.structure.view` | ✓ | ✓ | ✓ | ✓ | ✓ | | |
-| `academic.structure.manage` | ✓ | ✓ | | | | | |
-| `academic.year.manage` | ✓ | ✓ | | | | | |
-| `academic.subject.manage` | ✓ | ✓ | | | | | |
-| `academic.calendar.manage` | ✓ | ✓ | | | | | |
-| **students** | | | | | | | |
-| `students.student.view` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `students.student.create` | ✓ | ✓ | ✓ | | | | |
-| `students.student.update` | ✓ | ✓ | ✓ | | | | |
-| `students.student.delete` | ✓ | ✓ | | | | | |
-| `students.student.import` | ✓ | ✓ | ✓ | | | | |
-| `students.student.export` | ✓ | ✓ | ✓ | ✓ | | | |
-| `students.enrolment.promote` | ✓ | ✓ | | | | | |
-| `students.enrolment.transfer` | ✓ | ✓ | ✓ | | | | |
-| `students.document.view` | ✓ | ✓ | ✓ | ✓ | | ✓ | ✓ |
-| `students.document.manage` | ✓ | ✓ | ✓ | | | | |
-| `students.settings.manage` | ✓ | ✓ | | | | | |
-| **attendance** | | | | | | | |
-| `attendance.record.view` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `attendance.record.mark` | | ✓ | ✓ | ✓ | ✓ | | |
-| `attendance.record.correct` | | ✓ | | ✓ | | | |
-| `attendance.policy.manage` | ✓ | ✓ | | | | | |
-| `attendance.device.manage` | ✓ | ✓ | | ✓ | | | |
-| `attendance.report.view` | ✓ | ✓ | ✓ | ✓ | ✓ | | |
-| **imports** | | | | | | | |
-| `imports.job.view` | ✓ | ✓ | ✓ | | | | |
+## 4.6 Several roles per user
 
-For parents and students, `view` permissions are always limited to their `guardian` or `self` scope, whatever the matrix says.
+A user has **one or more roles** (`user_roles`). They may do everything any of their roles allows. Example: a principal who also teaches has *Principal* and *Senior faculty*.
+
+Permissions are shown as a grid: one row per resource, a checkbox per action (**View, Create, Edit, Delete**, plus special actions such as Mark, Correct, Import, Export, Promote, Transfer). The full list is in `src/modules/roles/permissions.ts`.
 
 ## 4.7 Rules
 
 - Deny by default: no permission means no access.
 - There are no hidden "super user" roles inside a tenant. The org admin role is an ordinary role with many permissions.
 - Every role or assignment change is audited, with who changed it and why.
-- A tenant must always keep at least one active user with `access.role.manage`. The API blocks removing the last one.
+- An organization must always keep at least one active **Organization admin**. The API refuses to deactivate the last one or take that role away from them.
+- **Nobody can hand out more than they have:** a role you create or edit, and every role you give a user, must be within your own permissions; you can't change a role or a user that has permissions you don't have.
+- Predefined roles can only be changed by the super admin; organization admins get 403 when they try.

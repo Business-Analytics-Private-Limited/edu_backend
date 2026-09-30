@@ -2,11 +2,11 @@
  * The organization's staff users.
  *
  *   GET   /api/v1/users?search=&status=&page=&pageSize=    access.user.view
- *   POST  /api/v1/users                                    access.user.manage
+ *   POST  /api/v1/users                                    access.user.create
  *   GET   /api/v1/users/:id                                access.user.view
- *   PATCH /api/v1/users/:id                                access.user.manage
- *   POST  /api/v1/users/:id/deactivate                     access.user.manage
- *   POST  /api/v1/users/:id/activate                       access.user.manage
+ *   PATCH /api/v1/users/:id                                access.user.update
+ *   POST  /api/v1/users/:id/deactivate                     access.user.update
+ *   POST  /api/v1/users/:id/activate                       access.user.update
  */
 import {
   Body,
@@ -39,7 +39,7 @@ export class UsersController {
   }
 
   @Post()
-  @RequirePermission('access.user.manage')
+  @RequirePermission('access.user.create')
   create(
     @OrganizationId() organizationId: string,
     @Body() body: CreateUserDto,
@@ -55,7 +55,7 @@ export class UsersController {
   }
 
   @Patch(':id')
-  @RequirePermission('access.user.manage')
+  @RequirePermission('access.user.update')
   update(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -66,7 +66,7 @@ export class UsersController {
   }
 
   @Post(':id/deactivate')
-  @RequirePermission('access.user.manage')
+  @RequirePermission('access.user.update')
   @HttpCode(200)
   deactivate(
     @OrganizationId() organizationId: string,
@@ -77,7 +77,7 @@ export class UsersController {
   }
 
   @Post(':id/activate')
-  @RequirePermission('access.user.manage')
+  @RequirePermission('access.user.update')
   @HttpCode(200)
   activate(
     @OrganizationId() organizationId: string,

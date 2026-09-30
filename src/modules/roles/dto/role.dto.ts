@@ -36,3 +36,12 @@ export class UpdateRoleDto {
   @IsString({ each: true })
   permissions?: string[];
 }
+
+/** The super admin changes a predefined role's permissions. */
+export class UpdatePredefinedRoleDto {
+  /** Permission keys from GET /super-admin/permissions. @example ["students.student.view"] */
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  permissions: string[];
+}

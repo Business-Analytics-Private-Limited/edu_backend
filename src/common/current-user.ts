@@ -11,8 +11,9 @@ export interface CurrentUser {
 
   // The fields below are only filled for type "user".
   organizationId: string | null;
-  roleName: string | null;
-  /** Permission keys from the user's role, e.g. "access.user.manage". */
+  /** Names of the user's roles, e.g. ["Principal", "Senior faculty"]. */
+  roleNames: string[];
+  /** Everything any of the user's roles allows, e.g. "access.user.create". */
   permissions: string[];
   /** Keys of the modules switched on for the user's organization, e.g. "students". */
   enabledModules: string[];

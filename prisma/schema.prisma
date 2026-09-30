@@ -55,6 +55,24 @@ model Module {
   @@map("modules")
 }
 
+/// The PREDEFINED ROLES (Director, Principal, ...), managed by the super admin. Every
+/// organization gets a copy of each (Role.templateKey) that stays in line with this one.
+/// Created from src/modules/roles/predefined-roles.ts when the app starts.
+model RoleTemplate {
+  key         String   @id // e.g. "principal"
+  name        String
+  description String
+  permissions String[]
+  /// false for Parent and Student: those logins come from a student's record, not the Users page.
+  assignable  Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  roles Role[]
+
+  @@map("role_templates")
+}
+
 // -------------------------------------------------------------------------------------------------
 // TENANTS: an organization (a school group, a college society, ...) and everything it owns.
 // Every table below has organization_id, and row security keeps organizations apart.
@@ -83,6 +101,7 @@ model Organization {
   campuses     Campus[]
   roles        Role[]
   users        User[]
+  userRoles    UserRole[]
 
   @@map("organizations")
 }
@@ -153,15 +172,18 @@ model Role {
   /// Permission keys, e.g. ["access.user.view", "platform.institution.manage"].
   /// The full list is in src/modules/roles/permissions.ts.
   permissions    String[]
-  /// Created automatically (e.g. "Organization admin"): can't be deleted.
-  isSystem       Boolean  @default(false) @map("is_system")
+  /// Set for a predefined role (copy of a RoleTemplate): only the super admin can change it.
+  /// Empty for the organization's own roles.
+  templateKey    String?  @map("template_key")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  users        User[]
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  template     RoleTemplate? @relation(fields: [templateKey], references: [key])
+  users        UserRole[]
 
   @@unique([organizationId, name])
+  @@unique([organizationId, templateKey])
   @@map("roles")
 }
 
@@ -174,7 +196,6 @@ enum UserStatus {
 model User {
   id             String     @id @default(uuid(7)) @db.Uuid
   organizationId String     @map("organization_id") @db.Uuid
-  roleId         String     @map("role_id") @db.Uuid
   name           String
   /// Login email, unique across EduPlatform.
   email          String     @unique
@@ -185,10 +206,27 @@ model User {
   updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  role         Role         @relation(fields: [roleId], references: [id])
+  roles        UserRole[]
 
   @@index([organizationId])
   @@map("users")
+}
+
+/// Which roles a user has. A user can have several (e.g. Principal AND Senior faculty); they
+/// may do everything any of their roles allows.
+model UserRole {
+  userId         String @map("user_id") @db.Uuid
+  roleId         String @map("role_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  user         User         @relation(fields: [userId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@index([organizationId])
+  @@map("user_roles")
 }
 
 /// Who changed what, and when. Written by AuditService for every create, update and delete.

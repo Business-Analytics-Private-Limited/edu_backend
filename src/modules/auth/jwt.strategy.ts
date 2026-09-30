@@ -3,7 +3,7 @@
  *
  * 1. passport-jwt checks the token's signature (JWT_SECRET) and expiry.
  * 2. validate() loads the person from the database, so a deactivated user, a suspended
- *    organization or a changed role takes effect at once, not only when the token expires.
+ *    organization or changed roles take effect at once, not only when the token expires.
  * 3. What validate() returns becomes request.user (the CurrentUser).
  */
 import { Injectable, UnauthorizedException } from '@nestjs/common';
@@ -36,18 +36,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         name: admin.name,
         email: admin.email,
         organizationId: null,
-        roleName: null,
+        roleNames: [],
         permissions: [],
         enabledModules: [],
       };
     }
 
-    // An organization user: load the user, their role and their organization's modules.
+    // An organization user: load the user, their roles and their organization's modules.
     const user = await this.prisma.forAllOrganizations((db) =>
       db.user.findUnique({
         where: { id: payload.sub },
         include: {
-          role: true,
+          roles: { include: { role: true } },
           organization: { include: { modules: { where: { enabled: true } } } },
         },
       }),
@@ -62,8 +62,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       name: user.name,
       email: user.email,
       organizationId: user.organizationId,
-      roleName: user.role.name,
-      permissions: user.role.permissions,
+      roleNames: user.roles.map((r) => r.role.name),
+      // A user with several roles may do everything any of them allows.
+      permissions: [...new Set(user.roles.flatMap((r) => r.role.permissions))],
       enabledModules: user.organization.modules.map((m) => m.moduleKey),
     };
   }

@@ -1,216 +1,198 @@
 /**
- * EVERY PERMISSION an organization role can have (docs/04-roles-and-permissions.md).
+ * EVERY PERMISSION a role can have (docs/04-roles-and-permissions.md).
  *
- * Name pattern: module.resource.action, e.g. "access.user.manage".
+ * Permissions are written per RESOURCE (a thing in the app, e.g. "Institutions") and ACTION
+ * (what you do with it). The key is module.resource.action, e.g. "platform.institution.create".
+ *
+ *   view    see it            create  add new ones
+ *   update  edit ("Edit")     delete  remove
+ *   ...plus special actions some resources need: mark, correct, import, export, promote, transfer.
+ *
  * `module`: the module that must be switched on for the permission to work; null = always
  * available (part of every organization).
  *
- * To add a permission: add a line here, use it with @RequirePermission('...') on an endpoint,
- * and add it to docs/04-roles-and-permissions.md.
+ * To add a permission: add the action to a resource here (or a new resource), use it with
+ * @RequirePermission('...') on an endpoint, and add it to docs/04-roles-and-permissions.md.
+ * The Organization admin role gets new permissions automatically when the app starts.
  */
+
+export interface ResourceInfo {
+  /** module.resource, e.g. "platform.institution". */
+  key: string;
+  module: string | null;
+  /** Heading the resource is shown under on the roles screen. */
+  group: string;
+  /** Name on the roles screen, e.g. "Institutions". */
+  label: string;
+  actions: string[];
+}
+
 export interface PermissionInfo {
   key: string;
   module: string | null;
   group: string;
-  description: string;
+  resource: string;
+  action: string;
 }
 
-export const PERMISSIONS: PermissionInfo[] = [
+const CRUD = ['view', 'create', 'update', 'delete'];
+
+export const RESOURCES: ResourceInfo[] = [
   // Organization (always available)
   {
-    key: 'platform.institution.view',
+    key: 'platform.organization',
     module: null,
     group: 'Organization',
-    description: 'See the organization, institutions and campuses',
+    label: 'Organization details',
+    actions: ['view', 'update'],
   },
   {
-    key: 'platform.institution.manage',
+    key: 'platform.institution',
     module: null,
     group: 'Organization',
-    description: 'Create, edit and delete institutions',
+    label: 'Institutions',
+    actions: CRUD,
   },
   {
-    key: 'platform.campus.manage',
+    key: 'platform.campus',
     module: null,
     group: 'Organization',
-    description: 'Create, edit and delete campuses',
-  },
-  {
-    key: 'platform.settings.manage',
-    module: null,
-    group: 'Organization',
-    description: 'Edit organization details',
+    label: 'Campuses',
+    actions: ['create', 'update', 'delete'],
   },
 
   // Users and roles (always available)
-  { key: 'access.user.view', module: null, group: 'Users and roles', description: 'See users' },
   {
-    key: 'access.user.manage',
+    key: 'access.user',
     module: null,
     group: 'Users and roles',
-    description: 'Add, edit, deactivate users',
+    label: 'Users',
+    actions: ['view', 'create', 'update'],
   },
+  { key: 'access.role', module: null, group: 'Users and roles', label: 'Roles', actions: CRUD },
   {
-    key: 'access.role.manage',
+    key: 'audit.log',
     module: null,
     group: 'Users and roles',
-    description: 'Create and edit roles',
-  },
-  {
-    key: 'audit.log.view',
-    module: null,
-    group: 'Users and roles',
-    description: 'See the audit log',
+    label: 'Audit log',
+    actions: ['view'],
   },
 
   // Academic module
   {
-    key: 'academic.structure.view',
+    key: 'academic.year',
     module: 'academic',
     group: 'Academic',
-    description: 'See years, groups, sections, subjects',
+    label: 'Academic years',
+    actions: CRUD,
   },
   {
-    key: 'academic.structure.manage',
+    key: 'academic.structure',
     module: 'academic',
     group: 'Academic',
-    description: 'Edit the academic structure',
+    label: 'Years, groups and sections',
+    actions: CRUD,
   },
   {
-    key: 'academic.year.manage',
+    key: 'academic.subject',
     module: 'academic',
     group: 'Academic',
-    description: 'Manage academic years',
+    label: 'Subjects',
+    actions: CRUD,
   },
   {
-    key: 'academic.subject.manage',
+    key: 'academic.calendar',
     module: 'academic',
     group: 'Academic',
-    description: 'Manage subjects',
-  },
-  {
-    key: 'academic.calendar.manage',
-    module: 'academic',
-    group: 'Academic',
-    description: 'Manage holidays',
+    label: 'Holidays',
+    actions: CRUD,
   },
 
   // Students module
   {
-    key: 'students.student.view',
+    key: 'students.student',
     module: 'students',
     group: 'Students',
-    description: 'See students',
+    label: 'Students',
+    actions: [...CRUD, 'import', 'export'],
   },
   {
-    key: 'students.student.create',
+    key: 'students.enrolment',
     module: 'students',
     group: 'Students',
-    description: 'Admit students',
+    label: 'Promotion and transfers',
+    actions: ['promote', 'transfer'],
   },
   {
-    key: 'students.student.update',
+    key: 'students.document',
     module: 'students',
     group: 'Students',
-    description: 'Edit students',
+    label: 'Student documents',
+    actions: CRUD,
   },
   {
-    key: 'students.student.delete',
+    key: 'students.settings',
     module: 'students',
     group: 'Students',
-    description: 'Delete students',
-  },
-  {
-    key: 'students.student.import',
-    module: 'students',
-    group: 'Students',
-    description: 'Import students from files',
-  },
-  {
-    key: 'students.student.export',
-    module: 'students',
-    group: 'Students',
-    description: 'Export student lists',
-  },
-  {
-    key: 'students.enrolment.promote',
-    module: 'students',
-    group: 'Students',
-    description: 'Promote to the next year',
-  },
-  {
-    key: 'students.enrolment.transfer',
-    module: 'students',
-    group: 'Students',
-    description: 'Move between sections',
-  },
-  {
-    key: 'students.document.view',
-    module: 'students',
-    group: 'Students',
-    description: 'See documents',
-  },
-  {
-    key: 'students.document.manage',
-    module: 'students',
-    group: 'Students',
-    description: 'Upload and verify documents',
-  },
-  {
-    key: 'students.settings.manage',
-    module: 'students',
-    group: 'Students',
-    description: 'Tags, custom fields, document types',
+    label: 'Student settings',
+    actions: ['view', 'update'],
   },
 
   // Attendance module
   {
-    key: 'attendance.record.view',
+    key: 'attendance.record',
     module: 'attendance',
     group: 'Attendance',
-    description: 'See attendance',
+    label: 'Attendance',
+    actions: ['view', 'mark', 'correct'],
   },
   {
-    key: 'attendance.record.mark',
+    key: 'attendance.policy',
     module: 'attendance',
     group: 'Attendance',
-    description: 'Mark attendance',
+    label: 'Attendance rules',
+    actions: ['view', 'update'],
   },
   {
-    key: 'attendance.record.correct',
+    key: 'attendance.device',
     module: 'attendance',
     group: 'Attendance',
-    description: 'Correct attendance',
+    label: 'Biometric devices',
+    actions: CRUD,
   },
   {
-    key: 'attendance.policy.manage',
+    key: 'attendance.report',
     module: 'attendance',
     group: 'Attendance',
-    description: 'Attendance rules',
-  },
-  {
-    key: 'attendance.device.manage',
-    module: 'attendance',
-    group: 'Attendance',
-    description: 'Biometric devices',
-  },
-  {
-    key: 'attendance.report.view',
-    module: 'attendance',
-    group: 'Attendance',
-    description: 'Attendance reports',
+    label: 'Attendance reports',
+    actions: ['view'],
   },
 
   // Data import module
   {
-    key: 'imports.job.view',
+    key: 'imports.job',
     module: 'imports',
     group: 'Data import',
-    description: 'See import jobs',
+    label: 'Import jobs',
+    actions: ['view'],
   },
 ];
 
-const PERMISSION_KEYS = new Set(PERMISSIONS.map((p) => p.key));
+/** The flat list: one entry per resource and action. */
+export const PERMISSIONS: PermissionInfo[] = RESOURCES.flatMap((r) =>
+  r.actions.map((action) => ({
+    key: `${r.key}.${action}`,
+    module: r.module,
+    group: r.group,
+    resource: r.key,
+    action,
+  })),
+);
+
+/** Everything: the Organization admin role always has all of these. */
+export const ALL_PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
+
+const PERMISSION_KEYS = new Set(ALL_PERMISSION_KEYS);
 
 export function isKnownPermission(key: string): boolean {
   return PERMISSION_KEYS.has(key);
@@ -221,5 +203,14 @@ export function moduleOfPermission(key: string): string | null {
   return PERMISSIONS.find((p) => p.key === key)?.module ?? null;
 }
 
-/** Everything: given to the "Organization admin" role of every new organization. */
-export const ALL_PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
+/** Every "view" permission, e.g. for read-only roles. */
+export const ALL_VIEW_KEYS = PERMISSIONS.filter((p) => p.action === 'view').map((p) => p.key);
+
+/**
+ * The permissions in `wanted` that `have` doesn't include. Used so nobody can hand out more
+ * than they have themselves: a role you create, or a role you give someone, must be within
+ * your own permissions.
+ */
+export function missingPermissions(wanted: string[], have: string[]): string[] {
+  return wanted.filter((p) => !have.includes(p));
+}

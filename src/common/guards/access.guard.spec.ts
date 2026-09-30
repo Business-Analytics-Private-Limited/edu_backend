@@ -14,7 +14,7 @@ const superAdmin: CurrentUser = {
   name: 'Super',
   email: 's@x',
   organizationId: null,
-  roleName: null,
+  roleNames: [],
   permissions: [],
   enabledModules: [],
 };
@@ -25,7 +25,7 @@ const teacher: CurrentUser = {
   name: 'Teacher',
   email: 't@x',
   organizationId: 'org1',
-  roleName: 'Teacher',
+  roleNames: ['Teacher'],
   permissions: ['platform.institution.view', 'students.student.view'],
   enabledModules: [],
 };
@@ -66,8 +66,8 @@ describe('AccessGuard', () => {
     expect(check({ kind: 'permission', permission: 'platform.institution.view' }, teacher)).toBe(
       true,
     );
-    expect(() => check({ kind: 'permission', permission: 'access.user.manage' }, teacher)).toThrow(
-      'Your role needs the permission "access.user.manage"',
+    expect(() => check({ kind: 'permission', permission: 'access.user.create' }, teacher)).toThrow(
+      'Your role needs the permission "access.user.create"',
     );
   });
 

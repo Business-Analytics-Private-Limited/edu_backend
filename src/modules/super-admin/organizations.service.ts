@@ -12,7 +12,8 @@ import type { CurrentUser } from '../../common/current-user';
 import { paginated, toSkipTake } from '../../common/pagination';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { ALL_PERMISSION_KEYS } from '../roles/permissions';
+import { ORG_ADMIN } from '../roles/predefined-roles';
+import { PredefinedRolesService } from '../roles/predefined-roles.service';
 import {
   CreateOrganizationDto,
   ListOrganizationsQuery,
@@ -25,6 +26,7 @@ export class OrganizationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly predefinedRoles: PredefinedRolesService,
   ) {}
 
   /** Numbers for the super admin dashboard. */
@@ -92,19 +94,12 @@ export class OrganizationsService {
           contactPhone: dto.contactPhone,
         },
       });
-      const adminRole = await db.role.create({
-        data: {
-          organizationId: organization.id,
-          name: 'Organization admin',
-          description: 'Full access to everything in the organization',
-          permissions: ALL_PERMISSION_KEYS,
-          isSystem: true,
-        },
-      });
+      // Every predefined role (Organization admin, Director, ...); the first admin gets the first.
+      const roles = await this.predefinedRoles.copyToOrganization(db, organization.id);
       const admin = await db.user.create({
         data: {
           organizationId: organization.id,
-          roleId: adminRole.id,
+          roles: { create: { roleId: roles[ORG_ADMIN], organizationId: organization.id } },
           name: dto.admin.name,
           email: dto.admin.email.toLowerCase(),
           passwordHash: await bcrypt.hash(dto.admin.password, 10),
@@ -135,7 +130,7 @@ export class OrganizationsService {
 
       const allModules = await db.module.findMany({ orderBy: { sortOrder: 'asc' } });
       const admins = await db.user.findMany({
-        where: { organizationId: id, role: { isSystem: true } },
+        where: { organizationId: id, roles: { some: { role: { templateKey: ORG_ADMIN } } } },
         select: { id: true, name: true, email: true, status: true, lastLoginAt: true },
       });
       const { modules: switchedModules, ...rest } = organization;

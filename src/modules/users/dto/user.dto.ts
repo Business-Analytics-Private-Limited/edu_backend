@@ -2,7 +2,18 @@
  * Request bodies and filters for organization users.
  */
 import { UserStatus } from '@prisma/client';
-import { IsEmail, IsEnum, IsOptional, IsString, IsUUID, Length, MinLength } from 'class-validator';
+import {
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  MinLength,
+} from 'class-validator';
 import { PaginationQuery } from '../../../common/pagination';
 
 export class CreateUserDto {
@@ -20,9 +31,15 @@ export class CreateUserDto {
   @MinLength(10)
   password: string;
 
-  /** The role that decides what this user may do. */
-  @IsUUID()
-  roleId: string;
+  /**
+   * The user's roles (at least one). With several roles, the user may do everything any of
+   * them allows, e.g. Principal AND Senior faculty.
+   */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  roleIds: string[];
 }
 
 export class UpdateUserDto {
@@ -31,9 +48,13 @@ export class UpdateUserDto {
   @Length(2, 100)
   name?: string;
 
+  /** Replaces all the user's roles. */
   @IsOptional()
-  @IsUUID()
-  roleId?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  roleIds?: string[];
 }
 
 export class ListUsersQuery extends PaginationQuery {
