@@ -15,9 +15,10 @@ This repository is the **backend API**. The web app and the super admin console 
 | **Roles at places** | Built in | A user has one or more roles, each for the whole organization, one institution or one campus. A Campus admin sees and manages only their campus. Nobody can hand out more than they have. |
 | **Multi-tenancy** | Built in | Every query is limited to the user's organization, and PostgreSQL row security blocks mistakes. |
 | **Students** (module) | Organizations with the Students module | Admission at a campus (optionally with batch, section and parent in one go); profile; status with history; parents / guardians shared by siblings; one section per academic year with roll numbers; promotion to the next year (preview, adjust, apply) and moving students between sections; campus transfer; automatic admission numbers; import from CSV; undo of a promotion. |
+| **Attendance** (module) | Organizations with the Attendance module | A section's register per day (present / absent / late / half day / leave); same-day changes; corrections of past days with reasons, kept as versions; only working days; correction window; time zone per institution; campus overview; section and student reports with percentages. |
 | **Academic** (module) | Organizations with the Academic module | Academic years (one active per institution); class levels each institution names itself (e.g. Year → Group → Section, or Type → Group → Stream → Section); classes per campus as a tree; batches with a stage; subjects (attached to a class, inherited below); calendar with weekly off days and holidays. |
 
-Coming next: attendance (Phase 5), and documents (Students) with file storage, then attendance, parent portal, data import (see `docs/06-roadmap.md`). Module by module: [docs/modules/README.md](docs/modules/README.md).
+Coming next: period-wise and biometric attendance, the parent / student portal, documents with file storage, then attendance, parent portal, data import (see `docs/06-roadmap.md`). Module by module: [docs/modules/README.md](docs/modules/README.md).
 
 ## Getting started
 

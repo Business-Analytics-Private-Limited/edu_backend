@@ -19,6 +19,7 @@ import { AccessGuard } from './common/guards/access.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { AcademicModule } from './modules/academic/academic.module';
+import { AttendanceModule } from './modules/attendance/attendance.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
@@ -46,6 +47,7 @@ import { PrismaModule } from './prisma/prisma.module';
     UsersModule,
     AcademicModule,
     StudentsModule,
+    AttendanceModule,
     RolesModule,
   ],
   providers: [

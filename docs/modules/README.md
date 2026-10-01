@@ -9,7 +9,7 @@ One document per module of EduPlatform: what it is for, its screens / endpoints 
 | audit | Who changed what, where, when | **Built** | [audit.md](audit.md) | `src/modules/audit` |
 | academic | Academic years, class levels and classes, batches, subjects, calendar | **Built** | [academic.md](academic.md) | `src/modules/academic` |
 | students | Admission, profiles, status, guardians, sections per year (promotion, documents next) | **Built (part 1)** | [students.md](students.md) | `src/modules/students` |
-| attendance | Manual and biometric attendance, corrections, reports | Design | [attendance.md](attendance.md) | — |
+| attendance | Daily attendance per section, corrections, reports (period-wise and biometric next) | **Built (part 1)** | [attendance.md](attendance.md) | `src/modules/attendance` |
 | portal | Parents and students see profile and attendance | Design | [portal.md](portal.md) | — |
 | imports | Import students and other data from Excel / CSV | Design | [imports.md](imports.md) | — |
 | files | Storing uploaded documents | Design | [files.md](files.md) | — |

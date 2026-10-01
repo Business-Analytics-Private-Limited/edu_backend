@@ -114,6 +114,7 @@ model Organization {
   students           Student[]
   studentStatuses    StudentStatusChange[]
   promotionRuns      PromotionRun[]
+  attendanceRecords  AttendanceRecord[]
   admissionSequences AdmissionSequence[]
   guardians          Guardian[]
   studentGuardians   StudentGuardian[]
@@ -145,19 +146,23 @@ enum InstitutionType {
 
 /// A college or school of the organization, e.g. "Sri Vidya Junior College".
 model Institution {
-  id                 String          @id @default(uuid(7)) @db.Uuid
-  organizationId     String          @map("organization_id") @db.Uuid
-  name               String
+  id                       String          @id @default(uuid(7)) @db.Uuid
+  organizationId           String          @map("organization_id") @db.Uuid
+  name                     String
   /// Short code, unique inside the organization, e.g. "SVJC".
-  code               String
-  type               InstitutionType
+  code                     String
+  type                     InstitutionType
   /// Days without classes every week (Academic module): 0 = Sunday ... 6 = Saturday.
-  weeklyOffDays      Int[]           @default([0]) @map("weekly_off_days")
+  weeklyOffDays            Int[]           @default([0]) @map("weekly_off_days")
   /// Students module: how admission numbers are made when left empty, e.g. "{CODE}{YY}{SEQ:4}"
   /// -> "SVJC260001". Empty = numbers are typed by hand.
-  admissionNoPattern String?         @map("admission_no_pattern")
-  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+  admissionNoPattern       String?         @map("admission_no_pattern")
+  /// The institution's time zone: decides what "today" is (attendance), e.g. "Asia/Kolkata".
+  timeZone                 String          @default("Asia/Kolkata") @map("time_zone")
+  /// Attendance: how many days back a past day may still be marked or corrected.
+  attendanceCorrectionDays Int             @default(7) @map("attendance_correction_days")
+  createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
   campuses     Campus[]
@@ -681,4 +686,48 @@ model PromotionRun {
   @@index([organizationId])
   @@index([campusId, createdAt])
   @@map("promotion_runs")
+}
+
+// -------------------------------------------------------------------------------------------------
+// ATTENDANCE MODULE (ADR-0021)
+// -------------------------------------------------------------------------------------------------
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  ON_LEAVE
+}
+
+/// One student's attendance for one day (period 0 = the whole day) in their section.
+/// Records are never overwritten: a change makes a NEW record (isCurrent) that points to the old
+/// one (correctedFromId), with a reason; the old one keeps isCurrent = false.
+model AttendanceRecord {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  organizationId   String           @map("organization_id") @db.Uuid
+  institutionId    String           @map("institution_id") @db.Uuid
+  campusId         String           @map("campus_id") @db.Uuid
+  /// The section the student was in that day.
+  classId          String           @map("class_id") @db.Uuid
+  academicYearId   String           @map("academic_year_id") @db.Uuid
+  studentId        String           @map("student_id") @db.Uuid
+  date             DateTime         @db.Date
+  /// 0 = the whole day (period-wise marking later uses 1, 2, ...).
+  period           Int              @default(0)
+  status           AttendanceStatus
+  remark           String?
+  isCurrent        Boolean          @default(true) @map("is_current")
+  correctedFromId  String?          @map("corrected_from_id") @db.Uuid
+  correctionReason String?          @map("correction_reason")
+  markedBy         String           @map("marked_by") @db.Uuid
+  markedByName     String           @map("marked_by_name")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([classId, date])
+  @@index([studentId, date])
+  @@map("attendance_records")
 }
