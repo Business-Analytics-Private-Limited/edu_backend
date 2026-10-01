@@ -2,7 +2,7 @@
 
 Each file records one significant decision: the context, the decision, and its consequences. Accepted ADRs are not edited. To change a decision, write a new ADR that supersedes the old one and mark the old one `Superseded by ADR-XXXX` in this table.
 
-**Start with [ADR-0015](0015-simplified-backend.md)**: it describes how the backend is built today.
+**Start with [ADR-0015](0015-simplified-backend.md)**: it describes how the backend is built today. [ADR-0024](0024-microservices-and-tenant-sharding.md) (proposed) describes where it is going: microservices, with organizations spread over several databases.
 
 | ADR | Title | Status |
 |---|---|---|
@@ -29,6 +29,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0021](0021-attendance.md) | Attendance: daily records per section, versions instead of overwrites, a correction window | Accepted |
 | [0022](0022-portal.md) | Parent and student portal: logins linked to records, no roles | Accepted |
 | [0023](0023-files-and-documents.md) | Files on the server's disk behind the API; student documents with types and review | Accepted |
+| [0024](0024-microservices-and-tenant-sharding.md) | Move to microservices, with tenants spread over several databases | **Proposed** (when accepted, supersedes ADR-0012 and ADR-0015) |
 
 Template for new ADRs:
 

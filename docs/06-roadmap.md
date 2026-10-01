@@ -14,6 +14,8 @@ Each phase ends with something that runs and is tested. No phase starts until th
 | 5. Attendance | **In progress.** Part 1 done: daily marking per section, corrections with reasons, correction window, overview, reports (ADR-0021). Next: period-wise marking, biometric devices |
 | 6. Portal | **In progress.** Part 1 done: parent and student logins linked to records, details and attendance (ADR-0022). Next: phone login, consent, notices |
 
+**Next: architecture migration** ([ADR-0024](adr/0024-microservices-and-tenant-sharding.md), proposed). M0 Docker, gateway and logging → M1 tenant sharding (with a load test) → M2 Tenant and Identity services, including password reset. Then Files, events and Audit, Attendance, Students and Academic, and Portal become services one by one.
+
 The original plan per phase is below; where it names Docker, Redis, Keycloak or outbox, see ADR-0015.
 
 | Phase | Goal | Exit check |
