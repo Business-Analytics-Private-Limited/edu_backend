@@ -62,6 +62,7 @@ export class AuthService {
         name: user.name,
         email: user.email,
         type: 'user' as const,
+        kind: user.kind.toLowerCase(),
         organization: { id: user.organization.id, name: user.organization.name },
         roleNames: [...new Set(user.roles.map((r) => r.role.name))],
       },

@@ -229,6 +229,14 @@ model Role {
   @@map("roles")
 }
 
+/// STAFF works in the web app with roles; PARENT and STUDENT use the portal and only see the
+/// students they are linked to (ADR-0022).
+enum UserKind {
+  STAFF
+  PARENT
+  STUDENT
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE // can't log in
@@ -243,12 +251,19 @@ model User {
   email          String     @unique
   passwordHash   String     @map("password_hash")
   status         UserStatus @default(ACTIVE)
+  kind           UserKind   @default(STAFF)
+  /// A parent's login: the guardian record (they see all of that guardian's children).
+  guardianId     String?    @unique @map("guardian_id") @db.Uuid
+  /// A student's login: their own record.
+  studentId      String?    @unique @map("student_id") @db.Uuid
   lastLoginAt    DateTime?  @map("last_login_at") @db.Timestamptz
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
   roles        UserRole[]
+  guardian     Guardian?    @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+  student      Student?     @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@map("users")
@@ -536,6 +551,7 @@ model Student {
   statusChanges StudentStatusChange[]
   guardians     StudentGuardian[]
   enrolments    Enrolment[]
+  login         User?
 
   @@unique([institutionId, admissionNo])
   @@index([organizationId])
@@ -578,6 +594,7 @@ model Guardian {
 
   organization Organization      @relation(fields: [organizationId], references: [id])
   students     StudentGuardian[]
+  login        User?
 
   @@index([organizationId])
   @@index([organizationId, phone])

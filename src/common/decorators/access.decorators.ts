@@ -5,10 +5,12 @@
  *   @Public()                             anyone, no login (login, health check)
  *   @LoggedIn()                           anyone logged in (e.g. "who am I")
  *   @SuperAdminOnly()                     EduPlatform staff only (the super admin area)
- *   @OrganizationUser()                   any user of an organization (e.g. its dashboard)
+ *   @OrganizationUser()                   any STAFF user of an organization (e.g. its dashboard)
+ *   @PortalUser()                         a parent or student login (the portal), when the
+ *                                         organization has the portal module
  *   @RequirePermission('access.user.create')
- *                                         a user of an organization whose role has this permission,
- *                                         when the permission's module is switched on
+ *                                         a staff user whose role has this permission, when the
+ *                                         permission's module is switched on
  */
 import { SetMetadata } from '@nestjs/common';
 
@@ -19,6 +21,7 @@ export type AccessRule =
   | { kind: 'logged_in' }
   | { kind: 'super_admin' }
   | { kind: 'organization_user' }
+  | { kind: 'portal' }
   | { kind: 'permission'; permission: string };
 
 export const Public = () => SetMetadata(ACCESS_RULE, { kind: 'public' } satisfies AccessRule);
@@ -30,6 +33,8 @@ export const SuperAdminOnly = () =>
 
 export const OrganizationUser = () =>
   SetMetadata(ACCESS_RULE, { kind: 'organization_user' } satisfies AccessRule);
+
+export const PortalUser = () => SetMetadata(ACCESS_RULE, { kind: 'portal' } satisfies AccessRule);
 
 export const RequirePermission = (permission: string) =>
   SetMetadata(ACCESS_RULE, { kind: 'permission', permission } satisfies AccessRule);

@@ -1,67 +1,36 @@
-# Module: portal
-
-> **Status: design, not built yet.** Written before the backend was simplified; the purpose, data and rules still apply, the technical details (schemas, paths, `.manage` permissions, events) will follow today's conventions when it is built. See [README.md](README.md#reading-the-design-documents).
+# Module: portal (parents and students)
 
 | | |
 |---|---|
-| Schema | none (reads through other modules' facades) |
-| Phase | 6 |
-| Depends on | students; attendance for the attendance views |
-| Code | `services/portal/`, `eduplatform-frontend/apps/web/src/modules/portal/` |
+| Status | **Built (part 1):** parent and student logins, their students' details and attendance |
+| Code | `src/modules/portal/`; logins in `users` (`kind`, `guardian_id`, `student_id`) |
+| Decisions | ADR-0022 |
+| Switched on by | the super admin, per organization (module key `portal`, needs `students`) |
 
-## Purpose
+## In plain words
 
-What parents and students see after they log in: their children (or themselves), profile and attendance. Later: results, fees, timetable.
+- Staff give a **student** or a **parent** a login from the student's page (email + temporary password). A parent's login belongs to the guardian record, so it covers **all their children**.
+- Parents and students log in on the same login page and land in the **portal**: their children (or themselves) with school, campus, section, batch, and **attendance** (this month and the last 30 days, with the days absent and remarks).
+- Portal logins have **no staff access at all**; staff pages send them to the portal.
 
-## Responsibilities
+## Endpoints (`/api/v1`)
 
-- Read-only endpoints shaped for the portal screens.
-- The child switcher for a parent with several children, possibly in different institutions of the same organization.
+| Method | Path | Who |
+|---|---|---|
+| GET | `/portal/me` | portal logins — name, kind, their students |
+| GET | `/portal/students/:id` | portal logins — only a linked student (else 404) |
+| GET | `/portal/students/:id/attendance?from=&to=` | portal logins, with the Attendance module |
+| POST | `/students/:id/portal-access` | staff, `students.student.update` at the student's campus — `{ for: STUDENT \| GUARDIAN, guardianId?, email, password }` |
+| DELETE | `/students/:id/portal-access/:userId` | same |
 
-Not this module: creating parent or student logins (`students` grants portal access; `identity` creates the account).
+## Rules (tested in `test/portal.e2e-spec.ts`)
 
-## Manifest
+1. Logins only with the portal module; switching it off closes the portal at once.
+2. One login per student and per guardian; a guardian must be linked to the student.
+3. A parent sees exactly their guardian record's children; a student only themselves; anything else is 404.
+4. Portal logins are refused by every staff endpoint; staff are refused by the portal; staff user lists don't show portal logins.
+5. Removing a login stops it at once.
 
-- Variants: `parent_login`, `student_login` (each can be switched on separately).
-- Settings (institution level): `sections`: which sections are visible (`profile`, `attendance`; later `results`, `fees`).
+## Later
 
-## Permissions
-
-Uses `students.student.view`, `students.document.view` and `attendance.record.view`, always at `guardian` or `self` scope (doc 4 §4.6).
-
-## Data model
-
-None. It stores nothing.
-
-## API
-
-| Method | Path | operationId | Permission | Description |
-|---|---|---|---|---|
-| GET | `/portal/children` | `portal.child.list` | `students.student.view` | The guardian's linked children, or the student themself; with institution and current section |
-| GET | `/portal/children/{studentId}/profile` | `portal.child.profile` | `students.student.view` | Profile fields the institution allows |
-| GET | `/portal/children/{studentId}/attendance` | `portal.child.attendance` | `attendance.record.view` | Day-by-day records for `?from&to` |
-| GET | `/portal/children/{studentId}/attendance/summary` | `portal.child.attendance_summary` | `attendance.record.view` | Percentage for the current month and year |
-| GET | `/portal/children/{studentId}/documents` | `portal.child.documents` | `students.document.view` | Documents list and download links |
-
-## Events
-
-None.
-
-## Public facade
-
-None.
-
-## Business rules
-
-1. `studentId` must be in the user's `guardian` or `self` scope; otherwise `404`.
-2. Only sections enabled in the institution's settings are returned; attendance views also need the attendance module enabled.
-3. A parent's children in two institutions are both listed, each shown with its own institution's settings.
-
-## Tests
-
-- The phase 6 exit check: a parent with children in two institutions sees both, and requesting any other student id returns 404.
-- With `sections` excluding attendance, the attendance endpoints return `403 module_not_enabled`.
-
-## Open questions
-
-- None.
+Login by phone with a one-time code (SMS provider), consent for minors (DPDP), notices, fees and marks in the portal, a mobile app.

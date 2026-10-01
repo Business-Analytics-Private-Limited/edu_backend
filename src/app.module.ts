@@ -24,6 +24,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { OrganizationModule } from './modules/organization/organization.module';
+import { PortalModule } from './modules/portal/portal.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { StudentsModule } from './modules/students/students.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
@@ -48,6 +49,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AcademicModule,
     StudentsModule,
     AttendanceModule,
+    PortalModule,
     RolesModule,
   ],
   providers: [

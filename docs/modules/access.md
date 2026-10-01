@@ -10,7 +10,7 @@
 
 ## In one paragraph
 
-People log in with email and password and get a token (JWT, 8 hours). **Super admins** (EduPlatform staff) use the super admin console. **Users** belong to one organization. A user has one or more **roles**, each **at a place**: the whole organization, one institution, or one campus. A role is a list of **permissions** such as `platform.institution.update`. A user may do what their roles allow, in each role's place.
+People log in with email and password and get a token (JWT, 8 hours). **Super admins** (EduPlatform staff) use the super admin console. **Users** belong to one organization and are **staff** (roles and permissions, below) or **portal logins** of parents and students (no roles; see [portal.md](portal.md) and ADR-0022). A user has one or more **roles**, each **at a place**: the whole organization, one institution, or one campus. A role is a list of **permissions** such as `platform.institution.update`. A user may do what their roles allow, in each role's place.
 
 ## Login
 

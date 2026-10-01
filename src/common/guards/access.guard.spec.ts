@@ -14,6 +14,8 @@ const superAdmin: CurrentUser = {
   name: 'Super',
   email: 's@x',
   organizationId: null,
+  kind: null,
+  studentIds: [],
   roleNames: [],
   grants: [],
   permissions: [],
@@ -26,10 +28,24 @@ const teacher: CurrentUser = {
   name: 'Teacher',
   email: 't@x',
   organizationId: 'org1',
+  kind: 'staff',
+  studentIds: [],
   roleNames: ['Teacher'],
   grants: [],
   permissions: ['platform.institution.view', 'students.student.view'],
   enabledModules: [],
+};
+
+/** A parent's portal login: no roles, no permissions, only linked students. */
+const parent: CurrentUser = {
+  ...teacher,
+  id: 'p1',
+  name: 'Parent',
+  kind: 'parent',
+  studentIds: ['s1'],
+  roleNames: [],
+  permissions: [],
+  enabledModules: ['portal'],
 };
 
 /** Runs the guard for an endpoint with `rule`, called by `user`. */
@@ -60,7 +76,7 @@ describe('AccessGuard', () => {
   it('keeps organization routes for organization users', () => {
     expect(check({ kind: 'organization_user' }, teacher)).toBe(true);
     expect(() => check({ kind: 'organization_user' }, superAdmin)).toThrow(
-      'Organization users only',
+      'Organization staff only',
     );
   });
 
@@ -80,6 +96,21 @@ describe('AccessGuard', () => {
     const withStudents = { ...teacher, enabledModules: ['students'] };
     expect(check({ kind: 'permission', permission: 'students.student.view' }, withStudents)).toBe(
       true,
+    );
+  });
+
+  it('keeps portal logins out of staff routes, and staff out of the portal', () => {
+    expect(() => check({ kind: 'organization_user' }, parent)).toThrow('Organization staff only');
+    expect(() =>
+      check(
+        { kind: 'permission', permission: 'students.student.view' },
+        { ...parent, permissions: ['students.student.view'] },
+      ),
+    ).toThrow('Organization staff only');
+    expect(check({ kind: 'portal' }, parent)).toBe(true);
+    expect(() => check({ kind: 'portal' }, teacher)).toThrow('Parent and student logins only');
+    expect(() => check({ kind: 'portal' }, { ...parent, enabledModules: [] })).toThrow(
+      'portal is not switched on',
     );
   });
 });

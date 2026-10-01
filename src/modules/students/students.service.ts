@@ -328,9 +328,15 @@ export class StudentsService {
         campus: { select: { id: true, name: true } },
         batch: { select: { id: true, name: true, stage: true } },
         guardians: {
-          include: { guardian: true },
+          include: {
+            guardian: {
+              include: { login: { select: { id: true, email: true, status: true } } },
+            },
+          },
           orderBy: { isPrimary: 'desc' },
         },
+        // The student's own portal login, if any.
+        login: { select: { id: true, email: true, status: true } },
         enrolments: {
           orderBy: { academicYear: { startsOn: 'desc' } },
           include: {

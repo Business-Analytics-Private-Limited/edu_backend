@@ -34,11 +34,25 @@ export class AccessGuard implements CanActivate {
         return true;
 
       case 'organization_user':
-        if (user.type !== 'user') throw new ForbiddenException('Organization users only');
+        if (user.type !== 'user' || user.kind !== 'staff') {
+          throw new ForbiddenException('Organization staff only');
+        }
+        return true;
+
+      case 'portal':
+        if (user.type !== 'user' || user.kind === 'staff') {
+          throw new ForbiddenException('Parent and student logins only');
+        }
+        if (!user.enabledModules.includes('portal')) {
+          throw new ForbiddenException('The parent and student portal is not switched on');
+        }
         return true;
 
       case 'permission': {
-        if (user.type !== 'user') throw new ForbiddenException('Organization users only');
+        // Portal users have no permissions, so they never get past this.
+        if (user.type !== 'user' || user.kind !== 'staff') {
+          throw new ForbiddenException('Organization staff only');
+        }
         if (!user.permissions.includes(rule.permission)) {
           throw new ForbiddenException(`Your role needs the permission "${rule.permission}"`);
         }

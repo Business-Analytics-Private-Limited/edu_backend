@@ -268,9 +268,11 @@ export class UsersService {
   /** Users with at least one role in a place where the actor may see users. */
   private visibleWhere(organizationId: string, actor: CurrentUser): Prisma.UserWhereInput {
     const reach = reachOf(actor, 'access.user.view');
-    if (reach.everywhere) return { organizationId };
+    // Parent / student logins are managed from the student's page, not here.
+    if (reach.everywhere) return { organizationId, kind: 'STAFF' };
     return {
       organizationId,
+      kind: 'STAFF',
       roles: {
         some: {
           OR: [

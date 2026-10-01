@@ -11,6 +11,13 @@ export interface CurrentUser {
 
   // The fields below are only filled for type "user".
   organizationId: string | null;
+  /**
+   * "staff" works in the web app with roles. "parent" / "student" use the portal: they have NO
+   * roles or permissions and only see the students in `studentIds` (ADR-0022).
+   */
+  kind: 'staff' | 'parent' | 'student' | null;
+  /** Portal users: the students they may see (a parent's children, or the student). */
+  studentIds: string[];
   /** Names of the user's roles, e.g. ["Principal", "Senior faculty"]. */
   roleNames: string[];
   /**

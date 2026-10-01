@@ -12,6 +12,7 @@ Each phase ends with something that runs and is tested. No phase starts until th
 | 3. Academic | **Done.** Academic years, configurable class levels, classes per campus, batches, subjects (inherited down the class tree), calendar (ADR-0019) |
 | 4. Students | **Done** (documents wait for file storage). Done so far: admission, profile, status history, guardians (shared by siblings), sections per year, promotion and shuffle, campus transfer, automatic admission numbers, CSV import, undo of a promotion (ADR-0020). |
 | 5. Attendance | **In progress.** Part 1 done: daily marking per section, corrections with reasons, correction window, overview, reports (ADR-0021). Next: period-wise marking, biometric devices |
+| 6. Portal | **In progress.** Part 1 done: parent and student logins linked to records, details and attendance (ADR-0022). Next: phone login, consent, notices |
 
 The original plan per phase is below; where it names Docker, Redis, Keycloak or outbox, see ADR-0015.
 

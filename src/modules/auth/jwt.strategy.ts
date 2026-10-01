@@ -36,6 +36,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         name: admin.name,
         email: admin.email,
         organizationId: null,
+        kind: null,
+        studentIds: [],
         roleNames: [],
         permissions: [],
         grants: [],
@@ -50,6 +52,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         include: {
           roles: { include: { role: true } },
           organization: { include: { modules: { where: { enabled: true } } } },
+          guardian: { include: { students: { select: { studentId: true } } } },
         },
       }),
     );
@@ -57,12 +60,34 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (user.organization.status !== 'ACTIVE') {
       throw new UnauthorizedException('Your organization is suspended');
     }
+    const enabledModules = user.organization.modules.map((m) => m.moduleKey);
+    if (user.kind !== 'STAFF') {
+      // A portal login: no roles, no permissions; only the linked students.
+      return {
+        type: 'user',
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        organizationId: user.organizationId,
+        kind: user.kind === 'PARENT' ? 'parent' : 'student',
+        studentIds:
+          user.kind === 'PARENT'
+            ? (user.guardian?.students.map((s) => s.studentId) ?? [])
+            : [user.studentId!],
+        roleNames: [],
+        permissions: [],
+        grants: [],
+        enabledModules,
+      };
+    }
     return {
       type: 'user',
       id: user.id,
       name: user.name,
       email: user.email,
       organizationId: user.organizationId,
+      kind: 'staff',
+      studentIds: [],
       roleNames: [...new Set(user.roles.map((r) => r.role.name))],
       // A user with several roles may do everything any of them allows (each in its own place).
       permissions: [...new Set(user.roles.flatMap((r) => r.role.permissions))],
@@ -72,7 +97,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         institutionId: r.institutionId,
         campusId: r.campusId,
       })),
-      enabledModules: user.organization.modules.map((m) => m.moduleKey),
+      enabledModules,
     };
   }
 }
