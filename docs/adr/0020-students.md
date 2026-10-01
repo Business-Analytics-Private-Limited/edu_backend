@@ -22,4 +22,5 @@ Every later module (attendance, exams, fees, the parent portal) needs to know wh
 ## Consequences
 
 - Attendance, exams and the portal can rely on "student → section in year → campus", whatever the institution calls its levels.
-- Part 2: promotion and shuffle (whole batches / sections to the next year, with preview), moving a student to another campus, documents (needs file storage), automatic admission numbers, import from Excel / CSV, and parent / student logins (portal).
+- Promotion and shuffle (2026-10-01): per campus, preview with suggestions (next top-level class, same path by code; finish after the last), then apply; shuffle moves ticked students within a year.
+- Next: undo of a promotion, moving a student to another campus, documents (needs file storage), automatic admission numbers, import from Excel / CSV, and parent / student logins (portal).

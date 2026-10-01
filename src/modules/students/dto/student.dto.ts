@@ -287,3 +287,64 @@ export class GuardianSearchQuery {
   @Length(4, 20)
   phone: string;
 }
+
+// --- Promotion and shuffle -----------------------------------------------------------------------
+
+export class PromotionQuery {
+  @IsUUID()
+  campusId: string;
+
+  /** The year the students are in now. */
+  @IsUUID()
+  fromYearId: string;
+
+  /** The year they move on to (later, not closed). */
+  @IsUUID()
+  toYearId: string;
+}
+
+export class SectionChoiceDto {
+  @IsUUID()
+  fromSectionId: string;
+
+  /** Where this section's students go; leave out (and graduate false) to skip the section. */
+  @IsOptional()
+  @IsUUID()
+  toSectionId?: string;
+
+  /** true = these students finish: their enrolment completes and they become alumni. */
+  @IsOptional()
+  @IsBoolean()
+  graduate?: boolean;
+}
+
+export class ApplyPromotionDto extends PromotionQuery {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SectionChoiceDto)
+  mapping: SectionChoiceDto[];
+
+  /** Move the promoted students' batches to this stage, e.g. "Senior". */
+  @IsOptional()
+  @IsString()
+  @Length(1, 40)
+  batchStage?: string;
+
+  /** Keep each student's roll number in the new section. */
+  @IsOptional()
+  @IsBoolean()
+  keepRollNumbers?: boolean;
+}
+
+export class MoveStudentsDto {
+  @IsUUID()
+  academicYearId: string;
+
+  @IsArray()
+  @IsUUID('all', { each: true })
+  studentIds: string[];
+
+  /** A section on the same campus. */
+  @IsUUID()
+  toSectionId: string;
+}

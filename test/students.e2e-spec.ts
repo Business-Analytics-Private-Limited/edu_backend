@@ -260,6 +260,176 @@ describe('Students', () => {
     expect(sita.body.guardians[0].guardian.fullName).toBe('Ramesh');
   });
 
+  it('promotion: preview suggests the next year by the same path', async () => {
+    // Next year's classes on KKP, and the next academic year.
+    const post = (body: object) =>
+      api().post(`/api/v1/campuses/${ids.KKP}/classes`).set(as(admin)).send(body).expect(201);
+    const y2 = await post({ name: '2nd year', code: 'Y2', sortOrder: 1 });
+    const mpc2 = await post({ parentId: y2.body.id, name: 'MPC', code: 'MPC' });
+    for (const s of ['A', 'B']) {
+      const section = await post({ parentId: mpc2.body.id, name: `Section ${s}`, code: s });
+      ids[`KKP2_${s}`] = section.body.id;
+    }
+    const year2 = await api()
+      .post('/api/v1/academic-years')
+      .set(as(admin))
+      .send({
+        institutionId: ids.SVJC,
+        name: '2027-28',
+        startsOn: '2027-06-01',
+        endsOn: '2028-03-31',
+      })
+      .expect(201);
+    ids.YEAR2 = year2.body.id;
+
+    // Two more students in Section A with roll numbers.
+    for (const [name, roll] of [
+      ['Anil', '1'],
+      ['Bhavya', '2'],
+    ]) {
+      await api()
+        .post('/api/v1/students')
+        .set(as(admin))
+        .send(
+          admission({
+            fullName: name,
+            batchId: ids.BATCH,
+            enrolment: { academicYearId: ids.YEAR, classId: ids.KKP_A, rollNo: roll },
+          }),
+        )
+        .expect(201);
+    }
+
+    const preview = await api()
+      .get(
+        `/api/v1/promotions/preview?campusId=${ids.KKP}&fromYearId=${ids.YEAR}&toYearId=${ids.YEAR2}`,
+      )
+      .set(as(admin))
+      .expect(200);
+    const rowA = preview.body.rows.find((r: { from: { id: string } }) => r.from.id === ids.KKP_A);
+    expect(rowA.from.label).toBe('1st year › MPC › Section A');
+    expect(rowA.suggestion).toEqual({ kind: 'section', sectionId: ids.KKP2_A });
+    expect(rowA.students.map((st: { fullName: string }) => st.fullName).sort()).toEqual([
+      'Anil',
+      'Bhavya',
+    ]);
+    const rowB = preview.body.rows.find((r: { from: { id: string } }) => r.from.id === ids.KKP_B);
+    expect(rowB.suggestion).toEqual({ kind: 'section', sectionId: ids.KKP2_B });
+  });
+
+  it('promotion needs the promote permission, at the campus', async () => {
+    // A Campus admin may move students between sections, but not promote by default.
+    await api()
+      .get(
+        `/api/v1/promotions/preview?campusId=${ids.KKP}&fromYearId=${ids.YEAR}&toYearId=${ids.YEAR2}`,
+      )
+      .set(as(ravi))
+      .expect(403);
+    // Backwards (to an earlier year): refused.
+    await api()
+      .get(
+        `/api/v1/promotions/preview?campusId=${ids.KKP}&fromYearId=${ids.YEAR2}&toYearId=${ids.YEAR}`,
+      )
+      .set(as(admin))
+      .expect(400);
+  });
+
+  it('promotion: apply moves students on, keeps roll numbers and moves the batch to its next stage', async () => {
+    const body = {
+      campusId: ids.KKP,
+      fromYearId: ids.YEAR,
+      toYearId: ids.YEAR2,
+      batchStage: 'Senior',
+      keepRollNumbers: true,
+      mapping: [
+        { fromSectionId: ids.KKP_A, toSectionId: ids.KKP2_A },
+        { fromSectionId: ids.KKP_B, toSectionId: ids.KKP2_B },
+      ],
+    };
+    const res = await api().post('/api/v1/promotions').set(as(admin)).send(body).expect(200);
+    expect(res.body).toMatchObject({ promoted: 3, graduated: 0, batchesMoved: 1 });
+
+    const list = await api()
+      .get(`/api/v1/students?academicYearId=${ids.YEAR2}&search=Anil`)
+      .set(as(admin))
+      .expect(200);
+    const anil = await api()
+      .get(`/api/v1/students/${list.body.items[0].id}`)
+      .set(as(admin))
+      .expect(200);
+    ids.ANIL = anil.body.id;
+    expect(anil.body.enrolments.map((e: { status: string }) => e.status)).toEqual([
+      'ACTIVE',
+      'PROMOTED',
+    ]);
+    expect(anil.body.enrolments[0]).toMatchObject({ rollNo: '1' });
+    expect(anil.body.batch.stage).toBe('Senior');
+
+    // Applying again changes nothing: they are already placed in 2027-28.
+    const again = await api().post('/api/v1/promotions').set(as(admin)).send(body).expect(200);
+    expect(again.body.promoted).toBe(0);
+  });
+
+  it('shuffle: moves chosen students to another section of the same campus', async () => {
+    const res = await api()
+      .post('/api/v1/enrolments/move')
+      .set(as(ravi))
+      .send({ academicYearId: ids.YEAR2, studentIds: [ids.ANIL], toSectionId: ids.KKP2_B })
+      .expect(200);
+    expect(res.body.moved).toBe(1);
+    const anil = await api().get(`/api/v1/students/${ids.ANIL}`).set(as(admin)).expect(200);
+    expect(anil.body.enrolments[0].class.name).toBe('Section B');
+    expect(anil.body.enrolments[0].rollNo).toBeNull();
+
+    // A section of another campus: refused.
+    await api()
+      .post('/api/v1/enrolments/move')
+      .set(as(admin))
+      .send({ academicYearId: ids.YEAR2, studentIds: [ids.ANIL], toSectionId: ids.AMP_A })
+      .expect(400);
+  });
+
+  it('promotion: after the last year, students finish and become alumni', async () => {
+    const year3 = await api()
+      .post('/api/v1/academic-years')
+      .set(as(admin))
+      .send({
+        institutionId: ids.SVJC,
+        name: '2028-29',
+        startsOn: '2028-06-01',
+        endsOn: '2029-03-31',
+      })
+      .expect(201);
+    const preview = await api()
+      .get(
+        `/api/v1/promotions/preview?campusId=${ids.KKP}&fromYearId=${ids.YEAR2}&toYearId=${year3.body.id}`,
+      )
+      .set(as(admin))
+      .expect(200);
+    expect(
+      preview.body.rows.every(
+        (r: { suggestion: { kind: string } }) => r.suggestion.kind === 'graduate',
+      ),
+    ).toBe(true);
+    const res = await api()
+      .post('/api/v1/promotions')
+      .set(as(admin))
+      .send({
+        campusId: ids.KKP,
+        fromYearId: ids.YEAR2,
+        toYearId: year3.body.id,
+        mapping: preview.body.rows.map((r: { from: { id: string } }) => ({
+          fromSectionId: r.from.id,
+          graduate: true,
+        })),
+      })
+      .expect(200);
+    expect(res.body.graduated).toBe(3);
+    const anil = await api().get(`/api/v1/students/${ids.ANIL}`).set(as(admin)).expect(200);
+    expect(anil.body.status).toBe('ALUMNI');
+    expect(anil.body.enrolments[0].status).toBe('COMPLETED');
+  });
+
   it('another organization sees none of it', async () => {
     const otherOrg = await api().get('/api/v1/organization').set(as(other)).expect(200);
     for (const key of ['academic', 'students']) {

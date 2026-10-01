@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Built (part 1):** admission, profile, status history, guardians, sections per year. **Next:** promotion / shuffle, campus transfer, documents, numbering, import |
+| Status | **Built:** admission, profile, status history, guardians, sections per year, **promotion and shuffle**. **Next:** campus transfer, documents, numbering, import |
 | Code | `src/modules/students/` |
 | Tables | `students`, `student_status_changes`, `guardians`, `student_guardians`, `enrolments` |
 | Decisions | ADR-0020 (and ADR-0018 places, ADR-0019 academic structure) |
@@ -14,6 +14,8 @@
 - **Status:** Active → Transferred / Discontinued / Alumni, each with a date and reason, kept as history. Leaving ends the current section.
 - **Guardians:** father, mother, guardian; one is the main contact. Siblings share the same guardian record (find them by phone).
 - **Sections:** one per academic year — a class of the institution's last level on the student's campus (e.g. *1st year › MPC › Section A*), with a roll number.
+- **Promotion:** per campus, from one academic year to a later one. The preview suggests, for each section, the next class at the top level with the same path below (*1st year › MPC › A → 2nd year › MPC › A*; *Junior › … → Senior › …*), or **finish** (alumni) after the last one. The user can change any choice, move the batches to a new stage and keep roll numbers.
+- **Shuffle:** move ticked students to another section of the same campus in the same year.
 
 ## Endpoints (`/api/v1`)
 
@@ -30,6 +32,9 @@
 | PATCH / DELETE | `/students/:id/guardians/:guardianId` | `students.student.update` |
 | POST | `/students/:id/enrolments` | `students.student.update` — `{ academicYearId, classId, rollNo }` |
 | PATCH | `/students/:id/enrolments/:enrolmentId` | roll no: `students.student.update`; another section: `students.enrolment.transfer` |
+| GET | `/promotions/preview?campusId=&fromYearId=&toYearId=` | `students.enrolment.promote` — sections, their students, suggested target |
+| POST | `/promotions` | `students.enrolment.promote` — `{ campusId, fromYearId, toYearId, mapping: [{ fromSectionId, toSectionId? , graduate? }], batchStage?, keepRollNumbers? }` |
+| POST | `/enrolments/move` | `students.enrolment.transfer` — `{ academicYearId, studentIds, toSectionId }` (roll numbers cleared) |
 
 ## Rules (tested in `test/students.e2e-spec.ts`)
 
@@ -38,12 +43,13 @@
 3. A section must be a class of the last level, in use, on the student's campus; the year must be the institution's and not closed; one section per student per year; roll numbers unique per section and year.
 4. A Campus admin sees, admits and changes only their campus's students; deleting needs `students.student.delete` (not in Campus admin by default).
 5. A guardian can be linked to several students; removing the last link removes the guardian.
-6. Another organization sees none of it; every change goes to the audit log with its campus.
+6. Promotion goes to a LATER year that isn't closed; students already placed in that year are left alone (applying twice changes nothing); old enrolments become PROMOTED, or COMPLETED + alumni for those who finish.
+7. Another organization sees none of it; every change goes to the audit log with its campus.
 
 ## Screens (web app → Students)
 
-Students (search, campus and status filters) · Admit student · a student's page (profile, parents / guardians, sections per year with move and roll no, status and history).
+Students (search, campus and status filters) · Admit student · Promote (preview, adjust, apply) · Move students · a student's page (profile, parents / guardians, sections per year with move and roll no, status and history).
 
 ## Next (part 2)
 
-Promotion and shuffle of whole batches / sections to the next year (preview, then apply), moving a student to another campus, documents (with file storage), automatic admission numbers, import from Excel / CSV, parent and student logins (portal).
+Undo of a promotion, moving a student to another campus, documents (with file storage), automatic admission numbers, import from Excel / CSV, parent and student logins (portal).

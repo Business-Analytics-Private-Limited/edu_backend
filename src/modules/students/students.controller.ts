@@ -18,6 +18,10 @@
  *   POST   /api/v1/students/:id/enrolments                     students.student.update
  *   PATCH  /api/v1/students/:id/enrolments/:enrolmentId        students.student.update, or
  *                                                              students.enrolment.transfer to move
+ *
+ *   GET    /api/v1/promotions/preview?campusId=&fromYearId=&toYearId=   students.enrolment.promote
+ *   POST   /api/v1/promotions                                  students.enrolment.promote
+ *   POST   /api/v1/enrolments/move                             students.enrolment.transfer (shuffle)
  */
 import {
   Body,
@@ -42,11 +46,15 @@ import {
   GuardianDto,
   GuardianSearchQuery,
   ListStudentsQuery,
+  ApplyPromotionDto,
+  MoveStudentsDto,
+  PromotionQuery,
   UpdateEnrolmentDto,
   UpdateGuardianDto,
   UpdateStudentDto,
 } from './dto/student.dto';
 import { EnrolmentsService } from './enrolments.service';
+import { PromotionsService } from './promotions.service';
 import { GuardiansService } from './guardians.service';
 import { StudentsService } from './students.service';
 
@@ -58,6 +66,7 @@ export class StudentsController {
     private readonly students: StudentsService,
     private readonly guardians: GuardiansService,
     private readonly enrolments: EnrolmentsService,
+    private readonly promotions: PromotionsService,
   ) {}
 
   // --- Students ----------------------------------------------------------------------------------
@@ -194,5 +203,39 @@ export class StudentsController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.enrolments.update(organizationId, id, enrolmentId, body, user);
+  }
+
+  // --- Promotion and shuffle ---------------------------------------------------------------------
+
+  @Get('promotions/preview')
+  @RequirePermission('students.enrolment.promote')
+  previewPromotion(
+    @OrganizationId() organizationId: string,
+    @Query() query: PromotionQuery,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.promotions.preview(organizationId, query, user);
+  }
+
+  @Post('promotions')
+  @RequirePermission('students.enrolment.promote')
+  @HttpCode(200)
+  applyPromotion(
+    @OrganizationId() organizationId: string,
+    @Body() body: ApplyPromotionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.promotions.apply(organizationId, body, user);
+  }
+
+  @Post('enrolments/move')
+  @RequirePermission('students.enrolment.transfer')
+  @HttpCode(200)
+  moveStudents(
+    @OrganizationId() organizationId: string,
+    @Body() body: MoveStudentsDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.promotions.move(organizationId, body, user);
   }
 }
