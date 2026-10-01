@@ -14,9 +14,10 @@ This repository is the **backend API**. The web app and the super admin console 
 | **Organization area** | An organization's users | Dashboard; the organization's details; institutions and campuses; staff users; own roles (View / Create / Edit / Delete grid); audit log. |
 | **Roles at places** | Built in | A user has one or more roles, each for the whole organization, one institution or one campus. A Campus admin sees and manages only their campus. Nobody can hand out more than they have. |
 | **Multi-tenancy** | Built in | Every query is limited to the user's organization, and PostgreSQL row security blocks mistakes. |
+| **Students** (module) | Organizations with the Students module | Admission at a campus (optionally with batch, section and parent in one go); profile; status with history; parents / guardians shared by siblings; one section per academic year with roll numbers. |
 | **Academic** (module) | Organizations with the Academic module | Academic years (one active per institution); class levels each institution names itself (e.g. Year → Group → Section, or Type → Group → Stream → Section); classes per campus as a tree; batches with a stage; subjects (attached to a class, inherited below); calendar with weekly off days and holidays. |
 
-Coming next: students (Phase 4), then attendance, parent portal, data import (see `docs/06-roadmap.md`). Module by module: [docs/modules/README.md](docs/modules/README.md).
+Coming next: promotion of batches and documents (Students part 2), then attendance, parent portal, data import (see `docs/06-roadmap.md`). Module by module: [docs/modules/README.md](docs/modules/README.md).
 
 ## Getting started
 

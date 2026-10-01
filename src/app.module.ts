@@ -24,6 +24,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { RolesModule } from './modules/roles/roles.module';
+import { StudentsModule } from './modules/students/students.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -44,6 +45,7 @@ import { PrismaModule } from './prisma/prisma.module';
     OrganizationModule, // the tenant admin area
     UsersModule,
     AcademicModule,
+    StudentsModule,
     RolesModule,
   ],
   providers: [

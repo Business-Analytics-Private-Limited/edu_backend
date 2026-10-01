@@ -8,7 +8,7 @@ One document per module of EduPlatform: what it is for, its screens / endpoints 
 | access | Login, users, roles and permissions, roles at places | **Built** | [access.md](access.md) | `src/modules/auth`, `users`, `roles`, `src/common/scope.ts` |
 | audit | Who changed what, where, when | **Built** | [audit.md](audit.md) | `src/modules/audit` |
 | academic | Academic years, class levels and classes, batches, subjects, calendar | **Built** | [academic.md](academic.md) | `src/modules/academic` |
-| students | Admissions, profiles, guardians, documents, promotion | Design | [students.md](students.md) | — |
+| students | Admission, profiles, status, guardians, sections per year (promotion, documents next) | **Built (part 1)** | [students.md](students.md) | `src/modules/students` |
 | attendance | Manual and biometric attendance, corrections, reports | Design | [attendance.md](attendance.md) | — |
 | portal | Parents and students see profile and attendance | Design | [portal.md](portal.md) | — |
 | imports | Import students and other data from Excel / CSV | Design | [imports.md](imports.md) | — |

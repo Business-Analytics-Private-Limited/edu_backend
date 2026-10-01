@@ -111,6 +111,12 @@ model Organization {
   classSubjects ClassSubject[]
   holidays      Holiday[]
 
+  students         Student[]
+  studentStatuses  StudentStatusChange[]
+  guardians        Guardian[]
+  studentGuardians StudentGuardian[]
+  enrolments       Enrolment[]
+
   @@map("organizations")
 }
 
@@ -158,6 +164,8 @@ model Institution {
   batches       Batch[]
   subjects      Subject[]
   holidays      Holiday[]
+  students      Student[]
+  enrolments    Enrolment[]
 
   @@unique([organizationId, code])
   @@map("institutions")
@@ -178,6 +186,8 @@ model Campus {
   userRoles    UserRole[]
   classes      Class[]
   holidays     Holiday[]
+  students     Student[]
+  enrolments   Enrolment[]
 
   @@unique([institutionId, code])
   @@index([organizationId])
@@ -310,6 +320,7 @@ model AcademicYear {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   institution  Institution  @relation(fields: [institutionId], references: [id])
+  enrolments   Enrolment[]
 
   @@unique([institutionId, name])
   @@index([organizationId])
@@ -366,6 +377,7 @@ model Class {
   parent       Class?         @relation("ClassTree", fields: [parentId], references: [id], onDelete: Restrict)
   children     Class[]        @relation("ClassTree")
   subjects     ClassSubject[]
+  enrolments   Enrolment[]
 
   @@index([organizationId])
   @@index([campusId])
@@ -394,6 +406,7 @@ model Batch {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   institution  Institution  @relation(fields: [institutionId], references: [id])
+  students     Student[]
 
   @@unique([institutionId, code])
   @@index([organizationId])
@@ -459,4 +472,165 @@ model Holiday {
   @@index([organizationId])
   @@index([institutionId, startsOn])
   @@map("holidays")
+}
+
+// -------------------------------------------------------------------------------------------------
+// STUDENTS MODULE (ADR-0020): students, their status history, guardians, enrolments.
+// Only for organizations that have the Students module switched on.
+// -------------------------------------------------------------------------------------------------
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNDISCLOSED
+}
+
+enum StudentStatus {
+  ACTIVE
+  TRANSFERRED
+  DISCONTINUED
+  ALUMNI
+}
+
+/// A student of an institution, studying at one of its campuses.
+model Student {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  institutionId  String        @map("institution_id") @db.Uuid
+  /// The campus the student studies at; it decides who may see and change the student.
+  campusId       String        @map("campus_id") @db.Uuid
+  /// Unique in the institution, e.g. "SVJC260001".
+  admissionNo    String        @map("admission_no")
+  admissionDate  DateTime      @map("admission_date") @db.Date
+  /// As in official records; no forced first / last name split.
+  fullName       String        @map("full_name")
+  surname        String?
+  dateOfBirth    DateTime      @map("date_of_birth") @db.Date
+  gender         Gender
+  bloodGroup     String?       @map("blood_group")
+  phone          String?
+  email          String?
+  address        String?
+  /// The batch the student joined with (Academic module), e.g. "2026-28 batch".
+  batchId        String?       @map("batch_id") @db.Uuid
+  status         StudentStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization          @relation(fields: [organizationId], references: [id])
+  institution   Institution           @relation(fields: [institutionId], references: [id])
+  campus        Campus                @relation(fields: [campusId], references: [id])
+  batch         Batch?                @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  statusChanges StudentStatusChange[]
+  guardians     StudentGuardian[]
+  enrolments    Enrolment[]
+
+  @@unique([institutionId, admissionNo])
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([batchId])
+  @@map("students")
+}
+
+/// Every status change of a student, with the date it takes effect and why.
+model StudentStatusChange {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  studentId      String         @map("student_id") @db.Uuid
+  fromStatus     StudentStatus? @map("from_status")
+  toStatus       StudentStatus  @map("to_status")
+  effectiveOn    DateTime       @map("effective_on") @db.Date
+  reason         String?
+  changedBy      String         @map("changed_by") @db.Uuid
+  changedAt      DateTime       @default(now()) @map("changed_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@map("student_status_changes")
+}
+
+/// A parent or guardian. One guardian can be linked to several students (siblings).
+model Guardian {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  fullName       String   @map("full_name")
+  /// Not unique: parents often share a number.
+  phone          String?
+  email          String?
+  occupation     String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  students     StudentGuardian[]
+
+  @@index([organizationId])
+  @@index([organizationId, phone])
+  @@map("guardians")
+}
+
+enum GuardianRelation {
+  FATHER
+  MOTHER
+  GUARDIAN
+  OTHER
+}
+
+/// Which guardians a student has, how they are related, and who is the main contact.
+model StudentGuardian {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  studentId      String           @map("student_id") @db.Uuid
+  guardianId     String           @map("guardian_id") @db.Uuid
+  relation       GuardianRelation
+  isPrimary      Boolean          @default(false) @map("is_primary")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  guardian     Guardian     @relation(fields: [guardianId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, guardianId])
+  @@index([organizationId])
+  @@index([guardianId])
+  @@map("student_guardians")
+}
+
+enum EnrolmentStatus {
+  ACTIVE
+  PROMOTED
+  COMPLETED
+  LEFT
+}
+
+/// Which SECTION (a class of the last level) a student is in, in one academic year.
+/// One enrolment per student per academic year.
+model Enrolment {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  studentId      String          @map("student_id") @db.Uuid
+  academicYearId String          @map("academic_year_id") @db.Uuid
+  institutionId  String          @map("institution_id") @db.Uuid
+  campusId       String          @map("campus_id") @db.Uuid
+  classId        String          @map("class_id") @db.Uuid
+  rollNo         String?         @map("roll_no")
+  status         EnrolmentStatus @default(ACTIVE)
+  enrolledOn     DateTime        @map("enrolled_on") @db.Date
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  institution  Institution  @relation(fields: [institutionId], references: [id])
+  campus       Campus       @relation(fields: [campusId], references: [id])
+  class        Class        @relation(fields: [classId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, academicYearId])
+  @@index([organizationId])
+  @@index([classId, academicYearId])
+  @@map("enrolments")
 }
