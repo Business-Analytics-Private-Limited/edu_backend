@@ -27,6 +27,7 @@ export const ORG_ADMIN = 'org_admin';
 
 /** What a Campus admin may do at their campus. A Principal gets all of it too (see below). */
 const CAMPUS_ADMIN_PERMISSIONS = [
+  'academic.calendar.delete',
   'academic.structure.create',
   'academic.structure.update',
   'academic.structure.delete',

@@ -1,5 +1,6 @@
 /**
- * The Academic module: academic years, class levels and classes, batches (ADR-0019).
+ * The Academic module: academic years, class levels and classes, batches, subjects and the
+ * calendar (ADR-0019).
  *
  * Organization "acad": institution SVJC (junior college) with campuses KKP and AMP.
  * Ravi is Campus admin of KKP. Organization "other" must never see any of it.
@@ -99,6 +100,7 @@ describe('Academic', () => {
     );
     expect(sectionA.body.level).toBe(4);
     ids.JR = junior.body.id;
+    ids.MPC = mpc.body.id;
     ids.A = sectionA.body.id;
 
     // Nothing below the last level; codes unique among siblings.
@@ -216,6 +218,94 @@ describe('Academic', () => {
       .expect(403);
   });
 
+  it('subjects attached to a class are inherited by the classes below it', async () => {
+    const add = (name: string, code: string) =>
+      api()
+        .post('/api/v1/subjects')
+        .set(as(admin))
+        .send({ institutionId: ids.SVJC, name, code })
+        .expect(201);
+    const maths = await add('Mathematics', 'MATHS');
+    const physics = await add('Physics', 'PHY');
+    ids.MATHS = maths.body.id;
+
+    // A campus admin can't change the institution's subject list...
+    await api()
+      .post('/api/v1/subjects')
+      .set(as(ravi))
+      .send({ institutionId: ids.SVJC, name: 'Chemistry', code: 'CHEM' })
+      .expect(403);
+    // ...but attaches subjects to their own campus's classes.
+    await api()
+      .put(`/api/v1/classes/${ids.MPC}/subjects`)
+      .set(as(ravi))
+      .send({ subjectIds: [maths.body.id, physics.body.id] })
+      .expect(200);
+
+    const sectionA = await api()
+      .get(`/api/v1/classes/${ids.A}/subjects`)
+      .set(as(admin))
+      .expect(200);
+    expect(sectionA.body.own).toEqual([]);
+    expect(
+      sectionA.body.inherited.map((i: { subject: { code: string } }) => i.subject.code).sort(),
+    ).toEqual(['MATHS', 'PHY']);
+    expect(sectionA.body.inherited[0].from.name).toBe('MPC');
+
+    // A subject that classes use can't be deleted.
+    await api().delete(`/api/v1/subjects/${ids.MATHS}`).set(as(admin)).expect(400);
+  });
+
+  it('calendar: weekly off days and holidays for the institution or one campus', async () => {
+    await api()
+      .put(`/api/v1/institutions/${ids.SVJC}/weekly-off`)
+      .set(as(admin))
+      .send({ days: [0, 6] })
+      .expect(200);
+    await api()
+      .put(`/api/v1/institutions/${ids.SVJC}/weekly-off`)
+      .set(as(ravi))
+      .send({ days: [0] })
+      .expect(403);
+
+    const holiday = (token: string, body: object) =>
+      api()
+        .post('/api/v1/holidays')
+        .set(as(token))
+        .send({ institutionId: ids.SVJC, ...body });
+    await holiday(admin, {
+      name: 'Sankranti',
+      startsOn: '2027-01-13',
+      endsOn: '2027-01-16',
+    }).expect(201);
+    await holiday(admin, {
+      name: 'Backwards',
+      startsOn: '2027-02-10',
+      endsOn: '2027-02-01',
+    }).expect(400);
+    await holiday(ravi, {
+      name: 'KKP sports day',
+      startsOn: '2026-12-05',
+      campusId: ids.KKP,
+    }).expect(201);
+    await holiday(ravi, { name: 'Whole institution', startsOn: '2026-12-06' }).expect(403);
+    await holiday(ravi, { name: 'Other campus', startsOn: '2026-12-07', campusId: ids.AMP }).expect(
+      403,
+    );
+
+    const cal = await api().get('/api/v1/calendar').set(as(ravi)).expect(200);
+    expect(cal.body.institutions[0].weeklyOffDays).toEqual([0, 6]);
+    expect(cal.body.holidays.map((h: { name: string }) => h.name)).toEqual([
+      'KKP sports day',
+      'Sankranti',
+    ]);
+    const ranged = await api()
+      .get('/api/v1/calendar?from=2027-01-01&to=2027-01-31')
+      .set(as(admin))
+      .expect(200);
+    expect(ranged.body.holidays.map((h: { name: string }) => h.name)).toEqual(['Sankranti']);
+  });
+
   it('another organization sees none of it', async () => {
     await api().get(`/api/v1/campuses/${ids.KKP}/classes`).set(as(other)).expect(403); // module off
     const otherOrg = await api().get('/api/v1/organization').set(as(other)).expect(200);
@@ -228,6 +318,11 @@ describe('Academic', () => {
     await api().get(`/api/v1/institutions/${ids.SVJC}/class-levels`).set(as(other)).expect(404);
     expect((await api().get('/api/v1/academic-years').set(as(other)).expect(200)).body).toEqual([]);
     expect((await api().get('/api/v1/batches').set(as(other)).expect(200)).body).toEqual([]);
+    expect((await api().get('/api/v1/subjects').set(as(other)).expect(200)).body).toEqual([]);
+    expect((await api().get('/api/v1/calendar').set(as(other)).expect(200)).body.holidays).toEqual(
+      [],
+    );
+    await api().get(`/api/v1/classes/${ids.A}/subjects`).set(as(other)).expect(404);
     await api().patch(`/api/v1/classes/${ids.A}`).set(as(other)).send({ name: 'x' }).expect(404);
   });
 });

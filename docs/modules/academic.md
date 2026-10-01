@@ -1,10 +1,10 @@
-# Module: academic (academic years, class structure, batches)
+# Module: academic (academic years, class structure, batches, subjects, calendar)
 
 | | |
 |---|---|
-| Status | **Built (part 1):** academic years, class levels, classes, batches. **Later:** subjects, holidays |
+| Status | **Built:** academic years, class levels, classes, batches, subjects, calendar (weekly off days, holidays) |
 | Code | `src/modules/academic/` |
-| Tables | `academic_years`, `class_levels`, `classes`, `batches` |
+| Tables | `academic_years`, `class_levels`, `classes`, `batches`, `subjects`, `class_subjects`, `holidays`; `institutions.weekly_off_days` |
 | Decisions | ADR-0019 (and ADR-0018 for places) |
 | Switched on by | the super admin, per organization (module key `academic`) |
 
@@ -23,6 +23,8 @@
 
 - **Classes:** each campus builds a tree that follows the levels, e.g. *1st year → MPC → Section A*. The last level ("section") is where students will be placed.
 - **Batches:** students who joined together and move on together, e.g. "2026-28 batch", with a **stage** in the institution's own words (Junior, Senior, Long term, Passed out…).
+- **Subjects:** each institution's subject list. A subject is attached to a class at **any level** and the classes below **inherit** it: Mathematics on "MPC" = Mathematics in every MPC section.
+- **Calendar:** weekly off days per institution (e.g. Sunday) and holidays (one day or a range) for the whole institution or one campus. Attendance will use it for working days.
 
 ## Endpoints (`/api/v1`)
 
@@ -41,6 +43,14 @@
 | DELETE | `/classes/:id` | `academic.structure.delete` | the campus; only without classes under it |
 | GET | `/batches?institutionId=` | `academic.batch.view` | anyone working in the institution |
 | POST / PATCH / DELETE | `/batches`, `/batches/:id` | `academic.batch.create` / `update` / `delete` | the institution |
+| GET | `/subjects?institutionId=` | `academic.subject.view` | anyone working in the institution |
+| POST / PATCH / DELETE | `/subjects`, `/subjects/:id` | `academic.subject.create` / `update` / `delete` | the institution; delete only when no class uses it |
+| GET | `/classes/:id/subjects` | `academic.structure.view` | the campus; `{ own, inherited, available, path }` |
+| PUT | `/classes/:id/subjects` | `academic.structure.update` | the campus; `{ subjectIds }` = the class's own subjects |
+| GET | `/calendar?institutionId=&from=&to=` | `academic.calendar.view` | weekly off days and holidays you may see |
+| PUT | `/institutions/:id/weekly-off` | `academic.calendar.update` | the institution; `{ days: [0..6] }`, 0 = Sunday |
+| POST | `/holidays` | `academic.calendar.create` | the institution, or the campus for a campus holiday |
+| DELETE | `/holidays/:id` | `academic.calendar.delete` | same as above |
 
 ## Rules (tested in `test/academic.e2e-spec.ts`)
 
@@ -50,12 +60,14 @@
 4. Academic years of one institution never overlap; at most one is active; a closed year can't change; only planned years can be deleted.
 5. A Campus admin builds classes only on their campus and sees (not changes) their institution's years, levels and batches. A Principal manages all of their institution.
 6. Another organization sees none of it.
-7. Every change goes to the audit log with its institution / campus.
+7. Subjects: the list belongs to the institution; attaching them to classes is done at the class's campus; a subject used by classes can't be deleted (mark it "not in use").
+8. Calendar: a Campus admin adds and removes holidays of their own campus; weekly off days and institution-wide holidays need the institution.
+9. Every change goes to the audit log with its institution / campus.
 
 ## Screens (web app → Academic)
 
-Academic years · Classes (pick a campus, see and grow the tree; "Edit levels") · Batches.
+Academic years · Classes (pick a campus, see and grow the tree; "Edit levels"; Subjects per class) · Batches · Subjects · Calendar.
 
 ## Later
 
-Subjects per class, holidays and working days, batch sections if needed, copying a campus's structure to another campus, promotion of batches (with the Students module).
+Batch sections if a customer needs groupings different from class sections, copying a campus's structure to another campus, promotion of batches (with the Students module), timetables (v2).

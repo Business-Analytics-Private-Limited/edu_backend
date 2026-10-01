@@ -107,6 +107,9 @@ model Organization {
   classLevels   ClassLevel[]
   classes       Class[]
   batches       Batch[]
+  subjects      Subject[]
+  classSubjects ClassSubject[]
+  holidays      Holiday[]
 
   @@map("organizations")
 }
@@ -140,6 +143,8 @@ model Institution {
   /// Short code, unique inside the organization, e.g. "SVJC".
   code           String
   type           InstitutionType
+  /// Days without classes every week (Academic module): 0 = Sunday ... 6 = Saturday.
+  weeklyOffDays  Int[]           @default([0]) @map("weekly_off_days")
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -151,6 +156,8 @@ model Institution {
   classLevels   ClassLevel[]
   classes       Class[]
   batches       Batch[]
+  subjects      Subject[]
+  holidays      Holiday[]
 
   @@unique([organizationId, code])
   @@map("institutions")
@@ -170,6 +177,7 @@ model Campus {
   institution  Institution  @relation(fields: [institutionId], references: [id])
   userRoles    UserRole[]
   classes      Class[]
+  holidays     Holiday[]
 
   @@unique([institutionId, code])
   @@index([organizationId])
@@ -352,11 +360,12 @@ model Class {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  institution  Institution  @relation(fields: [institutionId], references: [id])
-  campus       Campus       @relation(fields: [campusId], references: [id])
-  parent       Class?       @relation("ClassTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children     Class[]      @relation("ClassTree")
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  institution  Institution    @relation(fields: [institutionId], references: [id])
+  campus       Campus         @relation(fields: [campusId], references: [id])
+  parent       Class?         @relation("ClassTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Class[]        @relation("ClassTree")
+  subjects     ClassSubject[]
 
   @@index([organizationId])
   @@index([campusId])
@@ -389,4 +398,65 @@ model Batch {
   @@unique([institutionId, code])
   @@index([organizationId])
   @@map("batches")
+}
+
+/// A subject an institution teaches, e.g. Mathematics (MATHS).
+model Subject {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  institutionId  String   @map("institution_id") @db.Uuid
+  name           String
+  code           String
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  institution  Institution    @relation(fields: [institutionId], references: [id])
+  classes      ClassSubject[]
+
+  @@unique([institutionId, code])
+  @@index([organizationId])
+  @@map("subjects")
+}
+
+/// Which subjects a class has. Attached at any level; the classes below inherit them
+/// (Maths on "MPC" = Maths in every MPC section).
+model ClassSubject {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  classId        String   @map("class_id") @db.Uuid
+  subjectId      String   @map("subject_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  class        Class        @relation(fields: [classId], references: [id], onDelete: Restrict)
+  subject      Subject      @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([classId, subjectId])
+  @@index([organizationId])
+  @@index([subjectId])
+  @@map("class_subjects")
+}
+
+/// A holiday (one day or a range) for a whole institution, or for one campus only.
+model Holiday {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  institutionId  String   @map("institution_id") @db.Uuid
+  /// Empty = every campus of the institution.
+  campusId       String?  @map("campus_id") @db.Uuid
+  name           String
+  startsOn       DateTime @map("starts_on") @db.Date
+  endsOn         DateTime @map("ends_on") @db.Date
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  institution  Institution  @relation(fields: [institutionId], references: [id])
+  campus       Campus?      @relation(fields: [campusId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([institutionId, startsOn])
+  @@map("holidays")
 }

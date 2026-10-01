@@ -7,7 +7,7 @@ One document per module of EduPlatform: what it is for, its screens / endpoints 
 | platform | Organizations, institutions, campuses; which modules each organization has | **Built** | [platform.md](platform.md) | `src/modules/super-admin`, `src/modules/organization` |
 | access | Login, users, roles and permissions, roles at places | **Built** | [access.md](access.md) | `src/modules/auth`, `users`, `roles`, `src/common/scope.ts` |
 | audit | Who changed what, where, when | **Built** | [audit.md](audit.md) | `src/modules/audit` |
-| academic | Academic years, class levels and classes, batches (subjects and holidays later) | **Built (part 1)** | [academic.md](academic.md) | `src/modules/academic` |
+| academic | Academic years, class levels and classes, batches, subjects, calendar | **Built** | [academic.md](academic.md) | `src/modules/academic` |
 | students | Admissions, profiles, guardians, documents, promotion | Design | [students.md](students.md) | — |
 | attendance | Manual and biometric attendance, corrections, reports | Design | [attendance.md](attendance.md) | — |
 | portal | Parents and students see profile and attendance | Design | [portal.md](portal.md) | — |

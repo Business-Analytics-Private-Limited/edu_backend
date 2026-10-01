@@ -24,4 +24,5 @@ EduPlatform must serve many kinds of institutions from one codebase. One existin
 
 - Each customer's structure is configuration, not code: the existing customer sets levels Type → Group → Stream → Section; others keep the defaults.
 - Students, attendance and exams only need to know "a student is in a class (last level) of a campus, in a batch, in an academic year".
-- Later in this module: subjects per class, holidays / working days, batch sections if a customer needs groupings that differ from class sections, and a "copy structure from another campus" helper.
+- Part 2 (2026-10-01): **subjects** per institution, attached to classes at any level and inherited downwards (`class_subjects`); **calendar** with weekly off days per institution and holidays for an institution or one campus.
+- Later in this module: batch sections if a customer needs groupings that differ from class sections, and a "copy structure from another campus" helper.

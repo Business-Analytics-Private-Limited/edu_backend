@@ -1,9 +1,11 @@
 /**
- * Request bodies for the Academic module: academic years, class levels, classes, batches.
+ * Request bodies for the Academic module: academic years, class levels, classes, batches,
+ * subjects and the calendar.
  */
 import { BatchStatus } from '@prisma/client';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -15,6 +17,7 @@ import {
   IsUUID,
   Length,
   Matches,
+  Max,
   Min,
 } from 'class-validator';
 import { MAX_LEVELS } from '../default-levels';
@@ -161,4 +164,97 @@ export class UpdateBatchDto {
   @IsOptional()
   @IsEnum(BatchStatus)
   status?: BatchStatus;
+}
+
+// --- Subjects ------------------------------------------------------------------------------------
+
+export class CreateSubjectDto {
+  @IsUUID()
+  institutionId: string;
+
+  /** @example Mathematics */
+  @IsString()
+  @Length(2, 100)
+  name: string;
+
+  /** Unique in the institution. @example MATHS */
+  @Matches(CODE, { message: CODE_MESSAGE })
+  @Length(1, 20)
+  code: string;
+}
+
+export class UpdateSubjectDto {
+  @IsOptional()
+  @IsString()
+  @Length(2, 100)
+  name?: string;
+
+  @IsOptional()
+  @Matches(CODE, { message: CODE_MESSAGE })
+  @Length(1, 20)
+  code?: string;
+
+  /** false = not in use any more (kept for history). */
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class SetClassSubjectsDto {
+  /** The class's own subjects; an empty list removes them all. */
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  subjectIds: string[];
+}
+
+// --- Calendar ------------------------------------------------------------------------------------
+
+export class SetWeeklyOffDto {
+  /** Days without classes every week: 0 = Sunday ... 6 = Saturday. @example [0] */
+  @IsArray()
+  @ArrayMaxSize(7)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  days: number[];
+}
+
+export class CreateHolidayDto {
+  @IsUUID()
+  institutionId: string;
+
+  /** Only this campus; leave out for every campus of the institution. */
+  @IsOptional()
+  @IsUUID()
+  campusId?: string;
+
+  /** @example Sankranti */
+  @IsString()
+  @Length(2, 100)
+  name: string;
+
+  /** @example 2027-01-13 */
+  @IsDateString({ strict: true })
+  startsOn: string;
+
+  /** Last day; leave out for a one-day holiday. @example 2027-01-16 */
+  @IsOptional()
+  @IsDateString({ strict: true })
+  endsOn?: string;
+}
+
+export class HolidayQuery {
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
+
+  /** Only holidays touching this range. @example 2026-06-01 */
+  @IsOptional()
+  @IsDateString({ strict: true })
+  from?: string;
+
+  @IsOptional()
+  @IsDateString({ strict: true })
+  to?: string;
 }
