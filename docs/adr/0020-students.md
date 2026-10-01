@@ -24,4 +24,5 @@ Every later module (attendance, exams, fees, the parent portal) needs to know wh
 - Attendance, exams and the portal can rely on "student → section in year → campus", whatever the institution calls its levels.
 - Promotion and shuffle (2026-10-01): per campus, preview with suggestions (next top-level class, same path by code; finish after the last), then apply; shuffle moves ticked students within a year.
 - Campus transfer, automatic admission numbers (pattern per institution, counters in `admission_sequences`) and CSV import (check every row, then all or nothing) added 2026-10-01.
-- Next: undo of a promotion, documents (needs file storage), parent / student logins (portal).
+- Undo of a promotion (2026-10-01): each apply is recorded in `promotion_runs` (students, old / new enrolments, old batch stages); undo is all or nothing and refused if anything changed since.
+- Next: documents (needs file storage), parent / student logins (portal).

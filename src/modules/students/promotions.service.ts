@@ -14,18 +14,29 @@
  *      move to a new stage (e.g. Junior -> Senior). Students already placed in the "to" year
  *      are left alone.
  *
+ * UNDO: every applied promotion is recorded (promotion_runs) and can be undone once, as long as
+ * nothing changed since for its students.
+ *
  * SHUFFLE: moving chosen students to another section of the same campus in the same year.
  *
  * Permissions at the campus: "students.enrolment.promote" / "students.enrolment.transfer".
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Class } from '@prisma/client';
+import { Prisma, type Class } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { assertCan } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ApplyPromotionDto, MoveStudentsDto, PromotionQuery } from './dto/student.dto';
 import { checkPlacement, findCampus } from './placement';
+
+/** One student changed by a promotion (kept in promotion_runs.items for undo). */
+interface RunItem {
+  studentId: string;
+  oldEnrolmentId: string;
+  /** null = the student finished (became alumni). */
+  newEnrolmentId: string | null;
+}
 
 /** Where the students of one section go. */
 type Suggestion =
@@ -107,6 +118,8 @@ export class PromotionsService {
       let promoted = 0;
       let graduated = 0;
       const batchIds = new Set<string>();
+      // What this promotion changes, so it can be undone (see undo()).
+      const items: RunItem[] = [];
 
       for (const choice of dto.mapping) {
         if (!choice.toSectionId && !choice.graduate) continue; // skip this section
@@ -143,10 +156,11 @@ export class PromotionsService {
                 changedBy: actor.id,
               },
             });
+            items.push({ studentId: e.studentId, oldEnrolmentId: e.id, newEnrolmentId: null });
             graduated++;
           } else {
             await db.enrolment.update({ where: { id: e.id }, data: { status: 'PROMOTED' } });
-            await db.enrolment.create({
+            const created = await db.enrolment.create({
               data: {
                 organizationId,
                 studentId: e.studentId,
@@ -158,11 +172,25 @@ export class PromotionsService {
                 enrolledOn: today,
               },
             });
+            items.push({
+              studentId: e.studentId,
+              oldEnrolmentId: e.id,
+              newEnrolmentId: created.id,
+            });
             promoted++;
           }
         }
       }
 
+      // The batches' stages before this promotion, to put them back on undo.
+      const batchStages = dto.batchStage
+        ? (
+            await db.batch.findMany({
+              where: { id: { in: [...batchIds] } },
+              select: { id: true, stage: true },
+            })
+          ).map((b) => ({ batchId: b.id, stage: b.stage }))
+        : [];
       if (dto.batchStage && batchIds.size > 0) {
         await db.batch.updateMany({
           where: { id: { in: [...batchIds] }, institutionId: campus.institutionId },
@@ -181,7 +209,137 @@ export class PromotionsService {
           batchStage: dto.batchStage,
         },
       });
-      return { promoted, graduated, batchesMoved: dto.batchStage ? batchIds.size : 0 };
+      const run =
+        items.length > 0
+          ? await db.promotionRun.create({
+              data: {
+                organizationId,
+                institutionId: campus.institutionId,
+                campusId: campus.id,
+                fromYearId: fromYear.id,
+                toYearId: toYear.id,
+                promoted,
+                graduated,
+                items: items as unknown as Prisma.InputJsonValue,
+                batchStages,
+                createdBy: actor.id,
+              },
+            })
+          : null;
+      return {
+        promoted,
+        graduated,
+        batchesMoved: dto.batchStage ? batchIds.size : 0,
+        runId: run?.id ?? null,
+      };
+    });
+  }
+
+  /** The promotions applied on a campus, newest first (for the "Undo" list). */
+  listRuns(organizationId: string, campusId: string, actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      const campus = await findCampus(db, organizationId, campusId);
+      assertCan(actor, 'students.enrolment.promote', {
+        institutionId: campus.institutionId,
+        campusId: campus.id,
+      });
+      const runs = await db.promotionRun.findMany({
+        where: { campusId },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      });
+      const years = await db.academicYear.findMany({
+        where: { id: { in: runs.flatMap((r) => [r.fromYearId, r.toYearId]) } },
+        select: { id: true, name: true },
+      });
+      const name = new Map(years.map((y) => [y.id, y.name]));
+      return runs.map(({ items: _items, batchStages: _stages, ...run }) => ({
+        ...run,
+        fromYear: name.get(run.fromYearId) ?? '',
+        toYear: name.get(run.toYearId) ?? '',
+      }));
+    });
+  }
+
+  /**
+   * Undoes a promotion: the new sections go, the old ones are active again, students who
+   * finished are active again, batches get their old stage back. All or nothing, and refused
+   * if anything changed since (a student was moved on, left, or changed campus).
+   */
+  undo(organizationId: string, runId: string, actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      const run = await db.promotionRun.findFirst({ where: { id: runId, organizationId } });
+      if (!run) throw new NotFoundException('Promotion not found');
+      const place = { institutionId: run.institutionId, campusId: run.campusId };
+      assertCan(actor, 'students.enrolment.promote', place);
+      if (run.undoneAt) throw new BadRequestException('This promotion was already undone');
+
+      const items = run.items as unknown as RunItem[];
+      const changed: string[] = [];
+      for (const item of items) {
+        const [old, created, student] = await Promise.all([
+          db.enrolment.findUnique({ where: { id: item.oldEnrolmentId } }),
+          item.newEnrolmentId
+            ? db.enrolment.findUnique({ where: { id: item.newEnrolmentId } })
+            : null,
+          db.student.findUnique({ where: { id: item.studentId } }),
+        ]);
+        const expectedOld = item.newEnrolmentId ? 'PROMOTED' : 'COMPLETED';
+        const ok =
+          old?.status === expectedOld &&
+          student?.campusId === run.campusId &&
+          (item.newEnrolmentId
+            ? created?.status === 'ACTIVE' && student?.status === 'ACTIVE'
+            : student?.status === 'ALUMNI');
+        if (!ok) changed.push(student?.fullName ?? 'a deleted student');
+      }
+      if (changed.length > 0) {
+        throw new BadRequestException(
+          `Can't undo: ${changed.length} student(s) changed since (e.g. ${changed.slice(0, 3).join(', ')})`,
+        );
+      }
+
+      const today = new Date();
+      for (const item of items) {
+        if (item.newEnrolmentId) {
+          await db.enrolment.delete({ where: { id: item.newEnrolmentId } });
+        } else {
+          await db.student.update({ where: { id: item.studentId }, data: { status: 'ACTIVE' } });
+          await db.studentStatusChange.create({
+            data: {
+              organizationId,
+              studentId: item.studentId,
+              fromStatus: 'ALUMNI',
+              toStatus: 'ACTIVE',
+              effectiveOn: today,
+              reason: 'Promotion undone',
+              changedBy: actor.id,
+            },
+          });
+        }
+        await db.enrolment.update({
+          where: { id: item.oldEnrolmentId },
+          data: { status: 'ACTIVE' },
+        });
+      }
+      for (const { batchId, stage } of run.batchStages as unknown as {
+        batchId: string;
+        stage: string;
+      }[]) {
+        await db.batch.update({ where: { id: batchId }, data: { stage } });
+      }
+      await db.promotionRun.update({
+        where: { id: runId },
+        data: { undoneAt: today, undoneBy: actor.id },
+      });
+      await this.audit.log(db, actor, {
+        action: 'undo promotion',
+        entity: 'students',
+        entityId: runId,
+        ...place,
+        details: { students: items.length },
+      });
+      return { undone: items.length };
     });
   }
 

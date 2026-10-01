@@ -113,6 +113,7 @@ model Organization {
 
   students           Student[]
   studentStatuses    StudentStatusChange[]
+  promotionRuns      PromotionRun[]
   admissionSequences AdmissionSequence[]
   guardians          Guardian[]
   studentGuardians   StudentGuardian[]
@@ -654,4 +655,30 @@ model AdmissionSequence {
   @@id([institutionId, period])
   @@index([organizationId])
   @@map("admission_sequences")
+}
+
+/// One applied promotion (Students module): what it changed, so it can be UNDONE.
+/// `items`: [{ studentId, oldEnrolmentId, newEnrolmentId | null (finished) }]
+/// `batchStages`: [{ batchId, stage }] the stages the batches had before.
+model PromotionRun {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  institutionId  String    @map("institution_id") @db.Uuid
+  campusId       String    @map("campus_id") @db.Uuid
+  fromYearId     String    @map("from_year_id") @db.Uuid
+  toYearId       String    @map("to_year_id") @db.Uuid
+  promoted       Int
+  graduated      Int
+  items          Json
+  batchStages    Json      @map("batch_stages")
+  createdBy      String    @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  undoneAt       DateTime? @map("undone_at") @db.Timestamptz
+  undoneBy       String?   @map("undone_by") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([campusId, createdAt])
+  @@map("promotion_runs")
 }

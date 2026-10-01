@@ -428,3 +428,8 @@ export class ImportStudentsDto {
   @Type(() => ImportRowDto)
   rows: ImportRowDto[];
 }
+
+export class CampusQuery {
+  @IsUUID()
+  campusId: string;
+}

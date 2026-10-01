@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | **Built:** admission, profile, status history, guardians, sections per year, promotion and shuffle, campus transfer, automatic admission numbers, import from CSV. **Next:** undo of a promotion, documents |
+| Status | **Built:** admission, profile, status history, guardians, sections per year, promotion and shuffle, campus transfer, automatic admission numbers, import from CSV, undo of a promotion. **Next:** documents |
 | Code | `src/modules/students/` |
-| Tables | `students`, `student_status_changes`, `guardians`, `student_guardians`, `enrolments`, `admission_sequences`; `institutions.admission_no_pattern` |
+| Tables | `students`, `student_status_changes`, `guardians`, `student_guardians`, `enrolments`, `admission_sequences`, `promotion_runs`; `institutions.admission_no_pattern` |
 | Decisions | ADR-0020 (and ADR-0018 places, ADR-0019 academic structure) |
 | Switched on by | the super admin, per organization (module key `students`, needs `academic`) |
 
@@ -15,6 +15,7 @@
 - **Guardians:** father, mother, guardian; one is the main contact. Siblings share the same guardian record (find them by phone).
 - **Sections:** one per academic year — a class of the institution's last level on the student's campus (e.g. *1st year › MPC › Section A*), with a roll number.
 - **Promotion:** per campus, from one academic year to a later one. The preview suggests, for each section, the next class at the top level with the same path below (*1st year › MPC › A → 2nd year › MPC › A*; *Junior › … → Senior › …*), or **finish** (alumni) after the last one. The user can change any choice, move the batches to a new stage and keep roll numbers.
+- **Undo of a promotion:** every applied promotion is recorded; it can be undone once (newest first in practice), all or nothing, and only while nothing changed since for its students (not moved on, left, or changed campus). Undo removes the new sections, re-activates the old ones and alumni, and gives batches their old stage.
 - **Shuffle:** move ticked students to another section of the same campus in the same year.
 - **Campus transfer:** to another campus of the same institution; the current section moves to one on the new campus.
 - **Admission numbers:** typed by hand, or automatic per institution with a pattern such as `{CODE}{YY}{SEQ:4}` → *SVJC260001* (restarts every year with `{YY}`; numbers already taken are skipped).
@@ -37,6 +38,8 @@
 | PATCH | `/students/:id/enrolments/:enrolmentId` | roll no: `students.student.update`; another section: `students.enrolment.transfer` |
 | GET | `/promotions/preview?campusId=&fromYearId=&toYearId=` | `students.enrolment.promote` — sections, their students, suggested target |
 | POST | `/promotions` | `students.enrolment.promote` — `{ campusId, fromYearId, toYearId, mapping: [{ fromSectionId, toSectionId? , graduate? }], batchStage?, keepRollNumbers? }` |
+| GET | `/promotions?campusId=` | `students.enrolment.promote` — applied promotions, newest first |
+| POST | `/promotions/:id/undo` | `students.enrolment.promote` |
 | POST | `/enrolments/move` | `students.enrolment.transfer` — `{ academicYearId, studentIds, toSectionId }` (roll numbers cleared) |
 | POST | `/students/:id/transfer` | `students.enrolment.transfer` at BOTH campuses — `{ toCampusId, toSectionId?, reason? }` |
 | POST | `/students/import` | `students.student.import` + `.create` at the campus — `{ campusId, academicYearId?, dryRun?, rows }`; returns `{ ok, total, imported, errors: [{ row, message }] }` |
@@ -59,4 +62,4 @@ Students (search, campus and status filters) · Admit student · Promote (previe
 
 ## Next (part 2)
 
-Undo of a promotion, documents (with file storage), parent and student logins (portal).
+Documents (with file storage), parent and student logins (portal).

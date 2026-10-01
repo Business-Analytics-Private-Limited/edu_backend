@@ -21,6 +21,8 @@
  *
  *   GET    /api/v1/promotions/preview?campusId=&fromYearId=&toYearId=   students.enrolment.promote
  *   POST   /api/v1/promotions                                  students.enrolment.promote
+ *   GET    /api/v1/promotions?campusId=                        students.enrolment.promote (applied, newest first)
+ *   POST   /api/v1/promotions/:id/undo                         students.enrolment.promote
  *   POST   /api/v1/enrolments/move                             students.enrolment.transfer (shuffle)
  *
  *   POST   /api/v1/students/:id/transfer                       students.enrolment.transfer (both campuses)
@@ -52,6 +54,7 @@ import {
   GuardianSearchQuery,
   ListStudentsQuery,
   ApplyPromotionDto,
+  CampusQuery,
   ImportStudentsDto,
   MoveStudentsDto,
   PromotionQuery,
@@ -236,6 +239,27 @@ export class StudentsController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.promotions.apply(organizationId, body, user);
+  }
+
+  @Get('promotions')
+  @RequirePermission('students.enrolment.promote')
+  listPromotions(
+    @OrganizationId() organizationId: string,
+    @Query() query: CampusQuery,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.promotions.listRuns(organizationId, query.campusId, user);
+  }
+
+  @Post('promotions/:id/undo')
+  @RequirePermission('students.enrolment.promote')
+  @HttpCode(200)
+  undoPromotion(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.promotions.undo(organizationId, id, user);
   }
 
   @Post('enrolments/move')

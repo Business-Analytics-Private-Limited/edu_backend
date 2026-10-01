@@ -430,6 +430,41 @@ describe('Students', () => {
     expect(anil.body.enrolments[0].status).toBe('COMPLETED');
   });
 
+  it('undo: promotions are undone newest first, once, and only while nothing changed', async () => {
+    await api().get(`/api/v1/promotions?campusId=${ids.KKP}`).set(as(ravi)).expect(403);
+    const runs = await api()
+      .get(`/api/v1/promotions?campusId=${ids.KKP}`)
+      .set(as(admin))
+      .expect(200);
+    expect(
+      runs.body.map((r: { fromYear: string; toYear: string }) => `${r.fromYear}>${r.toYear}`),
+    ).toEqual(['2027-28>2028-29', '2026-27>2027-28']);
+    const [finishRun, firstRun] = runs.body;
+
+    // The first promotion's students have moved on since (they finished): refused.
+    const refused = await api()
+      .post(`/api/v1/promotions/${firstRun.id}/undo`)
+      .set(as(admin))
+      .expect(400);
+    expect(refused.body.message).toMatch(/changed since/);
+
+    // Undo "finished": they are active again, in their 2027-28 section.
+    await api().post(`/api/v1/promotions/${finishRun.id}/undo`).set(as(admin)).expect(200);
+    await api().post(`/api/v1/promotions/${finishRun.id}/undo`).set(as(admin)).expect(400);
+    let anil = await api().get(`/api/v1/students/${ids.ANIL}`).set(as(admin)).expect(200);
+    expect(anil.body.status).toBe('ACTIVE');
+    expect(anil.body.statusChanges[0].reason).toBe('Promotion undone');
+    expect(anil.body.enrolments[0]).toMatchObject({ status: 'ACTIVE' });
+
+    // Now the first promotion can be undone too: back in 1st year, batch back to Junior.
+    await api().post(`/api/v1/promotions/${firstRun.id}/undo`).set(as(admin)).expect(200);
+    anil = await api().get(`/api/v1/students/${ids.ANIL}`).set(as(admin)).expect(200);
+    expect(anil.body.enrolments).toHaveLength(1);
+    expect(anil.body.enrolments[0]).toMatchObject({ status: 'ACTIVE', rollNo: '1' });
+    expect(anil.body.enrolments[0].academicYear.name).toBe('2026-27');
+    expect(anil.body.batch.stage).toBe('Junior');
+  });
+
   it('automatic admission numbers follow the institution pattern and skip taken numbers', async () => {
     await api()
       .put(`/api/v1/institutions/${ids.SVJC}/admission-numbering`)
