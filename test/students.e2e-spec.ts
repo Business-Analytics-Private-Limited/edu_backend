@@ -74,15 +74,12 @@ describe('Students', () => {
     await buildClasses('KKP', ['A', 'B']);
     await buildClasses('AMP', ['A']);
 
-    const year = await api()
-      .post('/api/v1/academic-years')
-      .set(as(admin))
-      .send({
-        institutionId: ids.SVJC,
-        name: '2026-27',
-        startsOn: '2026-06-01',
-        endsOn: '2027-03-31',
-      });
+    const year = await api().post('/api/v1/academic-years').set(as(admin)).send({
+      institutionId: ids.SVJC,
+      name: '2026-27',
+      startsOn: '2026-06-01',
+      endsOn: '2027-03-31',
+    });
     ids.YEAR = year.body.id;
     await api().post(`/api/v1/academic-years/${ids.YEAR}/activate`).set(as(admin)).expect(200);
     const batch = await api()
