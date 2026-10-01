@@ -1,8 +1,10 @@
 /**
- * Runs once after all end-to-end tests: deletes the temporary database made by global-setup.ts.
+ * Runs once after all end-to-end tests: deletes the temporary database made by global-setup.ts
+ * and the run's temporary folder of uploaded files.
  */
+import { rm } from 'node:fs/promises';
 import { Client } from 'pg';
-import './setup-env';
+import { testStorageDir } from './setup-env';
 
 export default async function globalTeardown() {
   const name = process.env.TEST_DATABASE_NAME;
@@ -16,4 +18,5 @@ export default async function globalTeardown() {
   } finally {
     await admin.end();
   }
+  await rm(testStorageDir(name), { recursive: true, force: true });
 }

@@ -115,6 +115,9 @@ model Organization {
   studentStatuses    StudentStatusChange[]
   promotionRuns      PromotionRun[]
   attendanceRecords  AttendanceRecord[]
+  storedFiles        StoredFile[]
+  documentTypes      DocumentType[]
+  studentDocuments   StudentDocument[]
   admissionSequences AdmissionSequence[]
   guardians          Guardian[]
   studentGuardians   StudentGuardian[]
@@ -177,6 +180,7 @@ model Institution {
   students           Student[]
   enrolments         Enrolment[]
   admissionSequences AdmissionSequence[]
+  documentTypes      DocumentType[]
 
   @@unique([organizationId, code])
   @@map("institutions")
@@ -552,6 +556,7 @@ model Student {
   guardians     StudentGuardian[]
   enrolments    Enrolment[]
   login         User?
+  documents     StudentDocument[]
 
   @@unique([institutionId, admissionNo])
   @@index([organizationId])
@@ -747,4 +752,85 @@ model AttendanceRecord {
   @@index([classId, date])
   @@index([studentId, date])
   @@map("attendance_records")
+}
+
+// -------------------------------------------------------------------------------------------------
+// FILES and STUDENT DOCUMENTS (ADR-0023)
+// -------------------------------------------------------------------------------------------------
+
+/// An uploaded file. The bytes are in the file storage (src/modules/files) under `storageKey`;
+/// this row is what the database knows about them. Only reachable through the API.
+model StoredFile {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  originalName   String   @map("original_name")
+  mimeType       String   @map("mime_type")
+  sizeBytes      Int      @map("size_bytes")
+  /// SHA-256 of the content, to spot duplicates and check integrity.
+  sha256         String
+  storageKey     String   @unique @map("storage_key")
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  document     StudentDocument?
+
+  @@index([organizationId])
+  @@map("stored_files")
+}
+
+/// What an institution collects from students, e.g. "Transfer certificate".
+model DocumentType {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  institutionId   String   @map("institution_id") @db.Uuid
+  name            String
+  /// Shown as missing on a student's page until uploaded.
+  isRequired      Boolean  @default(false) @map("is_required")
+  /// Parents and students may see / download documents of this type in the portal.
+  visibleInPortal Boolean  @default(false) @map("visible_in_portal")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  institution  Institution       @relation(fields: [institutionId], references: [id])
+  documents    StudentDocument[]
+
+  @@unique([institutionId, name])
+  @@index([organizationId])
+  @@map("document_types")
+}
+
+enum DocumentStatus {
+  UPLOADED
+  VERIFIED
+  REJECTED
+}
+
+/// A document of a student: its type, the file, and whether staff verified it.
+model StudentDocument {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  studentId      String         @map("student_id") @db.Uuid
+  documentTypeId String         @map("document_type_id") @db.Uuid
+  fileId         String         @unique @map("file_id") @db.Uuid
+  status         DocumentStatus @default(UPLOADED)
+  /// e.g. why it was rejected.
+  note           String?
+  uploadedBy     String         @map("uploaded_by") @db.Uuid
+  uploadedByName String         @map("uploaded_by_name")
+  verifiedBy     String?        @map("verified_by") @db.Uuid
+  verifiedByName String?        @map("verified_by_name")
+  verifiedAt     DateTime?      @map("verified_at") @db.Timestamptz
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  documentType DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
+  file         StoredFile   @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@map("student_documents")
 }

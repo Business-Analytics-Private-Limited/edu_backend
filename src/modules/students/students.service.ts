@@ -23,6 +23,7 @@ import { paginated, toSkipTake } from '../../common/pagination';
 import { assertCan } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { FilesService } from '../files/files.service';
 import { nextAdmissionNo } from './admission-numbers';
 import {
   AdmitStudentDto,
@@ -70,6 +71,7 @@ export class StudentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly guardians: GuardiansService,
+    private readonly files: FilesService,
   ) {}
 
   list(organizationId: string, query: ListStudentsQuery, actor: CurrentUser) {
@@ -294,18 +296,22 @@ export class StudentsService {
   }
 
   /** For mistakes only (normal exits use a status). Removes enrolments, links and history too. */
-  delete(organizationId: string, id: string, actor: CurrentUser) {
-    return this.prisma.forOrganization(organizationId, async (db) => {
+  async delete(organizationId: string, id: string, actor: CurrentUser) {
+    const storageKeys = await this.prisma.forOrganization(organizationId, async (db) => {
       const existing = await findVisibleStudent(db, organizationId, id, actor);
       const place = placeOf(existing);
       assertCan(actor, 'students.student.delete', place);
+      const files = (
+        await db.studentDocument.findMany({ where: { studentId: id }, select: { file: true } })
+      ).map((d) => d.file);
       const guardianIds = (
         await db.studentGuardian.findMany({
           where: { studentId: id },
           select: { guardianId: true },
         })
       ).map((g) => g.guardianId);
-      await db.student.delete({ where: { id } });
+      await db.student.delete({ where: { id } }); // documents go with the student
+      await db.storedFile.deleteMany({ where: { id: { in: files.map((f) => f.id) } } });
       // Guardians who no longer belong to any student go too.
       await db.guardian.deleteMany({ where: { id: { in: guardianIds }, students: { none: {} } } });
       await this.audit.log(db, actor, {
@@ -315,8 +321,11 @@ export class StudentsService {
         ...place,
         details: { admissionNo: existing.admissionNo, fullName: existing.fullName },
       });
-      return { deleted: true };
+      return files.map((f) => f.storageKey);
     });
+    // The documents' files on disk, once the database change is saved.
+    await this.files.removeLater(storageKeys);
+    return { deleted: true };
   }
 
   /** The full profile: details, campus, batch, guardians, enrolments, status history. */

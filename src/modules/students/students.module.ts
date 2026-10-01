@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { DocumentsController } from './documents.controller';
+import { DocumentsService } from './documents.service';
 import { EnrolmentsService } from './enrolments.service';
 import { GuardiansService } from './guardians.service';
 import { ImportService } from './import.service';
@@ -11,13 +13,14 @@ import { StudentsService } from './students.service';
  * and shuffle.
  */
 @Module({
-  controllers: [StudentsController],
+  controllers: [StudentsController, DocumentsController],
   providers: [
     StudentsService,
     GuardiansService,
     EnrolmentsService,
     PromotionsService,
     ImportService,
+    DocumentsService,
   ],
 })
 export class StudentsModule {}

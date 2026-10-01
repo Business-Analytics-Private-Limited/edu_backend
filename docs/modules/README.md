@@ -12,7 +12,7 @@ One document per module of EduPlatform: what it is for, its screens / endpoints 
 | attendance | Daily attendance per section, corrections, reports (period-wise and biometric next) | **Built (part 1)** | [attendance.md](attendance.md) | `src/modules/attendance` |
 | portal | Parents and students see their children's / own details and attendance | **Built (part 1)** | [portal.md](portal.md) | `src/modules/portal` |
 | imports | Import students and other data from Excel / CSV | Design | [imports.md](imports.md) | — |
-| files | Storing uploaded documents | Design | [files.md](files.md) | — |
+| files | Storing uploaded files (student documents) | **Built** | [files.md](files.md) | `src/modules/files` |
 
 `identity.md` was merged into `access.md`.
 

@@ -12,6 +12,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -432,4 +433,68 @@ export class ImportStudentsDto {
 export class CampusQuery {
   @IsUUID()
   campusId: string;
+}
+
+// --- Documents -----------------------------------------------------------------------------------
+
+export class CreateDocumentTypeDto {
+  @IsUUID()
+  institutionId: string;
+
+  /** @example Transfer certificate */
+  @IsString()
+  @Length(2, 100)
+  name: string;
+
+  /** Shown as missing on a student's page until uploaded. */
+  @IsOptional()
+  @IsBoolean()
+  isRequired?: boolean;
+
+  /** Parents and students may see and download it in the portal. */
+  @IsOptional()
+  @IsBoolean()
+  visibleInPortal?: boolean;
+}
+
+export class UpdateDocumentTypeDto {
+  @IsOptional()
+  @IsString()
+  @Length(2, 100)
+  name?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isRequired?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  visibleInPortal?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class UploadDocumentDto {
+  /** Sent as a form field next to the file. */
+  @IsUUID()
+  documentTypeId: string;
+}
+
+export class ReviewDocumentDto {
+  @IsIn(['VERIFIED', 'REJECTED'])
+  status: 'VERIFIED' | 'REJECTED';
+
+  /** Required when rejecting: why. */
+  @IsOptional()
+  @IsString()
+  @Length(0, 300)
+  note?: string;
+}
+
+export class DocumentTypeQuery {
+  @IsOptional()
+  @IsUUID()
+  institutionId?: string;
 }

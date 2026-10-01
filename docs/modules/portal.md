@@ -20,6 +20,7 @@
 | GET | `/portal/me` | portal logins — name, kind, their students |
 | GET | `/portal/students/:id` | portal logins — only a linked student (else 404) |
 | GET | `/portal/students/:id/attendance?from=&to=` | portal logins, with the Attendance module |
+| GET | `/portal/students/:id/documents`, `.../documents/:docId/file` | portal logins — only document types visible in the portal |
 | POST | `/students/:id/portal-access` | staff, `students.student.update` at the student's campus — `{ for: STUDENT \| GUARDIAN, guardianId?, email, password }` |
 | DELETE | `/students/:id/portal-access/:userId` | same |
 

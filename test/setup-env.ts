@@ -3,6 +3,7 @@
  * (created by global-setup.ts), so tests never touch your development data.
  */
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const envFile = join(__dirname, '..', '.env');
@@ -33,4 +34,11 @@ process.env.SEED_SUPER_ADMIN_PASSWORD = 'SuperAdmin@123';
 
 if (process.env.TEST_DATABASE_NAME) {
   Object.assign(process.env, testDatabaseUrls(process.env.TEST_DATABASE_NAME));
+  // Uploaded files of this run go to a temporary folder, deleted afterwards (global-teardown).
+  process.env.STORAGE_DIR = testStorageDir(process.env.TEST_DATABASE_NAME);
+}
+
+/** The temporary folder for uploaded files of a test run. */
+export function testStorageDir(databaseName: string) {
+  return join(tmpdir(), `${databaseName}-files`);
 }

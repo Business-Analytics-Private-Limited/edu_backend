@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | **Built:** admission, profile, status history, guardians, sections per year, promotion and shuffle, campus transfer, automatic admission numbers, import from CSV, undo of a promotion. **Next:** documents |
+| Status | **Built:** admission, profile, status history, guardians, sections per year, promotion and shuffle, campus transfer, automatic admission numbers, import from CSV, undo of a promotion, **documents** |
 | Code | `src/modules/students/` |
-| Tables | `students`, `student_status_changes`, `guardians`, `student_guardians`, `enrolments`, `admission_sequences`, `promotion_runs`; `institutions.admission_no_pattern` |
+| Tables | `students`, `student_status_changes`, `guardians`, `student_guardians`, `enrolments`, `admission_sequences`, `promotion_runs`, `document_types`, `student_documents`; `institutions.admission_no_pattern` |
 | Decisions | ADR-0020 (and ADR-0018 places, ADR-0019 academic structure) |
 | Switched on by | the super admin, per organization (module key `students`, needs `academic`) |
 
@@ -19,6 +19,7 @@
 - **Shuffle:** move ticked students to another section of the same campus in the same year.
 - **Campus transfer:** to another campus of the same institution; the current section moves to one on the new campus.
 - **Admission numbers:** typed by hand, or automatic per institution with a pattern such as `{CODE}{YY}{SEQ:4}` → *SVJC260001* (restarts every year with `{YY}`; numbers already taken are skipped).
+- **Documents:** each institution lists the document types it collects (required? visible to parents?); on a student's page staff upload (PDF / JPG / PNG, 5 MB), download, verify or reject with a reason, and delete; required types without an accepted document show as missing. See [files.md](files.md) and ADR-0023.
 - **Import:** students from a CSV file for one campus; every row is checked and problems are listed by row number; then all rows are saved, or none.
 
 ## Endpoints (`/api/v1`)
@@ -43,6 +44,10 @@
 | POST | `/enrolments/move` | `students.enrolment.transfer` — `{ academicYearId, studentIds, toSectionId }` (roll numbers cleared) |
 | POST | `/students/:id/transfer` | `students.enrolment.transfer` at BOTH campuses — `{ toCampusId, toSectionId?, reason? }` |
 | POST | `/students/import` | `students.student.import` + `.create` at the campus — `{ campusId, academicYearId?, dryRun?, rows }`; returns `{ ok, total, imported, errors: [{ row, message }] }` |
+| GET / POST / PATCH / DELETE | `/document-types`, `/document-types/:id` | view: `students.document.view`; change: `students.settings.update` for the institution |
+| GET / POST | `/students/:id/documents` | `students.document.view` / `.create` (multipart: `file`, `documentTypeId`) |
+| PATCH / DELETE | `/students/:id/documents/:docId` | `students.document.update` (verify / reject) / `.delete` |
+| GET | `/students/:id/documents/:docId/file` | `students.document.view` — download |
 | PUT | `/institutions/:id/admission-numbering` | `students.settings.update` for the institution — `{ pattern }` (empty = by hand) |
 
 ## Rules (tested in `test/students.e2e-spec.ts`)
@@ -62,4 +67,4 @@ Students (search, campus and status filters) · Admit student · Promote (previe
 
 ## Next (part 2)
 
-Documents (with file storage), parent and student logins (portal).
+Bulk upload of documents, photos on the profile, documents for staff.

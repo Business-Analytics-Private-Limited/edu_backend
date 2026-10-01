@@ -22,6 +22,7 @@ import { AcademicModule } from './modules/academic/academic.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { FilesModule } from './modules/files/files.module';
 import { HealthModule } from './modules/health/health.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { PortalModule } from './modules/portal/portal.module';
@@ -39,6 +40,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     PrismaModule,
     AuditModule,
+    FilesModule,
 
     // Features
     HealthModule,
