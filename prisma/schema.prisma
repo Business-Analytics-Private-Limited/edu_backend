@@ -111,11 +111,12 @@ model Organization {
   classSubjects ClassSubject[]
   holidays      Holiday[]
 
-  students         Student[]
-  studentStatuses  StudentStatusChange[]
-  guardians        Guardian[]
-  studentGuardians StudentGuardian[]
-  enrolments       Enrolment[]
+  students           Student[]
+  studentStatuses    StudentStatusChange[]
+  admissionSequences AdmissionSequence[]
+  guardians          Guardian[]
+  studentGuardians   StudentGuardian[]
+  enrolments         Enrolment[]
 
   @@map("organizations")
 }
@@ -143,29 +144,33 @@ enum InstitutionType {
 
 /// A college or school of the organization, e.g. "Sri Vidya Junior College".
 model Institution {
-  id             String          @id @default(uuid(7)) @db.Uuid
-  organizationId String          @map("organization_id") @db.Uuid
-  name           String
+  id                 String          @id @default(uuid(7)) @db.Uuid
+  organizationId     String          @map("organization_id") @db.Uuid
+  name               String
   /// Short code, unique inside the organization, e.g. "SVJC".
-  code           String
-  type           InstitutionType
+  code               String
+  type               InstitutionType
   /// Days without classes every week (Academic module): 0 = Sunday ... 6 = Saturday.
-  weeklyOffDays  Int[]           @default([0]) @map("weekly_off_days")
-  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+  weeklyOffDays      Int[]           @default([0]) @map("weekly_off_days")
+  /// Students module: how admission numbers are made when left empty, e.g. "{CODE}{YY}{SEQ:4}"
+  /// -> "SVJC260001". Empty = numbers are typed by hand.
+  admissionNoPattern String?         @map("admission_no_pattern")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
   campuses     Campus[]
   userRoles    UserRole[]
 
-  academicYears AcademicYear[]
-  classLevels   ClassLevel[]
-  classes       Class[]
-  batches       Batch[]
-  subjects      Subject[]
-  holidays      Holiday[]
-  students      Student[]
-  enrolments    Enrolment[]
+  academicYears      AcademicYear[]
+  classLevels        ClassLevel[]
+  classes            Class[]
+  batches            Batch[]
+  subjects           Subject[]
+  holidays           Holiday[]
+  students           Student[]
+  enrolments         Enrolment[]
+  admissionSequences AdmissionSequence[]
 
   @@unique([organizationId, code])
   @@map("institutions")
@@ -633,4 +638,20 @@ model Enrolment {
   @@index([organizationId])
   @@index([classId, academicYearId])
   @@map("enrolments")
+}
+
+/// The next number of an institution's admission-number pattern, per period: "2026" when the
+/// pattern restarts every year ({YY} / {YYYY}), "" when it never restarts.
+model AdmissionSequence {
+  organizationId String @map("organization_id") @db.Uuid
+  institutionId  String @map("institution_id") @db.Uuid
+  period         String
+  nextValue      Int    @default(1) @map("next_value")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  institution  Institution  @relation(fields: [institutionId], references: [id])
+
+  @@id([institutionId, period])
+  @@index([organizationId])
+  @@map("admission_sequences")
 }

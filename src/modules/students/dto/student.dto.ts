@@ -5,6 +5,8 @@
 import { Gender, GuardianRelation, StudentStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -167,10 +169,14 @@ export class AdmitStudentDto extends StudentProfileDto {
   @IsUUID()
   campusId: string;
 
-  /** Unique in the institution. @example SVJC260001 */
+  /**
+   * Unique in the institution. Leave out to get the next number of the institution's pattern
+   * (if it has one). @example SVJC260001
+   */
+  @IsOptional()
   @Matches(ADMISSION_NO, { message: 'admissionNo may only contain letters, digits, /, _ and -' })
   @Length(1, 30)
-  admissionNo: string;
+  admissionNo?: string;
 
   /** @example 2026-06-01 */
   @IsDateString({ strict: true })
@@ -347,4 +353,78 @@ export class MoveStudentsDto {
   /** A section on the same campus. */
   @IsUUID()
   toSectionId: string;
+}
+
+// --- Campus transfer, numbering, import ----------------------------------------------------------
+
+export class TransferCampusDto {
+  /** Another campus of the same institution. */
+  @IsUUID()
+  toCampusId: string;
+
+  /** The student's section on the new campus (needed if they have a current section). */
+  @IsOptional()
+  @IsUUID()
+  toSectionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  reason?: string;
+}
+
+export class SetNumberingDto {
+  /** e.g. "{CODE}{YY}{SEQ:4}"; empty / null = admission numbers are typed by hand. */
+  @IsOptional()
+  @IsString()
+  @Length(0, 40)
+  pattern?: string | null;
+}
+
+/**
+ * One row of an import, as text exactly as in the file. The service checks every field and
+ * reports problems by row number, so one bad row doesn't hide the others.
+ */
+export class ImportRowDto {
+  @IsOptional() @IsString() admissionNo?: string;
+  @IsOptional() @IsString() admissionDate?: string;
+  @IsOptional() @IsString() fullName?: string;
+  @IsOptional() @IsString() surname?: string;
+  @IsOptional() @IsString() dateOfBirth?: string;
+  @IsOptional() @IsString() gender?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() email?: string;
+  @IsOptional() @IsString() address?: string;
+  /** The batch's code, e.g. B2026. */
+  @IsOptional() @IsString() batch?: string;
+  /** The section as class codes from the top, e.g. "Y1/MPC/A". */
+  @IsOptional() @IsString() section?: string;
+  @IsOptional() @IsString() rollNo?: string;
+  @IsOptional() @IsString() guardianName?: string;
+  /** father, mother, guardian or other. */
+  @IsOptional() @IsString() guardianRelation?: string;
+  @IsOptional() @IsString() guardianPhone?: string;
+}
+
+export class ImportStudentsDto {
+  /** All rows are admitted to this campus. */
+  @IsUUID()
+  campusId: string;
+
+  /** The academic year for the rows' sections (needed when rows have a section). */
+  @IsOptional()
+  @IsUUID()
+  academicYearId?: string;
+
+  /** true = only check the rows and report problems; nothing is saved. */
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => ImportRowDto)
+  rows: ImportRowDto[];
 }

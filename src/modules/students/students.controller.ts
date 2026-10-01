@@ -22,6 +22,10 @@
  *   GET    /api/v1/promotions/preview?campusId=&fromYearId=&toYearId=   students.enrolment.promote
  *   POST   /api/v1/promotions                                  students.enrolment.promote
  *   POST   /api/v1/enrolments/move                             students.enrolment.transfer (shuffle)
+ *
+ *   POST   /api/v1/students/:id/transfer                       students.enrolment.transfer (both campuses)
+ *   POST   /api/v1/students/import                             students.student.import (dryRun to check)
+ *   PUT    /api/v1/institutions/:id/admission-numbering        students.settings.update (institution)
  */
 import {
   Body,
@@ -33,6 +37,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -47,13 +52,17 @@ import {
   GuardianSearchQuery,
   ListStudentsQuery,
   ApplyPromotionDto,
+  ImportStudentsDto,
   MoveStudentsDto,
   PromotionQuery,
+  SetNumberingDto,
+  TransferCampusDto,
   UpdateEnrolmentDto,
   UpdateGuardianDto,
   UpdateStudentDto,
 } from './dto/student.dto';
 import { EnrolmentsService } from './enrolments.service';
+import { ImportService } from './import.service';
 import { PromotionsService } from './promotions.service';
 import { GuardiansService } from './guardians.service';
 import { StudentsService } from './students.service';
@@ -67,6 +76,7 @@ export class StudentsController {
     private readonly guardians: GuardiansService,
     private readonly enrolments: EnrolmentsService,
     private readonly promotions: PromotionsService,
+    private readonly importer: ImportService,
   ) {}
 
   // --- Students ----------------------------------------------------------------------------------
@@ -237,5 +247,41 @@ export class StudentsController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.promotions.move(organizationId, body, user);
+  }
+
+  // --- Campus transfer, import, numbering ---------------------------------------------------------
+
+  @Post('students/:id/transfer')
+  @RequirePermission('students.enrolment.transfer')
+  @HttpCode(200)
+  transferCampus(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: TransferCampusDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.students.transferCampus(organizationId, id, body, user);
+  }
+
+  @Post('students/import')
+  @RequirePermission('students.student.import')
+  @HttpCode(200)
+  importStudents(
+    @OrganizationId() organizationId: string,
+    @Body() body: ImportStudentsDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.importer.importStudents(organizationId, body, user);
+  }
+
+  @Put('institutions/:id/admission-numbering')
+  @RequirePermission('students.settings.update')
+  setNumbering(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SetNumberingDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.importer.setNumbering(organizationId, id, body.pattern, user);
   }
 }

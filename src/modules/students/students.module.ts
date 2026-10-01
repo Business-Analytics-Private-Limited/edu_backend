@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EnrolmentsService } from './enrolments.service';
 import { GuardiansService } from './guardians.service';
+import { ImportService } from './import.service';
 import { PromotionsService } from './promotions.service';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
@@ -11,6 +12,12 @@ import { StudentsService } from './students.service';
  */
 @Module({
   controllers: [StudentsController],
-  providers: [StudentsService, GuardiansService, EnrolmentsService, PromotionsService],
+  providers: [
+    StudentsService,
+    GuardiansService,
+    EnrolmentsService,
+    PromotionsService,
+    ImportService,
+  ],
 })
 export class StudentsModule {}

@@ -100,6 +100,8 @@ export const PREDEFINED_ROLES: PredefinedRole[] = [
         ...CAMPUS_ADMIN_PERMISSIONS,
         'academic.batch.create',
         'academic.batch.update',
+        'students.settings.view',
+        'students.settings.update',
         'platform.organization.view',
         'platform.institution.view',
         'platform.institution.update',

@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Status | **Built:** admission, profile, status history, guardians, sections per year, **promotion and shuffle**. **Next:** campus transfer, documents, numbering, import |
+| Status | **Built:** admission, profile, status history, guardians, sections per year, promotion and shuffle, campus transfer, automatic admission numbers, import from CSV. **Next:** undo of a promotion, documents |
 | Code | `src/modules/students/` |
-| Tables | `students`, `student_status_changes`, `guardians`, `student_guardians`, `enrolments` |
+| Tables | `students`, `student_status_changes`, `guardians`, `student_guardians`, `enrolments`, `admission_sequences`; `institutions.admission_no_pattern` |
 | Decisions | ADR-0020 (and ADR-0018 places, ADR-0019 academic structure) |
 | Switched on by | the super admin, per organization (module key `students`, needs `academic`) |
 
@@ -16,6 +16,9 @@
 - **Sections:** one per academic year — a class of the institution's last level on the student's campus (e.g. *1st year › MPC › Section A*), with a roll number.
 - **Promotion:** per campus, from one academic year to a later one. The preview suggests, for each section, the next class at the top level with the same path below (*1st year › MPC › A → 2nd year › MPC › A*; *Junior › … → Senior › …*), or **finish** (alumni) after the last one. The user can change any choice, move the batches to a new stage and keep roll numbers.
 - **Shuffle:** move ticked students to another section of the same campus in the same year.
+- **Campus transfer:** to another campus of the same institution; the current section moves to one on the new campus.
+- **Admission numbers:** typed by hand, or automatic per institution with a pattern such as `{CODE}{YY}{SEQ:4}` → *SVJC260001* (restarts every year with `{YY}`; numbers already taken are skipped).
+- **Import:** students from a CSV file for one campus; every row is checked and problems are listed by row number; then all rows are saved, or none.
 
 ## Endpoints (`/api/v1`)
 
@@ -35,6 +38,9 @@
 | GET | `/promotions/preview?campusId=&fromYearId=&toYearId=` | `students.enrolment.promote` — sections, their students, suggested target |
 | POST | `/promotions` | `students.enrolment.promote` — `{ campusId, fromYearId, toYearId, mapping: [{ fromSectionId, toSectionId? , graduate? }], batchStage?, keepRollNumbers? }` |
 | POST | `/enrolments/move` | `students.enrolment.transfer` — `{ academicYearId, studentIds, toSectionId }` (roll numbers cleared) |
+| POST | `/students/:id/transfer` | `students.enrolment.transfer` at BOTH campuses — `{ toCampusId, toSectionId?, reason? }` |
+| POST | `/students/import` | `students.student.import` + `.create` at the campus — `{ campusId, academicYearId?, dryRun?, rows }`; returns `{ ok, total, imported, errors: [{ row, message }] }` |
+| PUT | `/institutions/:id/admission-numbering` | `students.settings.update` for the institution — `{ pattern }` (empty = by hand) |
 
 ## Rules (tested in `test/students.e2e-spec.ts`)
 
@@ -44,12 +50,13 @@
 4. A Campus admin sees, admits and changes only their campus's students; deleting needs `students.student.delete` (not in Campus admin by default).
 5. A guardian can be linked to several students; removing the last link removes the guardian.
 6. Promotion goes to a LATER year that isn't closed; students already placed in that year are left alone (applying twice changes nothing); old enrolments become PROMOTED, or COMPLETED + alumni for those who finish.
-7. Another organization sees none of it; every change goes to the audit log with its campus.
+7. Import is all or nothing: with any problem (or `dryRun`) nothing is saved; at most 2000 rows.
+8. Another organization sees none of it; every change goes to the audit log with its campus.
 
 ## Screens (web app → Students)
 
-Students (search, campus and status filters) · Admit student · Promote (preview, adjust, apply) · Move students · a student's page (profile, parents / guardians, sections per year with move and roll no, status and history).
+Students (search, campus and status filters) · Admit student · Promote (preview, adjust, apply) · Move students · Import students (template, check, import) · Student settings (admission numbers) · a student's page (profile, parents / guardians, sections per year with move and roll no, status and history).
 
 ## Next (part 2)
 
-Undo of a promotion, moving a student to another campus, documents (with file storage), automatic admission numbers, import from Excel / CSV, parent and student logins (portal).
+Undo of a promotion, documents (with file storage), parent and student logins (portal).

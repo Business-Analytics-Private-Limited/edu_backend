@@ -430,6 +430,136 @@ describe('Students', () => {
     expect(anil.body.enrolments[0].status).toBe('COMPLETED');
   });
 
+  it('automatic admission numbers follow the institution pattern and skip taken numbers', async () => {
+    await api()
+      .put(`/api/v1/institutions/${ids.SVJC}/admission-numbering`)
+      .set(as(admin))
+      .send({ pattern: '{CODE}{YY}{SEQ:4}{SEQ:2}' })
+      .expect(400);
+    const set = await api()
+      .put(`/api/v1/institutions/${ids.SVJC}/admission-numbering`)
+      .set(as(admin))
+      .send({ pattern: '{CODE}{YY}{SEQ:4}' })
+      .expect(200);
+    expect(set.body.example).toMatch(/^SVJC\d{2}0001$/);
+
+    const admit = (overrides: object) =>
+      api()
+        .post('/api/v1/students')
+        .set(as(admin))
+        .send({
+          ...admission({ admissionDate: '2026-06-02' }),
+          admissionNo: undefined,
+          ...overrides,
+        })
+        .expect(201);
+    expect((await admit({})).body.admissionNo).toBe('SVJC260001');
+    expect((await admit({})).body.admissionNo).toBe('SVJC260002');
+    await admit({ admissionNo: 'SVJC260003' }); // typed by hand
+    expect((await admit({})).body.admissionNo).toBe('SVJC260004');
+  });
+
+  it('a student moves to another campus with their section; both campuses are needed', async () => {
+    const res = await api()
+      .post('/api/v1/students')
+      .set(as(admin))
+      .send(
+        admission({
+          fullName: 'Mover',
+          enrolment: { academicYearId: ids.YEAR, classId: ids.KKP_A, rollNo: '30' },
+        }),
+      )
+      .expect(201);
+    const id = res.body.id;
+    // Ravi looks after KKP only: refused.
+    await api()
+      .post(`/api/v1/students/${id}/transfer`)
+      .set(as(ravi))
+      .send({ toCampusId: ids.AMP, toSectionId: ids.AMP_A })
+      .expect(403);
+    // A current section needs a section on the new campus.
+    await api()
+      .post(`/api/v1/students/${id}/transfer`)
+      .set(as(admin))
+      .send({ toCampusId: ids.AMP })
+      .expect(400);
+    const moved = await api()
+      .post(`/api/v1/students/${id}/transfer`)
+      .set(as(admin))
+      .send({ toCampusId: ids.AMP, toSectionId: ids.AMP_A, reason: 'Closer to home' })
+      .expect(200);
+    expect(moved.body.campus.id).toBe(ids.AMP);
+    expect(moved.body.enrolments[0].class.id).toBe(ids.AMP_A);
+    expect(moved.body.enrolments[0].rollNo).toBeNull();
+    // Now outside Ravi's campus.
+    await api().get(`/api/v1/students/${id}`).set(as(ravi)).expect(404);
+  });
+
+  it('import: checks every row and saves all or nothing', async () => {
+    const good = {
+      admissionNo: 'IMP001',
+      admissionDate: '01/06/2026',
+      fullName: 'Imported One',
+      dateOfBirth: '2010-01-15',
+      gender: 'F',
+      batch: 'b2026',
+      section: 'Y1 / MPC / A',
+      rollNo: '40',
+      guardianName: 'Parent One',
+      guardianRelation: 'mother',
+      guardianPhone: '9111111111',
+    };
+    const bad = [
+      good,
+      { ...good, admissionNo: 'IMP002', gender: 'x', dateOfBirth: '31/02/2010', rollNo: '41' },
+      { ...good, admissionNo: 'IMP001', rollNo: '42' },
+      { ...good, admissionNo: 'IMP003', section: 'Y9/XYZ/Q' },
+    ];
+    const body = { campusId: ids.KKP, academicYearId: ids.YEAR, rows: bad };
+    const checked = await api()
+      .post('/api/v1/students/import')
+      .set(as(ravi))
+      .send({ ...body, dryRun: true })
+      .expect(200);
+    expect(checked.body.ok).toBe(false);
+    expect([...new Set(checked.body.errors.map((e: { row: number }) => e.row))]).toEqual([3, 4, 5]);
+
+    // With problems, even without dryRun nothing is saved.
+    const refused = await api()
+      .post('/api/v1/students/import')
+      .set(as(ravi))
+      .send(body)
+      .expect(200);
+    expect(refused.body.imported).toBe(0);
+    expect((await api().get('/api/v1/students?search=Imported').set(as(admin))).body.total).toBe(0);
+
+    const imported = await api()
+      .post('/api/v1/students/import')
+      .set(as(ravi))
+      .send({
+        ...body,
+        rows: [good, { ...good, admissionNo: '', fullName: 'Imported Two', rollNo: '' }],
+      })
+      .expect(200);
+    expect(imported.body).toMatchObject({ ok: true, imported: 2 });
+    const list = await api().get('/api/v1/students?search=Imported').set(as(admin)).expect(200);
+    expect(list.body.total).toBe(2);
+    const one = list.body.items.find((x: { fullName: string }) => x.fullName === 'Imported One');
+    const profile = await api().get(`/api/v1/students/${one.id}`).set(as(admin)).expect(200);
+    expect(profile.body.enrolments[0]).toMatchObject({ rollNo: '40' });
+    expect(profile.body.batch.name).toBe('2026-28 batch');
+    expect(profile.body.guardians[0]).toMatchObject({ relation: 'MOTHER', isPrimary: true });
+    const two = list.body.items.find((x: { fullName: string }) => x.fullName === 'Imported Two');
+    expect(two.admissionNo).toMatch(/^SVJC26\d{4}$/);
+
+    // Importing to another campus: refused for Ravi.
+    await api()
+      .post('/api/v1/students/import')
+      .set(as(ravi))
+      .send({ campusId: ids.AMP, rows: [good], dryRun: true })
+      .expect(403);
+  });
+
   it('another organization sees none of it', async () => {
     const otherOrg = await api().get('/api/v1/organization').set(as(other)).expect(200);
     for (const key of ['academic', 'students']) {

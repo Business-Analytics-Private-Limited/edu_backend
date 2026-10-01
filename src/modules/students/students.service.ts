@@ -6,7 +6,10 @@
  * a Principal those of their institution. Guardians and enrolments are in their own services.
  *
  * Rules:
- *   - the admission number is unique in the institution;
+ *   - the admission number is unique in the institution; left empty, it is the next number of
+ *     the institution's pattern (admission-numbers.ts);
+ *   - a student can move to another campus of the same institution ("students.enrolment.transfer"
+ *     at BOTH campuses); their current section moves with them;
  *   - a batch must belong to the student's institution;
  *   - placing a student needs an academic year of the institution that isn't closed, and a
  *     section (a class of the LAST level) on the student's campus (see placement.ts);
@@ -20,10 +23,12 @@ import { paginated, toSkipTake } from '../../common/pagination';
 import { assertCan } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { nextAdmissionNo } from './admission-numbers';
 import {
   AdmitStudentDto,
   ChangeStatusDto,
   ListStudentsQuery,
+  TransferCampusDto,
   UpdateStudentDto,
 } from './dto/student.dto';
 import { GuardiansService } from './guardians.service';
@@ -118,9 +123,17 @@ export class StudentsService {
       if (dto.enrolment) await checkPlacement(db, place, dto.enrolment);
 
       const { enrolment, guardians, campusId, ...profile } = dto;
+      const admissionNo =
+        dto.admissionNo ??
+        (await nextAdmissionNo(
+          db,
+          await db.institution.findUniqueOrThrow({ where: { id: campus.institutionId } }),
+          new Date(dto.admissionDate),
+        ));
       const student = await db.student.create({
         data: {
           ...profile,
+          admissionNo,
           organizationId,
           institutionId: campus.institutionId,
           campusId,
@@ -222,6 +235,60 @@ export class StudentsService {
         ...place,
         details: { from: existing.status, to: dto.status, reason: dto.reason },
       });
+      return this.profile(db, id);
+    });
+  }
+
+  /**
+   * Moves a student to another campus of the same institution. A current section (in a year
+   * that isn't closed) moves to `toSectionId` on the new campus; its roll number is cleared.
+   */
+  transferCampus(organizationId: string, id: string, dto: TransferCampusDto, actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      const student = await findVisibleStudent(db, organizationId, id, actor);
+      const from = placeOf(student);
+      const toCampus = await findCampus(db, organizationId, dto.toCampusId);
+      const to = { institutionId: toCampus.institutionId, campusId: toCampus.id };
+      if (toCampus.institutionId !== student.institutionId) {
+        throw new BadRequestException(
+          'A student can only move to a campus of the same institution; for another institution, admit them there',
+        );
+      }
+      if (toCampus.id === student.campusId) {
+        throw new BadRequestException('The student is already at this campus');
+      }
+      assertCan(actor, 'students.enrolment.transfer', from);
+      assertCan(actor, 'students.enrolment.transfer', to);
+
+      const current = await db.enrolment.findFirst({
+        where: { studentId: id, status: 'ACTIVE', academicYear: { status: { not: 'CLOSED' } } },
+      });
+      if (current) {
+        if (!dto.toSectionId) {
+          throw new BadRequestException(
+            'The student has a current section: choose their section on the new campus',
+          );
+        }
+        await checkPlacement(db, to, {
+          academicYearId: current.academicYearId,
+          classId: dto.toSectionId,
+        });
+        await db.enrolment.update({
+          where: { id: current.id },
+          data: { campusId: toCampus.id, classId: dto.toSectionId, rollNo: null },
+        });
+      }
+      await db.student.update({ where: { id }, data: { campusId: toCampus.id } });
+      // Logged at both campuses, so both campus admins see it.
+      for (const place of [from, to]) {
+        await this.audit.log(db, actor, {
+          action: 'transfer campus',
+          entity: 'student',
+          entityId: id,
+          ...place,
+          details: { from: from.campusId, to: to.campusId, reason: dto.reason },
+        });
+      }
       return this.profile(db, id);
     });
   }
