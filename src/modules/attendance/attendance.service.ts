@@ -36,6 +36,7 @@ import {
   todayIn,
   workingDay,
 } from './working-days';
+import { assertCampusInUse } from '../organization/places-in-use';
 
 type Counts = Record<AttendanceStatus, number>;
 const emptyCounts = (): Counts => ({ PRESENT: 0, ABSENT: 0, LATE: 0, HALF_DAY: 0, ON_LEAVE: 0 });
@@ -110,6 +111,7 @@ export class AttendanceService {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const ctx = await this.context(db, organizationId, dto.classId, dto.date);
       assertCan(actor, 'attendance.record.mark', ctx.place);
+      await assertCampusInUse(db, ctx.place.campusId);
       const blocked = this.blockedReason(ctx);
       if (blocked) throw new BadRequestException(blocked);
       const beyondWindow =

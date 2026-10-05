@@ -25,8 +25,14 @@ export interface CurrentUser {
    * decide which menus and endpoints they may open; WHERE they may use it is in `grants`.
    */
   permissions: string[];
-  /** Each role of the user with the place it applies to (see src/common/scope.ts). */
+  /**
+   * Each role of the user with the place it applies to (see src/common/scope.ts). Roles at an
+   * inactive campus or institution are left out (ADR-0026): they give no access until it is
+   * activated again.
+   */
   grants: Grant[];
+  /** Has the Organization admin role for the whole organization (e.g. may activate campuses). */
+  isOrganizationAdmin: boolean;
   /** Keys of the modules switched on for the user's organization, e.g. "students". */
   enabledModules: string[];
 }

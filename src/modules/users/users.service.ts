@@ -32,6 +32,7 @@ import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ORG_ADMIN } from '../roles/predefined-roles';
 import { CreateUserDto, ListUsersQuery, RoleAssignmentDto, UpdateUserDto } from './dto/user.dto';
+import { assertCampusInUse, assertInstitutionInUse } from '../organization/places-in-use';
 
 /** User fields we read: everything except the password hash, with each role and its place. */
 const USER_FIELDS = {
@@ -346,6 +347,7 @@ export class UsersService {
       if (wanted.institutionId && wanted.institutionId !== campus.institutionId) {
         throw new BadRequestException('That campus belongs to another institution');
       }
+      await assertCampusInUse(db, campus.id);
       return { institutionId: campus.institutionId, campusId: campus.id };
     }
     if (wanted.institutionId) {
@@ -353,6 +355,7 @@ export class UsersService {
         where: { id: wanted.institutionId, organizationId },
       });
       if (!institution) throw new BadRequestException('Institution not found in this organization');
+      await assertInstitutionInUse(db, institution.id);
       return { institutionId: institution.id, campusId: null };
     }
     return { institutionId: null, campusId: null };

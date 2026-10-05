@@ -5,7 +5,7 @@
 | Status | **Built** |
 | Code | `src/modules/super-admin/` (super admin side), `src/modules/organization/` (organization side) |
 | Tables | `organizations`, `modules`, `organization_modules`, `institutions`, `campuses` |
-| Decisions | ADR-0015 (simple backend), ADR-0018 (places), ADR-0025 (institutions by the super admin, no type) |
+| Decisions | ADR-0015 (simple backend), ADR-0018 (places), ADR-0025 (institutions by the super admin, no type), ADR-0026 (deactivate instead of delete) |
 
 ## What it is for
 
@@ -33,6 +33,8 @@ Organization  "Sri Vidya Educational Society"
 | POST | `/super-admin/organizations/:id/suspend` / `activate` | A suspended organization's users can't log in (takes effect at once) |
 | PUT | `/super-admin/organizations/:id/modules/:moduleKey` | `{ enabled }`: switch a module on/off; a module needs the modules it depends on (`src/modules/super-admin/module-rules.ts`) |
 | POST | `/super-admin/organizations/:id/institutions` | `{ name, code }`: add an institution; it starts with the levels Class → Section |
+| POST | `/super-admin/organizations/:id/institutions/:institutionId/deactivate` | Close an institution: records stay, nothing new there or at its campuses, roles there stop working; refused while it has active students |
+| POST | `/super-admin/organizations/:id/institutions/:institutionId/activate` | Open it again |
 | DELETE | `/super-admin/organizations/:id/institutions/:institutionId` | Delete an institution while it is empty (no campuses, roles or academic data) |
 
 ## Organization side (`/api/v1/...`, organization users)
@@ -47,7 +49,9 @@ Organization  "Sri Vidya Educational Society"
 | PATCH | `/institutions/:id` | `platform.institution.update` | that institution; `{ name }` only |
 | POST | `/institutions/:id/campuses` | `platform.campus.create` | that institution |
 | PATCH | `/campuses/:id` | `platform.campus.update` | that campus |
-| DELETE | `/campuses/:id` | `platform.campus.delete` | that campus; refused while staff have roles there |
+| POST | `/campuses/:id/deactivate` | `platform.campus.delete` | that campus; refused while active students study there |
+| POST | `/campuses/:id/activate` | Organization admin only | |
+| DELETE | `/campuses/:id` | Organization admin only | only an empty campus (no staff roles, classes, students or holidays) |
 
 "Checked at" = the user needs the permission **at that place** (see [access.md](access.md) and ADR-0018): a Campus admin can rename their campus but not another one.
 
@@ -56,6 +60,7 @@ Organization  "Sri Vidya Educational Society"
 1. An organization only ever sees its own data: every query filters by organization, and PostgreSQL row security blocks anything missed (`organization_id` on every organization table).
 2. Institution codes are unique in the organization; campus codes are unique in the institution (capital letters, digits, `_`, `-`).
 3. Every change is written to the audit log with its place.
+4. Campuses and institutions are **deactivated, not deleted** (ADR-0026). An inactive one keeps its records, which can still be read, but nothing new happens there (`places-in-use.ts`), and roles given there stop working until it is activated again. Only the Organization admin activates a campus; only the super admin activates an institution.
 
 ## Later
 

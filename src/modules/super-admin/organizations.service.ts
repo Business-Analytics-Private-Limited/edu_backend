@@ -15,6 +15,7 @@ import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateInstitutionDto } from '../organization/dto/institution.dto';
 import { addInstitution, deleteEmptyInstitution } from '../organization/institution-records';
+import { activeStudentCount } from '../organization/places-in-use';
 import { ORG_ADMIN } from '../roles/predefined-roles';
 import { PredefinedRolesService } from '../roles/predefined-roles.service';
 import {
@@ -147,8 +148,18 @@ export class OrganizationsService {
       const institutions = await db.institution.findMany({
         where: { organizationId: id },
         orderBy: { name: 'asc' },
-        select: { id: true, name: true, code: true, _count: { select: { campuses: true } } },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          status: true,
+          _count: { select: { campuses: true } },
+        },
       });
+      const [activeCampuses, inactiveCampuses] = await Promise.all([
+        db.campus.count({ where: { organizationId: id, status: 'ACTIVE' } }),
+        db.campus.count({ where: { organizationId: id, status: 'INACTIVE' } }),
+      ]);
       const admins = await db.user.findMany({
         where: { organizationId: id, roles: { some: { role: { templateKey: ORG_ADMIN } } } },
         select: { id: true, name: true, email: true, status: true, lastLoginAt: true },
@@ -158,6 +169,7 @@ export class OrganizationsService {
         ...rest,
         admins,
         institutions,
+        campuses: { active: activeCampuses, inactive: inactiveCampuses },
         modules: allModules.map((module) => ({
           ...module,
           enabled: switchedModules.some((m) => m.moduleKey === module.key && m.enabled),
@@ -250,10 +262,60 @@ export class OrganizationsService {
     });
   }
 
+  /**
+   * Closes an institution (ADR-0026): its records stay, nothing new happens there or at its
+   * campuses, and roles given there stop working. Refused while it has active students.
+   */
+  deactivateInstitution(organizationId: string, institutionId: string, actor: CurrentUser) {
+    return this.setInstitutionStatus(organizationId, institutionId, 'INACTIVE', actor);
+  }
+
+  activateInstitution(organizationId: string, institutionId: string, actor: CurrentUser) {
+    return this.setInstitutionStatus(organizationId, institutionId, 'ACTIVE', actor);
+  }
+
+  private setInstitutionStatus(
+    organizationId: string,
+    institutionId: string,
+    status: 'ACTIVE' | 'INACTIVE',
+    actor: CurrentUser,
+  ) {
+    return this.prisma.forAllOrganizations(async (db) => {
+      const existing = await db.institution.findFirst({
+        where: { id: institutionId, organizationId },
+      });
+      if (!existing) throw new NotFoundException('Institution not found');
+      if (existing.status === status) {
+        throw new BadRequestException(
+          `${existing.name} is already ${status === 'ACTIVE' ? 'active' : 'inactive'}`,
+        );
+      }
+      if (status === 'INACTIVE') {
+        const students = await activeStudentCount(db, { institutionId });
+        if (students > 0) {
+          throw new BadRequestException(
+            `${students} active student(s) still study at ${existing.name}; it can be deactivated once they have left or moved`,
+          );
+        }
+      }
+      const institution = await db.institution.update({
+        where: { id: institutionId },
+        data: { status },
+      });
+      await this.logInstitution(
+        db,
+        actor,
+        status === 'ACTIVE' ? 'activate' : 'deactivate',
+        institution,
+      );
+      return institution;
+    });
+  }
+
   private logInstitution(
     db: Db,
     actor: CurrentUser,
-    action: 'create' | 'delete',
+    action: 'create' | 'delete' | 'activate' | 'deactivate',
     institution: { id: string; organizationId: string; name: string; code: string },
   ) {
     return this.audit.log(db, actor, {
@@ -262,7 +324,7 @@ export class OrganizationsService {
       entityId: institution.id,
       organizationId: institution.organizationId,
       // A deleted institution can't be linked to any more.
-      institutionId: action === 'create' ? institution.id : undefined,
+      institutionId: action === 'delete' ? undefined : institution.id,
       details: { name: institution.name, code: institution.code },
     });
   }

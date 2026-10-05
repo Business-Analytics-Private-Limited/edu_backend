@@ -20,6 +20,7 @@ import { AuditService } from '../audit/audit.service';
 import { checkPattern, nextAdmissionNo, render } from './admission-numbers';
 import { ImportRowDto, ImportStudentsDto } from './dto/student.dto';
 import { findCampus } from './placement';
+import { assertCampusInUse } from '../organization/places-in-use';
 
 const GENDERS: Record<string, Gender> = {
   M: 'MALE',
@@ -87,6 +88,7 @@ export class ImportService {
         const place = { institutionId: campus.institutionId, campusId: campus.id };
         assertCan(actor, 'students.student.import', place);
         assertCan(actor, 'students.student.create', place);
+        await assertCampusInUse(db, campus.id);
 
         const { ready, errors } = await this.check(db, campus, dto);
         if (errors.length > 0 || dto.dryRun) {

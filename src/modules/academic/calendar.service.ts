@@ -17,6 +17,7 @@ import { assertCan, can, canSomewhereIn } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateHolidayDto, HolidayQuery, SetWeeklyOffDto } from './dto/academic.dto';
+import { assertCampusInUse, assertInstitutionInUse } from '../organization/places-in-use';
 
 @Injectable()
 export class CalendarService {
@@ -102,6 +103,8 @@ export class CalendarService {
       }
       const place = { institutionId: dto.institutionId, campusId: dto.campusId ?? null };
       assertCan(actor, 'academic.calendar.create', place);
+      if (dto.campusId) await assertCampusInUse(db, dto.campusId);
+      else await assertInstitutionInUse(db, dto.institutionId);
       if (new Date(dto.startsOn) > new Date(endsOn)) {
         throw new BadRequestException('A holiday must start on or before its last day');
       }

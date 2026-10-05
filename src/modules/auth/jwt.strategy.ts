@@ -12,6 +12,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import type { CurrentUser, JwtPayload } from '../../common/current-user';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ORG_ADMIN } from '../roles/predefined-roles';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -41,6 +42,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         roleNames: [],
         permissions: [],
         grants: [],
+        isOrganizationAdmin: false,
         enabledModules: [],
       };
     }
@@ -50,7 +52,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       db.user.findUnique({
         where: { id: payload.sub },
         include: {
-          roles: { include: { role: true } },
+          roles: {
+            include: {
+              role: true,
+              institution: { select: { status: true } },
+              campus: { select: { status: true, institution: { select: { status: true } } } },
+            },
+          },
           organization: { include: { modules: { where: { enabled: true } } } },
           guardian: { include: { students: { select: { studentId: true } } } },
         },
@@ -77,9 +85,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         roleNames: [],
         permissions: [],
         grants: [],
+        isOrganizationAdmin: false,
         enabledModules,
       };
     }
+    // Roles at an inactive campus or institution give no access (ADR-0026).
+    const roles = user.roles.filter(
+      (r) =>
+        r.institution?.status !== 'INACTIVE' &&
+        r.campus?.status !== 'INACTIVE' &&
+        r.campus?.institution.status !== 'INACTIVE',
+    );
     return {
       type: 'user',
       id: user.id,
@@ -88,15 +104,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       organizationId: user.organizationId,
       kind: 'staff',
       studentIds: [],
-      roleNames: [...new Set(user.roles.map((r) => r.role.name))],
+      roleNames: [...new Set(roles.map((r) => r.role.name))],
       // A user with several roles may do everything any of them allows (each in its own place).
-      permissions: [...new Set(user.roles.flatMap((r) => r.role.permissions))],
-      grants: user.roles.map((r) => ({
+      permissions: [...new Set(roles.flatMap((r) => r.role.permissions))],
+      grants: roles.map((r) => ({
         roleName: r.role.name,
         permissions: r.role.permissions,
         institutionId: r.institutionId,
         campusId: r.campusId,
       })),
+      isOrganizationAdmin: roles.some(
+        (r) => r.role.templateKey === ORG_ADMIN && !r.institutionId && !r.campusId,
+      ),
       enabledModules,
     };
   }

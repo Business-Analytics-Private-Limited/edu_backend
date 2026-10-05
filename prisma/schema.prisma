@@ -140,25 +140,34 @@ model OrganizationModule {
   @@map("organization_modules")
 }
 
+/// Whether a campus or institution is in use (ADR-0026). An INACTIVE one keeps its records, which
+/// can still be read, but nothing new happens there; it is never deleted while it has data.
+enum PlaceStatus {
+  ACTIVE
+  INACTIVE
+}
+
 /// A college or school of the organization, e.g. "Sri Vidya Junior College". Only the super admin
 /// adds or deletes institutions (ADR-0025); there is no type: each sets up its own class levels.
 model Institution {
-  id                       String          @id @default(uuid(7)) @db.Uuid
-  organizationId           String          @map("organization_id") @db.Uuid
+  id                       String      @id @default(uuid(7)) @db.Uuid
+  organizationId           String      @map("organization_id") @db.Uuid
   name                     String
   /// Short code, unique inside the organization, e.g. "SVJC".
   code                     String
+  /// Only the super admin deactivates and activates an institution (ADR-0026).
+  status                   PlaceStatus @default(ACTIVE)
   /// Days without classes every week (Academic module): 0 = Sunday ... 6 = Saturday.
-  weeklyOffDays            Int[]           @default([0]) @map("weekly_off_days")
+  weeklyOffDays            Int[]       @default([0]) @map("weekly_off_days")
   /// Students module: how admission numbers are made when left empty, e.g. "{CODE}{YY}{SEQ:4}"
   /// -> "SVJC260001". Empty = numbers are typed by hand.
-  admissionNoPattern       String?         @map("admission_no_pattern")
+  admissionNoPattern       String?     @map("admission_no_pattern")
   /// The institution's time zone: decides what "today" is (attendance), e.g. "Asia/Kolkata".
-  timeZone                 String          @default("Asia/Kolkata") @map("time_zone")
+  timeZone                 String      @default("Asia/Kolkata") @map("time_zone")
   /// Attendance: how many days back a past day may still be marked or corrected.
-  attendanceCorrectionDays Int             @default(7) @map("attendance_correction_days")
-  createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+  attendanceCorrectionDays Int         @default(7) @map("attendance_correction_days")
+  createdAt                DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
   campuses     Campus[]
@@ -181,13 +190,15 @@ model Institution {
 
 /// A physical location of an institution, e.g. "Kukatpally".
 model Campus {
-  id             String   @id @default(uuid(7)) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  institutionId  String   @map("institution_id") @db.Uuid
+  id             String      @id @default(uuid(7)) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  institutionId  String      @map("institution_id") @db.Uuid
   name           String
   code           String
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  /// INACTIVE = closed (ADR-0026); only the Organization admin activates it again.
+  status         PlaceStatus @default(ACTIVE)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
   institution  Institution  @relation(fields: [institutionId], references: [id])

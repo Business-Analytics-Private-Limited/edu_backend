@@ -11,13 +11,23 @@
  * only their own campus. Editing the organization needs the permission for the whole
  * organization. Institutions are added and deleted only by the super admin (ADR-0025,
  * institution-records.ts); here they can be viewed and renamed.
+ *
+ * Campuses are DEACTIVATED instead of deleted (ADR-0026): the records stay, nothing new happens
+ * there (places-in-use.ts), and only the Organization admin activates them again. A real delete
+ * is only for an empty campus added by mistake, and only by the Organization admin.
  */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { assertCan, can, reachOf } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { activeStudentCount, assertInstitutionInUse } from './places-in-use';
 import {
   CreateCampusDto,
   UpdateCampusDto,
@@ -95,14 +105,33 @@ export class OrganizationService {
         };
 
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const [institutions, campuses, users, activeUsers, roles] = await Promise.all([
-        db.institution.count({ where: institutionWhere }),
-        db.campus.count({ where: campusWhere }),
+      const [
+        institutions,
+        inactiveInstitutions,
+        campuses,
+        inactiveCampuses,
+        users,
+        activeUsers,
+        roles,
+      ] = await Promise.all([
+        db.institution.count({ where: { ...institutionWhere, status: 'ACTIVE' } }),
+        db.institution.count({ where: { ...institutionWhere, status: 'INACTIVE' } }),
+        db.campus.count({ where: { ...campusWhere, status: 'ACTIVE' } }),
+        db.campus.count({ where: { ...campusWhere, status: 'INACTIVE' } }),
         db.user.count({ where: userWhere }),
         db.user.count({ where: { ...userWhere, status: 'ACTIVE' } }),
         db.role.count({ where: { organizationId } }),
       ]);
-      return { institutions, campuses, users, activeUsers, roles };
+      // institutions / campuses = the active ones; closed ones are counted separately (ADR-0026).
+      return {
+        institutions,
+        inactiveInstitutions,
+        campuses,
+        inactiveCampuses,
+        users,
+        activeUsers,
+        roles,
+      };
     });
   }
 
@@ -128,7 +157,10 @@ export class OrganizationService {
         where,
         orderBy: { name: 'asc' },
         include: {
-          campuses: { orderBy: { name: 'asc' }, select: { id: true, name: true, code: true } },
+          campuses: {
+            orderBy: { name: 'asc' },
+            select: { id: true, name: true, code: true, status: true },
+          },
         },
       });
       return institutions.map((institution) => {
@@ -196,6 +228,7 @@ export class OrganizationService {
     return this.prisma.forOrganization(organizationId, async (db) => {
       await this.findInstitution(db, organizationId, institutionId);
       assertCan(actor, 'platform.campus.create', { institutionId });
+      await assertInstitutionInUse(db, institutionId);
       const campus = await db.campus.create({ data: { ...dto, organizationId, institutionId } });
       await this.audit.log(db, actor, {
         action: 'create',
@@ -226,14 +259,85 @@ export class OrganizationService {
     });
   }
 
-  deleteCampus(organizationId: string, id: string, actor: CurrentUser) {
+  /**
+   * Closes a campus (ADR-0026): its records stay and can be read, nothing new happens there, and
+   * roles given at it stop working. Refused while active students still study there.
+   */
+  deactivateCampus(organizationId: string, id: string, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const existing = await this.findCampus(db, organizationId, id);
       const place = { institutionId: existing.institutionId, campusId: id };
       assertCan(actor, 'platform.campus.delete', place);
+      if (existing.status === 'INACTIVE') {
+        throw new BadRequestException(`Campus ${existing.name} is already inactive`);
+      }
+      const students = await activeStudentCount(db, { campusId: id });
+      if (students > 0) {
+        throw new BadRequestException(
+          `${students} active student(s) still study at ${existing.name}; move them to another campus or change their status first`,
+        );
+      }
+      const campus = await db.campus.update({ where: { id }, data: { status: 'INACTIVE' } });
+      await this.audit.log(db, actor, {
+        action: 'deactivate',
+        entity: 'campus',
+        entityId: id,
+        ...place,
+        details: { name: existing.name },
+      });
+      return campus;
+    });
+  }
+
+  /** Opens a closed campus again. Only the Organization admin may (ADR-0026). */
+  activateCampus(organizationId: string, id: string, actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      if (!actor.isOrganizationAdmin) {
+        throw new ForbiddenException('Only the Organization admin can activate a campus');
+      }
+      const existing = await this.findCampus(db, organizationId, id);
+      await assertInstitutionInUse(db, existing.institutionId);
+      if (existing.status === 'ACTIVE') {
+        throw new BadRequestException(`Campus ${existing.name} is already active`);
+      }
+      const campus = await db.campus.update({ where: { id }, data: { status: 'ACTIVE' } });
+      await this.audit.log(db, actor, {
+        action: 'activate',
+        entity: 'campus',
+        entityId: id,
+        institutionId: existing.institutionId,
+        campusId: id,
+        details: { name: existing.name },
+      });
+      return campus;
+    });
+  }
+
+  /**
+   * Really deletes a campus: only an EMPTY one (e.g. added by mistake), and only by the
+   * Organization admin. Anything with data is deactivated instead.
+   */
+  deleteCampus(organizationId: string, id: string, actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      if (!actor.isOrganizationAdmin) {
+        throw new ForbiddenException(
+          'Only the Organization admin can delete a campus; deactivate it instead',
+        );
+      }
+      const existing = await this.findCampus(db, organizationId, id);
       if ((await db.userRole.count({ where: { campusId: id } })) > 0) {
         throw new BadRequestException(
           'Some users still have roles at this campus; take those roles away first',
+        );
+      }
+      const [classes, students, holidays] = await Promise.all([
+        db.class.count({ where: { campusId: id } }),
+        db.student.count({ where: { campusId: id } }),
+        db.holiday.count({ where: { campusId: id } }),
+      ]);
+      if (classes + students + holidays > 0) {
+        throw new BadRequestException(
+          'Only an empty campus can be deleted (no classes, students or holidays); deactivate it instead',
         );
       }
       await db.campus.delete({ where: { id } });
@@ -241,7 +345,8 @@ export class OrganizationService {
         action: 'delete',
         entity: 'campus',
         entityId: id,
-        ...place,
+        institutionId: existing.institutionId,
+        details: { name: existing.name, code: existing.code },
       });
       return { deleted: true };
     });

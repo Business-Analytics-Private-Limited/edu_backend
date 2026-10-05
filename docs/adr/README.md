@@ -31,6 +31,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0023](0023-files-and-documents.md) | Files on the server's disk behind the API; student documents with types and review | Accepted |
 | [0024](0024-microservices-and-tenant-sharding.md) | Move to microservices, with tenants spread over several databases | **Proposed** (when accepted, supersedes ADR-0012 and ADR-0015) |
 | [0025](0025-institutions-by-super-admin-without-types.md) | Institutions are added by the super admin, and have no type | Accepted |
+| [0026](0026-deactivate-campuses-and-institutions.md) | Campuses and institutions are deactivated, not deleted | Accepted |
 
 Template for new ADRs:
 

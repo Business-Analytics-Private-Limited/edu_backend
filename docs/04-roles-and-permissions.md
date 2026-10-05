@@ -68,6 +68,8 @@ Every organization has these roles. Each is given to a user **at a place** (whol
 | Parent | student record | guardian | View their children's profile, documents, attendance |
 | Student | student record | self | View their own profile, documents, attendance |
 
+> **Campuses:** the *delete* permission means **deactivate** (close) a campus. Activating it again, and really deleting an empty campus, is for the Organization admin only (ADR-0026).
+
 The starting permissions are in `src/modules/roles/predefined-roles.ts`; after that, the database (`role_templates`) is the source of truth.
 
 **Parent and Student** are not given from the Users page. Their logins will be created from a student's record (Students module), linked to that student, so a parent sees only their own children and a student only themselves. Until then the API refuses to assign them.

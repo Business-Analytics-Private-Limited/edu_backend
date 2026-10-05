@@ -10,11 +10,23 @@
  *   PATCH  /api/v1/institutions/:id                       platform.institution.update
  *   POST   /api/v1/institutions/:id/campuses              platform.campus.create
  *   PATCH  /api/v1/campuses/:id                           platform.campus.update
- *   DELETE /api/v1/campuses/:id                           platform.campus.delete
+ *   POST   /api/v1/campuses/:id/deactivate                platform.campus.delete (closes it, ADR-0026)
+ *   POST   /api/v1/campuses/:id/activate                  Organization admin only
+ *   DELETE /api/v1/campuses/:id                           Organization admin only; empty campus only
  *
  * Institutions are added and deleted by the super admin only (ADR-0025, super-admin module).
  */
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { CurrentUser as CurrentUserType } from '../../common/current-user';
 import { OrganizationUser, RequirePermission } from '../../common/decorators/access.decorators';
@@ -104,6 +116,30 @@ export class OrganizationController {
     return this.organization.updateCampus(organizationId, id, body, user);
   }
 
+  @Post('campuses/:id/deactivate')
+  @HttpCode(200)
+  @RequirePermission('platform.campus.delete')
+  deactivateCampus(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.organization.deactivateCampus(organizationId, id, user);
+  }
+
+  /** The service checks that the user is the Organization admin. */
+  @Post('campuses/:id/activate')
+  @HttpCode(200)
+  @RequirePermission('platform.campus.update')
+  activateCampus(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.organization.activateCampus(organizationId, id, user);
+  }
+
+  /** The service checks that the user is the Organization admin and the campus is empty. */
   @Delete('campuses/:id')
   @RequirePermission('platform.campus.delete')
   deleteCampus(

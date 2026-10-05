@@ -11,7 +11,9 @@
  *   POST  /api/v1/super-admin/organizations/:id/activate
  *   PUT   /api/v1/super-admin/organizations/:id/modules/:moduleKey
  *   POST   /api/v1/super-admin/organizations/:id/institutions
- *   DELETE /api/v1/super-admin/organizations/:id/institutions/:institutionId
+ *   DELETE /api/v1/super-admin/organizations/:id/institutions/:institutionId   (empty only)
+ *   POST   /api/v1/super-admin/organizations/:id/institutions/:institutionId/deactivate
+ *   POST   /api/v1/super-admin/organizations/:id/institutions/:institutionId/activate
  *
  * Only the super admin adds and deletes institutions (ADR-0025).
  */
@@ -111,6 +113,27 @@ export class SuperAdminController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.organizations.addInstitution(id, body, user);
+  }
+
+  /** Closes an institution (ADR-0026); refused while it has active students. */
+  @Post('organizations/:id/institutions/:institutionId/deactivate')
+  @HttpCode(200)
+  deactivateInstitution(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('institutionId', ParseUUIDPipe) institutionId: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.organizations.deactivateInstitution(id, institutionId, user);
+  }
+
+  @Post('organizations/:id/institutions/:institutionId/activate')
+  @HttpCode(200)
+  activateInstitution(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('institutionId', ParseUUIDPipe) institutionId: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.organizations.activateInstitution(id, institutionId, user);
   }
 
   @Delete('organizations/:id/institutions/:institutionId')

@@ -18,6 +18,7 @@ const superAdmin: CurrentUser = {
   studentIds: [],
   roleNames: [],
   grants: [],
+  isOrganizationAdmin: false,
   permissions: [],
   enabledModules: [],
 };
@@ -32,6 +33,7 @@ const teacher: CurrentUser = {
   studentIds: [],
   roleNames: ['Teacher'],
   grants: [],
+  isOrganizationAdmin: false,
   permissions: ['platform.institution.view', 'students.student.view'],
   enabledModules: [],
 };

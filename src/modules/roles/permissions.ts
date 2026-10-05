@@ -59,6 +59,8 @@ export const RESOURCES: ResourceInfo[] = [
     module: null,
     group: 'Organization',
     label: 'Campuses',
+    // "delete" = deactivate (close) a campus; a real delete is for the Organization admin only
+    // (ADR-0026).
     actions: ['create', 'update', 'delete'],
   },
 

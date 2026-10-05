@@ -28,6 +28,7 @@ import { assertCan, can, canSomewhereIn } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateClassDto, SetClassLevelsDto, UpdateClassDto } from './dto/academic.dto';
+import { assertCampusInUse } from '../organization/places-in-use';
 
 @Injectable()
 export class ClassStructureService {
@@ -126,6 +127,7 @@ export class ClassStructureService {
       const campus = await this.findCampus(db, organizationId, campusId);
       const place = { institutionId: campus.institutionId, campusId };
       assertCan(actor, 'academic.structure.create', place);
+      await assertCampusInUse(db, campusId);
 
       const levelCount = await db.classLevel.count({
         where: { institutionId: campus.institutionId },

@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { reachOf } from '../../common/scope';
 import type { Db } from '../../prisma/prisma.service';
+import { assertCampusInUse } from '../organization/places-in-use';
 
 /** A student's place: their institution and campus. */
 export function placeOf(student: { institutionId: string; campusId: string }) {
@@ -62,6 +63,7 @@ export async function checkPlacement(
   place: { institutionId: string; campusId: string },
   wanted: { academicYearId: string; classId: string },
 ) {
+  await assertCampusInUse(db, place.campusId);
   const year = await db.academicYear.findFirst({
     where: { id: wanted.academicYearId, institutionId: place.institutionId },
   });

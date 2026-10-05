@@ -42,6 +42,7 @@ import {
   placeOf,
   visibleStudentsWhere,
 } from './placement';
+import { assertCampusInUse } from '../organization/places-in-use';
 
 /** What the list shows of each student. */
 const LIST_FIELDS = {
@@ -121,6 +122,7 @@ export class StudentsService {
       const campus = await findCampus(db, organizationId, dto.campusId);
       const place = { institutionId: campus.institutionId, campusId: campus.id };
       assertCan(actor, 'students.student.create', place);
+      await assertCampusInUse(db, campus.id);
       if (dto.batchId) await checkBatch(db, campus.institutionId, dto.batchId);
       if (dto.enrolment) await checkPlacement(db, place, dto.enrolment);
 
@@ -250,6 +252,7 @@ export class StudentsService {
       const student = await findVisibleStudent(db, organizationId, id, actor);
       const from = placeOf(student);
       const toCampus = await findCampus(db, organizationId, dto.toCampusId);
+      await assertCampusInUse(db, toCampus.id);
       const to = { institutionId: toCampus.institutionId, campusId: toCampus.id };
       if (toCampus.institutionId !== student.institutionId) {
         throw new BadRequestException(
