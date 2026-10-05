@@ -11,14 +11,14 @@
 ## In plain words
 
 - **Academic years:** each institution's years, e.g. "2026-27" from 1 June 2026 to 31 March 2027. One is **active** (the current one).
-- **Class levels:** how an institution divides its classes, top to bottom. Every institution names its own:
+- **Class levels:** how an institution divides its classes, top to bottom. Institutions have no type (ADR-0025): every one starts with **Class → Section** and sets up its own, for example:
 
   | Institution | Levels |
   |---|---|
-  | Junior college (default) | Year → Group → Section |
-  | Degree college (default) | Year → Course → Section |
-  | Engineering college (default) | Year → Branch → Section |
-  | School (default) | Class → Section |
+  | Junior college | Year → Group → Section |
+  | Degree college | Year → Course → Section |
+  | Engineering college | Year → Branch → Section |
+  | School | Class → Section (the starting levels) |
   | A coaching-style institution | Type → Group → Stream → Section |
 
 - **Classes:** each campus builds a tree that follows the levels, e.g. *1st year → MPC → Section A*. The last level ("section") is where students will be placed.

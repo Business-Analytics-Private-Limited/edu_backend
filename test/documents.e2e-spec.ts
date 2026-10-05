@@ -7,7 +7,16 @@
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
+import {
+  createOrganization,
+  createTestApp,
+  institutionId,
+  JUNIOR_COLLEGE_LEVELS,
+  loginSuperAdmin,
+  loginUser,
+  setClassLevels,
+  SVJC,
+} from './helpers';
 
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n');
 const PNG = Buffer.concat([
@@ -36,7 +45,7 @@ describe('Student documents', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'doc', 'admin@doc.test');
+    orgId = await createOrganization(app, superAdmin, 'doc', 'admin@doc.test', [SVJC]);
     admin = await loginUser(app, 'admin@doc.test', 'Admin@12345');
     for (const key of ['academic', 'students', 'portal']) {
       await api()
@@ -45,11 +54,8 @@ describe('Student documents', () => {
         .send({ enabled: true })
         .expect(200);
     }
-    const inst = await api()
-      .post('/api/v1/institutions')
-      .set(as(admin))
-      .send({ name: 'Sri Vidya Junior College', code: 'SVJC', type: 'JUNIOR_COLLEGE' });
-    ids.SVJC = inst.body.id;
+    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
+    await setClassLevels(app, admin, ids.SVJC, JUNIOR_COLLEGE_LEVELS);
     for (const code of ['KKP', 'AMP']) {
       const campus = await api()
         .post(`/api/v1/institutions/${ids.SVJC}/campuses`)

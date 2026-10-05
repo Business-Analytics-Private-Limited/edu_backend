@@ -7,7 +7,14 @@
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
+import {
+  createOrganization,
+  createTestApp,
+  institutionId,
+  loginSuperAdmin,
+  loginUser,
+  SVJC,
+} from './helpers';
 
 describe('Academic', () => {
   let app: INestApplication;
@@ -23,16 +30,12 @@ describe('Academic', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'acad', 'admin@acad.test');
+    orgId = await createOrganization(app, superAdmin, 'acad', 'admin@acad.test', [SVJC]);
     await createOrganization(app, superAdmin, 'acad-other', 'admin@acad-other.test');
     admin = await loginUser(app, 'admin@acad.test', 'Admin@12345');
     other = await loginUser(app, 'admin@acad-other.test', 'Admin@12345');
 
-    const svjc = await api()
-      .post('/api/v1/institutions')
-      .set(as(admin))
-      .send({ name: 'Sri Vidya Junior College', code: 'SVJC', type: 'JUNIOR_COLLEGE' });
-    ids.SVJC = svjc.body.id;
+    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
     for (const code of ['KKP', 'AMP']) {
       const campus = await api()
         .post(`/api/v1/institutions/${ids.SVJC}/campuses`)
@@ -76,7 +79,7 @@ describe('Academic', () => {
       .get(`/api/v1/institutions/${ids.SVJC}/class-levels`)
       .set(as(admin))
       .expect(200);
-    expect(levels.body.map((l: { name: string }) => l.name)).toEqual(['Year', 'Group', 'Section']);
+    expect(levels.body.map((l: { name: string }) => l.name)).toEqual(['Class', 'Section']);
 
     // An institution that works with four levels, e.g. Type -> Group -> Stream -> Section.
     const reshaped = await api()

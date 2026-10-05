@@ -4,6 +4,9 @@
  */
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEmail,
   IsEnum,
@@ -16,6 +19,7 @@ import {
 } from 'class-validator';
 import { OrganizationStatus } from '@prisma/client';
 import { PaginationQuery } from '../../../common/pagination';
+import { CreateInstitutionDto } from '../../organization/dto/institution.dto';
 
 /** The organization's first admin, created together with the organization. */
 export class FirstAdminDto {
@@ -62,6 +66,17 @@ export class CreateOrganizationDto {
   @ValidateNested()
   @Type(() => FirstAdminDto)
   admin: FirstAdminDto;
+
+  /**
+   * The organization's institutions (at least one). Only the super admin adds institutions
+   * (ADR-0025); more can be added later on the organization's page.
+   */
+  @IsArray()
+  @ArrayMinSize(1, { message: 'add at least one institution' })
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => CreateInstitutionDto)
+  institutions: CreateInstitutionDto[];
 }
 
 export class UpdateOrganizationDto {

@@ -8,19 +8,18 @@
  *
  * Inside the organization, each action is also checked at the record's PLACE (ADR-0018):
  * a Principal of one institution can edit that institution, not another; a Campus admin sees
- * only their own campus. Creating institutions and editing the organization need the
- * permission for the whole organization.
+ * only their own campus. Editing the organization needs the permission for the whole
+ * organization. Institutions are added and deleted only by the super admin (ADR-0025,
+ * institution-records.ts); here they can be viewed and renamed.
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { assertCan, can, reachOf } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
-import { DEFAULT_LEVELS } from '../academic/default-levels';
 import { AuditService } from '../audit/audit.service';
 import {
   CreateCampusDto,
-  CreateInstitutionDto,
   UpdateCampusDto,
   UpdateInstitutionDto,
   UpdateOwnOrganizationDto,
@@ -165,30 +164,6 @@ export class OrganizationService {
     });
   }
 
-  createInstitution(organizationId: string, dto: CreateInstitutionDto, actor: CurrentUser) {
-    assertCan(actor, 'platform.institution.create', {});
-    return this.prisma.forOrganization(organizationId, async (db) => {
-      const institution = await db.institution.create({ data: { ...dto, organizationId } });
-      // Class levels to start with (Academic module), e.g. Year -> Group -> Section; renameable.
-      await db.classLevel.createMany({
-        data: DEFAULT_LEVELS[institution.type].map((name, index) => ({
-          organizationId,
-          institutionId: institution.id,
-          position: index + 1,
-          name,
-        })),
-      });
-      await this.audit.log(db, actor, {
-        action: 'create',
-        entity: 'institution',
-        entityId: institution.id,
-        institutionId: institution.id,
-        details: { name: institution.name, code: institution.code },
-      });
-      return institution;
-    });
-  }
-
   updateInstitution(
     organizationId: string,
     id: string,
@@ -207,29 +182,6 @@ export class OrganizationService {
         details: { ...dto },
       });
       return institution;
-    });
-  }
-
-  deleteInstitution(organizationId: string, id: string, actor: CurrentUser) {
-    return this.prisma.forOrganization(organizationId, async (db) => {
-      await this.findInstitution(db, organizationId, id);
-      assertCan(actor, 'platform.institution.delete', { institutionId: id });
-      if ((await db.campus.count({ where: { institutionId: id } })) > 0) {
-        throw new BadRequestException('Delete the campuses of this institution first');
-      }
-      if ((await db.userRole.count({ where: { institutionId: id } })) > 0) {
-        throw new BadRequestException(
-          'Some users still have roles in this institution; take those roles away first',
-        );
-      }
-      await db.institution.delete({ where: { id } });
-      await this.audit.log(db, actor, {
-        action: 'delete',
-        entity: 'institution',
-        entityId: id,
-        institutionId: id,
-      });
-      return { deleted: true };
     });
   }
 

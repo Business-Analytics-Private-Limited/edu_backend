@@ -5,11 +5,11 @@
 | Status | **Built** |
 | Code | `src/modules/super-admin/` (super admin side), `src/modules/organization/` (organization side) |
 | Tables | `organizations`, `modules`, `organization_modules`, `institutions`, `campuses` |
-| Decisions | ADR-0015 (simple backend), ADR-0018 (places) |
+| Decisions | ADR-0015 (simple backend), ADR-0018 (places), ADR-0025 (institutions by the super admin, no type) |
 
 ## What it is for
 
-EduPlatform serves many **organizations** (a school group, a college society, a trust). Each organization has one or more **institutions** (a junior college, a school), and each institution has one or more **campuses** (branches). The super admin decides which **modules** (Academic, Students, Attendance, …) each organization has.
+EduPlatform serves many **organizations** (a school group, a college society, a trust). Each organization has one or more **institutions** (a junior college, a school), added **only by the super admin**, and each institution has one or more **campuses** (branches), added by the organization. Institutions have **no type**: each sets up its own class levels, and every feature works the same for all of them (ADR-0025). The super admin decides which **modules** (Academic, Students, Attendance, …) each organization has.
 
 ```
 Organization  "Sri Vidya Educational Society"
@@ -27,11 +27,13 @@ Organization  "Sri Vidya Educational Society"
 | GET | `/super-admin/dashboard` | Numbers across all organizations, newest organizations |
 | GET | `/super-admin/modules` | The module list |
 | GET | `/super-admin/organizations?search=&status=&page=&pageSize=` | List and search |
-| POST | `/super-admin/organizations` | Create an organization **with its first admin**; it also gets every predefined role |
-| GET | `/super-admin/organizations/:id` | Details, admins, modules (on/off) |
+| POST | `/super-admin/organizations` | Create an organization **with its first admin and its institutions** (`institutions: [{ name, code }]`, at least one); it also gets every predefined role |
+| GET | `/super-admin/organizations/:id` | Details, admins, institutions, modules (on/off) |
 | PATCH | `/super-admin/organizations/:id` | Edit name and contact details |
 | POST | `/super-admin/organizations/:id/suspend` / `activate` | A suspended organization's users can't log in (takes effect at once) |
 | PUT | `/super-admin/organizations/:id/modules/:moduleKey` | `{ enabled }`: switch a module on/off; a module needs the modules it depends on (`src/modules/super-admin/module-rules.ts`) |
+| POST | `/super-admin/organizations/:id/institutions` | `{ name, code }`: add an institution; it starts with the levels Class → Section |
+| DELETE | `/super-admin/organizations/:id/institutions/:institutionId` | Delete an institution while it is empty (no campuses, roles or academic data) |
 
 ## Organization side (`/api/v1/...`, organization users)
 
@@ -41,10 +43,8 @@ Organization  "Sri Vidya Educational Society"
 | GET | `/organization` | `platform.organization.view` | |
 | PATCH | `/organization` | `platform.organization.update` | whole organization |
 | GET | `/institutions` | `platform.institution.view` | lists only institutions / campuses in reach |
-| POST | `/institutions` | `platform.institution.create` | whole organization |
 | GET | `/institutions/:id` | `platform.institution.view` | only campuses in reach are included |
-| PATCH | `/institutions/:id` | `platform.institution.update` | that institution |
-| DELETE | `/institutions/:id` | `platform.institution.delete` | that institution; refused while it has campuses or staff |
+| PATCH | `/institutions/:id` | `platform.institution.update` | that institution; `{ name }` only |
 | POST | `/institutions/:id/campuses` | `platform.campus.create` | that institution |
 | PATCH | `/campuses/:id` | `platform.campus.update` | that campus |
 | DELETE | `/campuses/:id` | `platform.campus.delete` | that campus; refused while staff have roles there |

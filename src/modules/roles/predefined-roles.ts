@@ -81,7 +81,6 @@ export const PREDEFINED_ROLES: PredefinedRole[] = [
     description: 'Oversees all institutions: sees everything, manages institutions and campuses',
     permissions: [
       ...ALL_VIEW_KEYS,
-      'platform.institution.create',
       'platform.institution.update',
       'platform.campus.create',
       'platform.campus.update',

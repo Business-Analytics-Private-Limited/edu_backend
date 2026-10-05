@@ -12,7 +12,13 @@
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
+import {
+  createOrganization,
+  createTestApp,
+  institutionId,
+  loginSuperAdmin,
+  loginUser,
+} from './helpers';
 
 describe('Roles at places', () => {
   let app: INestApplication;
@@ -36,22 +42,17 @@ describe('Roles at places', () => {
   beforeAll(async () => {
     app = await createTestApp();
     const superAdmin = await loginSuperAdmin(app);
-    await createOrganization(app, superAdmin, 'sri-vidya', 'admin@srividya.test');
+    const orgId = await createOrganization(app, superAdmin, 'sri-vidya', 'admin@srividya.test', [
+      { name: 'Sri Vidya Junior College', code: 'SVJC' },
+      { name: 'Sri Vidya Degree College', code: 'SVDC' },
+    ]);
     admin = await loginUser(app, 'admin@srividya.test', 'Admin@12345');
 
     const roles = await api().get('/api/v1/roles').set(as(admin)).expect(200);
     for (const r of roles.body) ids[r.name] = r.id;
 
-    const svjc = await api()
-      .post('/api/v1/institutions')
-      .set(as(admin))
-      .send({ name: 'Sri Vidya Junior College', code: 'SVJC', type: 'JUNIOR_COLLEGE' });
-    const svdc = await api()
-      .post('/api/v1/institutions')
-      .set(as(admin))
-      .send({ name: 'Sri Vidya Degree College', code: 'SVDC', type: 'DEGREE_COLLEGE' });
-    ids.SVJC = svjc.body.id;
-    ids.SVDC = svdc.body.id;
+    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
+    ids.SVDC = await institutionId(app, superAdmin, orgId, 'SVDC');
     for (const [institution, code, name] of [
       ['SVJC', 'KKP', 'Kukatpally'],
       ['SVJC', 'AMP', 'Ameerpet'],
@@ -171,11 +172,6 @@ describe('Roles at places', () => {
       .patch(`/api/v1/institutions/${ids.SVDC}`)
       .set(as(lakshmi))
       .send({ name: 'Taken over' })
-      .expect(403);
-    await api()
-      .post('/api/v1/institutions')
-      .set(as(lakshmi))
-      .send({ name: 'New college', code: 'NEW', type: 'SCHOOL' })
       .expect(403);
 
     // A principal may appoint a campus admin in their institution.

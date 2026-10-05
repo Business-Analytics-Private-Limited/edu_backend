@@ -10,10 +10,15 @@
  *   POST  /api/v1/super-admin/organizations/:id/suspend
  *   POST  /api/v1/super-admin/organizations/:id/activate
  *   PUT   /api/v1/super-admin/organizations/:id/modules/:moduleKey
+ *   POST   /api/v1/super-admin/organizations/:id/institutions
+ *   DELETE /api/v1/super-admin/organizations/:id/institutions/:institutionId
+ *
+ * Only the super admin adds and deletes institutions (ADR-0025).
  */
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -27,6 +32,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { CurrentUser as CurrentUserType } from '../../common/current-user';
 import { SuperAdminOnly } from '../../common/decorators/access.decorators';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CreateInstitutionDto } from '../organization/dto/institution.dto';
 import {
   CreateOrganizationDto,
   ListOrganizationsQuery,
@@ -96,5 +102,23 @@ export class SuperAdminController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.organizations.setModule(id, moduleKey, body.enabled, user);
+  }
+
+  @Post('organizations/:id/institutions')
+  addInstitution(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: CreateInstitutionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.organizations.addInstitution(id, body, user);
+  }
+
+  @Delete('organizations/:id/institutions/:institutionId')
+  deleteInstitution(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('institutionId', ParseUUIDPipe) institutionId: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.organizations.deleteInstitution(id, institutionId, user);
   }
 }

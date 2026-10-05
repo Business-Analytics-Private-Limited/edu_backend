@@ -140,21 +140,14 @@ model OrganizationModule {
   @@map("organization_modules")
 }
 
-enum InstitutionType {
-  JUNIOR_COLLEGE
-  DEGREE_COLLEGE
-  ENGINEERING_COLLEGE
-  SCHOOL
-}
-
-/// A college or school of the organization, e.g. "Sri Vidya Junior College".
+/// A college or school of the organization, e.g. "Sri Vidya Junior College". Only the super admin
+/// adds or deletes institutions (ADR-0025); there is no type: each sets up its own class levels.
 model Institution {
   id                       String          @id @default(uuid(7)) @db.Uuid
   organizationId           String          @map("organization_id") @db.Uuid
   name                     String
   /// Short code, unique inside the organization, e.g. "SVJC".
   code                     String
-  type                     InstitutionType
   /// Days without classes every week (Academic module): 0 = Sunday ... 6 = Saturday.
   weeklyOffDays            Int[]           @default([0]) @map("weekly_off_days")
   /// Students module: how admission numbers are made when left empty, e.g. "{CODE}{YY}{SEQ:4}"

@@ -8,7 +8,16 @@
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
+import {
+  createOrganization,
+  createTestApp,
+  institutionId,
+  JUNIOR_COLLEGE_LEVELS,
+  loginSuperAdmin,
+  loginUser,
+  setClassLevels,
+  SVJC,
+} from './helpers';
 
 /** "YYYY-MM-DD", `days` days before today in India (the institution's default time zone). */
 function day(daysAgo: number): string {
@@ -35,7 +44,7 @@ describe('Attendance', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'att', 'admin@att.test');
+    orgId = await createOrganization(app, superAdmin, 'att', 'admin@att.test', [SVJC]);
     await createOrganization(app, superAdmin, 'att-other', 'admin@att-other.test');
     admin = await loginUser(app, 'admin@att.test', 'Admin@12345');
     other = await loginUser(app, 'admin@att-other.test', 'Admin@12345');
@@ -47,11 +56,8 @@ describe('Attendance', () => {
         .expect(200);
     }
 
-    const svjc = await api()
-      .post('/api/v1/institutions')
-      .set(as(admin))
-      .send({ name: 'Sri Vidya Junior College', code: 'SVJC', type: 'JUNIOR_COLLEGE' });
-    ids.SVJC = svjc.body.id;
+    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
+    await setClassLevels(app, admin, ids.SVJC, JUNIOR_COLLEGE_LEVELS);
     await api()
       .put(`/api/v1/institutions/${ids.SVJC}/weekly-off`)
       .set(as(admin))

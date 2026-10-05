@@ -1,6 +1,7 @@
 /**
- * What the super admin can do with organizations: list, create (with its first admin), view,
- * edit, suspend / activate, and switch modules on and off.
+ * What the super admin can do with organizations: list, create (with its first admin and its
+ * institutions), view, edit, suspend / activate, switch modules on and off, and add or delete
+ * institutions (only the super admin does that, ADR-0025).
  *
  * Super admins work across all organizations, so every query runs in forAllOrganizations.
  * Every change is written to the audit log in the same transaction.
@@ -10,8 +11,10 @@ import { OrganizationStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import type { CurrentUser } from '../../common/current-user';
 import { paginated, toSkipTake } from '../../common/pagination';
-import { PrismaService } from '../../prisma/prisma.service';
+import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CreateInstitutionDto } from '../organization/dto/institution.dto';
+import { addInstitution, deleteEmptyInstitution } from '../organization/institution-records';
 import { ORG_ADMIN } from '../roles/predefined-roles';
 import { PredefinedRolesService } from '../roles/predefined-roles.service';
 import {
@@ -80,8 +83,9 @@ export class OrganizationsService {
 
   /**
    * Creates an organization together with:
-   *   - an "Organization admin" role with every permission, and
-   *   - its first admin user (who can then create everything else).
+   *   - every predefined role (the first admin gets "Organization admin"),
+   *   - its first admin user, and
+   *   - its institutions (the admin then adds campuses, users and everything else).
    */
   create(dto: CreateOrganizationDto, actor: CurrentUser) {
     return this.prisma.forAllOrganizations(async (db) => {
@@ -112,6 +116,17 @@ export class OrganizationsService {
         organizationId: organization.id,
         details: { name: organization.name, slug: organization.slug, adminEmail: admin.email },
       });
+      const codes = dto.institutions.map((i) => i.code);
+      const repeated = codes.find((code, index) => codes.indexOf(code) !== index);
+      if (repeated) throw new BadRequestException(`Institution code ${repeated} is used twice`);
+      for (const item of dto.institutions) {
+        await this.logInstitution(
+          db,
+          actor,
+          'create',
+          await addInstitution(db, organization.id, item),
+        );
+      }
       return { ...organization, admin: { id: admin.id, name: admin.name, email: admin.email } };
     });
   }
@@ -129,6 +144,11 @@ export class OrganizationsService {
       if (!organization) throw new NotFoundException('Organization not found');
 
       const allModules = await db.module.findMany({ orderBy: { sortOrder: 'asc' } });
+      const institutions = await db.institution.findMany({
+        where: { organizationId: id },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true, code: true, _count: { select: { campuses: true } } },
+      });
       const admins = await db.user.findMany({
         where: { organizationId: id, roles: { some: { role: { templateKey: ORG_ADMIN } } } },
         select: { id: true, name: true, email: true, status: true, lastLoginAt: true },
@@ -137,6 +157,7 @@ export class OrganizationsService {
       return {
         ...rest,
         admins,
+        institutions,
         modules: allModules.map((module) => ({
           ...module,
           enabled: switchedModules.some((m) => m.moduleKey === module.key && m.enabled),
@@ -203,6 +224,46 @@ export class OrganizationsService {
         details: { module: moduleKey },
       });
       return { moduleKey, enabled };
+    });
+  }
+
+  // --- Institutions (ADR-0025) -----------------------------------------------------------------
+
+  /** Adds an institution to an existing organization. */
+  addInstitution(organizationId: string, dto: CreateInstitutionDto, actor: CurrentUser) {
+    return this.prisma.forAllOrganizations(async (db) => {
+      if (!(await db.organization.findUnique({ where: { id: organizationId } }))) {
+        throw new NotFoundException('Organization not found');
+      }
+      const institution = await addInstitution(db, organizationId, dto);
+      await this.logInstitution(db, actor, 'create', institution);
+      return institution;
+    });
+  }
+
+  /** Deletes an institution that is still empty (no campuses, roles or academic data). */
+  deleteInstitution(organizationId: string, institutionId: string, actor: CurrentUser) {
+    return this.prisma.forAllOrganizations(async (db) => {
+      const institution = await deleteEmptyInstitution(db, organizationId, institutionId);
+      await this.logInstitution(db, actor, 'delete', institution);
+      return { deleted: true };
+    });
+  }
+
+  private logInstitution(
+    db: Db,
+    actor: CurrentUser,
+    action: 'create' | 'delete',
+    institution: { id: string; organizationId: string; name: string; code: string },
+  ) {
+    return this.audit.log(db, actor, {
+      action,
+      entity: 'institution',
+      entityId: institution.id,
+      organizationId: institution.organizationId,
+      // A deleted institution can't be linked to any more.
+      institutionId: action === 'create' ? institution.id : undefined,
+      details: { name: institution.name, code: institution.code },
     });
   }
 }

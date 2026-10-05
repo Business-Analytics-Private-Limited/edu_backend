@@ -38,12 +38,22 @@ export async function loginUser(
   return res.body.accessToken;
 }
 
-/** Creates an organization with its first admin, as the super admin. Returns its id. */
+/** The institution most tests use (only the super admin adds institutions, ADR-0025). */
+export const SVJC = { name: 'Sri Vidya Junior College', code: 'SVJC' };
+
+/** The class levels a junior college works with in the tests. */
+export const JUNIOR_COLLEGE_LEVELS = ['Year', 'Group', 'Section'];
+
+/**
+ * Creates an organization with its first admin and its institutions, as the super admin.
+ * Returns its id. Without `institutions` it gets one, code MAIN.
+ */
 export async function createOrganization(
   app: INestApplication,
   superAdminToken: string,
   slug: string,
   adminEmail: string,
+  institutions: { name: string; code: string }[] = [{ name: `${slug} college`, code: 'MAIN' }],
 ): Promise<string> {
   const res = await request(app.getHttpServer())
     .post('/api/v1/super-admin/organizations')
@@ -52,7 +62,36 @@ export async function createOrganization(
       name: `${slug} society`,
       slug,
       admin: { name: `${slug} admin`, email: adminEmail, password: 'Admin@12345' },
+      institutions,
     })
     .expect(201);
   return res.body.id;
+}
+
+/** The id of an organization's institution, by its code (asked as the super admin). */
+export async function institutionId(
+  app: INestApplication,
+  superAdminToken: string,
+  organizationId: string,
+  code: string,
+): Promise<string> {
+  const res = await request(app.getHttpServer())
+    .get(`/api/v1/super-admin/organizations/${organizationId}`)
+    .set('Authorization', `Bearer ${superAdminToken}`)
+    .expect(200);
+  return res.body.institutions.find((i: { code: string }) => i.code === code).id;
+}
+
+/** Sets an institution's class levels (before it has classes), as an organization admin. */
+export async function setClassLevels(
+  app: INestApplication,
+  adminToken: string,
+  institutionId: string,
+  names: string[],
+): Promise<void> {
+  await request(app.getHttpServer())
+    .put(`/api/v1/institutions/${institutionId}/class-levels`)
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ names })
+    .expect(200);
 }

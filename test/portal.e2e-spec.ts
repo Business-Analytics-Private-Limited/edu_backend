@@ -7,7 +7,16 @@
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
+import {
+  createOrganization,
+  createTestApp,
+  institutionId,
+  JUNIOR_COLLEGE_LEVELS,
+  loginSuperAdmin,
+  loginUser,
+  setClassLevels,
+  SVJC,
+} from './helpers';
 
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
@@ -30,15 +39,12 @@ describe('Parent and student portal', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'por', 'admin@por.test');
+    orgId = await createOrganization(app, superAdmin, 'por', 'admin@por.test', [SVJC]);
     admin = await loginUser(app, 'admin@por.test', 'Admin@12345');
     for (const key of ['academic', 'students', 'attendance']) await setModule(key, true);
 
-    const inst = await api()
-      .post('/api/v1/institutions')
-      .set(as(admin))
-      .send({ name: 'Sri Vidya Junior College', code: 'SVJC', type: 'JUNIOR_COLLEGE' });
-    ids.SVJC = inst.body.id;
+    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
+    await setClassLevels(app, admin, ids.SVJC, JUNIOR_COLLEGE_LEVELS);
     await api()
       .put(`/api/v1/institutions/${ids.SVJC}/weekly-off`)
       .set(as(admin))

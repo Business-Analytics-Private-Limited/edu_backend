@@ -1,8 +1,8 @@
 /**
  * Request bodies for the organization's own details, institutions and campuses.
+ * CreateInstitutionDto is used by the super admin, who alone adds institutions (ADR-0025).
  */
-import { InstitutionType } from '@prisma/client';
-import { IsEmail, IsEnum, IsOptional, IsString, Length, Matches } from 'class-validator';
+import { IsEmail, IsOptional, IsString, Length, Matches } from 'class-validator';
 
 const CODE = /^[A-Z0-9_-]+$/;
 const CODE_MESSAGE = 'code may only contain capital letters, digits, _ and -';
@@ -31,9 +31,6 @@ export class CreateInstitutionDto {
   @Matches(CODE, { message: CODE_MESSAGE })
   @Length(2, 20)
   code: string;
-
-  @IsEnum(InstitutionType)
-  type: InstitutionType;
 }
 
 export class UpdateInstitutionDto {
@@ -41,10 +38,6 @@ export class UpdateInstitutionDto {
   @IsString()
   @Length(2, 200)
   name?: string;
-
-  @IsOptional()
-  @IsEnum(InstitutionType)
-  type?: InstitutionType;
 }
 
 export class CreateCampusDto {

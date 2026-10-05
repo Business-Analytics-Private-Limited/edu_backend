@@ -5,7 +5,13 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
+import {
+  createOrganization,
+  createTestApp,
+  institutionId,
+  loginSuperAdmin,
+  loginUser,
+} from './helpers';
 
 describe('Organization area', () => {
   let app: INestApplication;
@@ -25,7 +31,10 @@ describe('Organization area', () => {
   beforeAll(async () => {
     app = await createTestApp();
     const superAdmin = await loginSuperAdmin(app);
-    orgA = await createOrganization(app, superAdmin, 'org-a', 'admin@org-a.test');
+    orgA = await createOrganization(app, superAdmin, 'org-a', 'admin@org-a.test', [
+      { name: 'Org A Junior College', code: 'OAJC' },
+    ]);
+    institutionA = await institutionId(app, superAdmin, orgA, 'OAJC');
     orgB = await createOrganization(app, superAdmin, 'org-b', 'admin@org-b.test');
     adminA = await loginUser(app, 'admin@org-a.test', 'Admin@12345');
     adminB = await loginUser(app, 'admin@org-b.test', 'Admin@12345');
@@ -35,14 +44,7 @@ describe('Organization area', () => {
     await app.close();
   });
 
-  it('an admin manages institutions and campuses of their organization', async () => {
-    const institution = await api()
-      .post('/api/v1/institutions')
-      .set(as(adminA))
-      .send({ name: 'Org A Junior College', code: 'OAJC', type: 'JUNIOR_COLLEGE' })
-      .expect(201);
-    institutionA = institution.body.id;
-
+  it('an admin manages the campuses of their institutions', async () => {
     await api()
       .post(`/api/v1/institutions/${institutionA}/campuses`)
       .set(as(adminA))
@@ -62,7 +64,7 @@ describe('Organization area', () => {
 
   it("organization B can't see or change organization A's data", async () => {
     const list = await api().get('/api/v1/institutions').set(as(adminB)).expect(200);
-    expect(list.body).toEqual([]);
+    expect(list.body.map((i: { code: string }) => i.code)).toEqual(['MAIN']); // B's own only
 
     await api().get(`/api/v1/institutions/${institutionA}`).set(as(adminB)).expect(404);
     await api()
@@ -70,7 +72,11 @@ describe('Organization area', () => {
       .set(as(adminB))
       .send({ name: 'Hacked' })
       .expect(404);
-    await api().delete(`/api/v1/institutions/${institutionA}`).set(as(adminB)).expect(404);
+    await api()
+      .post(`/api/v1/institutions/${institutionA}/campuses`)
+      .set(as(adminB))
+      .send({ name: 'Sneaky', code: 'SNK' })
+      .expect(404);
   });
 
   it('the database safety net hides other organizations even when a query forgets its filter', async () => {
@@ -78,7 +84,7 @@ describe('Organization area', () => {
 
     // As organization B, with NO "where organizationId" filter: still nothing of A.
     const seenByB = await prisma.forOrganization(orgB, (db) => db.institution.findMany());
-    expect(seenByB).toEqual([]);
+    expect(seenByB.map((i) => i.code)).toEqual(['MAIN']);
 
     // Without saying who is asking at all: nothing.
     expect(await prisma.institution.findMany()).toEqual([]);
@@ -109,12 +115,12 @@ describe('Organization area', () => {
 
     await api().get('/api/v1/institutions').set(as(teacher)).expect(200);
     const denied = await api()
-      .post('/api/v1/institutions')
+      .patch(`/api/v1/institutions/${institutionA}`)
       .set(as(teacher))
-      .send({ name: 'Not allowed', code: 'NOPE', type: 'SCHOOL' })
+      .send({ name: 'Not allowed' })
       .expect(403);
     expect(denied.body.message).toBe(
-      'Your role needs the permission "platform.institution.create"',
+      'Your role needs the permission "platform.institution.update"',
     );
     await api().get('/api/v1/users').set(as(teacher)).expect(403);
   });
@@ -176,13 +182,13 @@ describe('Organization area', () => {
     expect(me.body.permissions).toEqual(
       expect.arrayContaining(['students.enrolment.promote', 'attendance.record.mark']),
     );
-    // Principal may edit institutions; neither role may delete them.
+    // Principal may rename institutions; deleting them is for the super admin only (ADR-0025).
     await api()
       .patch(`/api/v1/institutions/${institutionA}`)
       .set(as(token))
       .send({ name: 'Org A Junior College' })
       .expect(200);
-    await api().delete(`/api/v1/institutions/${institutionA}`).set(as(token)).expect(403);
+    await api().delete(`/api/v1/institutions/${institutionA}`).set(as(token)).expect(404);
   });
 
   it("parent and student roles can't be given from the Users page", async () => {
@@ -232,7 +238,7 @@ describe('Organization area', () => {
     await api()
       .post('/api/v1/roles')
       .set(as(token))
-      .send({ name: 'Sneaky', permissions: ['platform.institution.delete'] })
+      .send({ name: 'Sneaky', permissions: ['platform.campus.delete'] })
       .expect(403);
     // Changing a role that has more than the manager has: refused.
     await api()
@@ -243,7 +249,7 @@ describe('Organization area', () => {
     const bigger = await api()
       .post('/api/v1/roles')
       .set(as(adminA))
-      .send({ name: 'Bigger', permissions: ['platform.institution.delete'] })
+      .send({ name: 'Bigger', permissions: ['platform.campus.delete'] })
       .expect(201);
     await api()
       .patch(`/api/v1/roles/${bigger.body.id}`)

@@ -1,5 +1,5 @@
 /**
- * The super admin area: organizations, their modules, and the predefined roles.
+ * The super admin area: organizations, their institutions and modules, and the predefined roles.
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
@@ -35,11 +35,89 @@ describe('Super admin', () => {
     expect(detail.body.modules.every((m: { enabled: boolean }) => !m.enabled)).toBe(true);
   });
 
+  it('only the super admin adds and deletes institutions (ADR-0025)', async () => {
+    const base = '/api/v1/super-admin/organizations';
+    const body = {
+      name: 'No institutions',
+      slug: 'no-institutions',
+      admin: { name: 'N Admin', email: 'n@none.test', password: 'Admin@12345' },
+    };
+    // An organization starts with at least one institution, with different codes.
+    await api().post(base).set(auth()).send(body).expect(400);
+    await api()
+      .post(base)
+      .set(auth())
+      .send({
+        ...body,
+        institutions: [
+          { name: 'One', code: 'ONE' },
+          { name: 'Two', code: 'ONE' },
+        ],
+      })
+      .expect(400);
+
+    // More can be added later; codes stay unique in the organization.
+    const added = await api()
+      .post(`${base}/${organizationId}/institutions`)
+      .set(auth())
+      .send({ name: 'Green Valley School', code: 'GVS' })
+      .expect(201);
+    await api()
+      .post(`${base}/${organizationId}/institutions`)
+      .set(auth())
+      .send({ name: 'Again', code: 'GVS' })
+      .expect(400);
+    // No type any more: every institution starts with the same levels and sets up its own.
+    expect(added.body.type).toBeUndefined();
+
+    // The organization's own admin can see and rename institutions, not add or delete them.
+    const admin = await loginUser(app, 'admin@greenvalley.test', 'Admin@12345');
+    const asAdmin = { Authorization: `Bearer ${admin}` };
+    await api()
+      .post('/api/v1/institutions')
+      .set(asAdmin)
+      .send({ name: 'Mine', code: 'MINE' })
+      .expect(404);
+    await api().delete(`/api/v1/institutions/${added.body.id}`).set(asAdmin).expect(404);
+    await api()
+      .patch(`/api/v1/institutions/${added.body.id}`)
+      .set(asAdmin)
+      .send({ name: 'Green Valley High School' })
+      .expect(200);
+
+    // An institution with campuses can't be deleted; an empty one can.
+    await api()
+      .post(`/api/v1/institutions/${added.body.id}/campuses`)
+      .set(asAdmin)
+      .send({ name: 'Main', code: 'MAIN' })
+      .expect(201);
+    await api()
+      .delete(`${base}/${organizationId}/institutions/${added.body.id}`)
+      .set(auth())
+      .expect(400);
+    const empty = await api()
+      .post(`${base}/${organizationId}/institutions`)
+      .set(auth())
+      .send({ name: 'Empty', code: 'EMPTY' })
+      .expect(201);
+    await api()
+      .delete(`${base}/${organizationId}/institutions/${empty.body.id}`)
+      .set(auth())
+      .expect(200);
+
+    const detail = await api().get(`${base}/${organizationId}`).set(auth()).expect(200);
+    expect(detail.body.institutions.map((i: { code: string }) => i.code).sort()).toEqual([
+      'GVS',
+      'MAIN',
+    ]);
+  });
+
   it('refuses a duplicate slug and a badly written slug', async () => {
     const body = {
       name: 'Another',
       slug: 'green-valley',
       admin: { name: 'X Admin', email: 'x@another.test', password: 'Admin@12345' },
+      institutions: [{ name: 'Another College', code: 'AC' }],
     };
     await api().post('/api/v1/super-admin/organizations').set(auth()).send(body).expect(409);
     await api()
@@ -156,7 +234,7 @@ describe('Super admin', () => {
       .set(auth())
       .expect(200);
     expect(reset.body.permissions.length).toBeGreaterThan(1);
-    expect(reset.body.permissions).toContain('platform.institution.create');
+    expect(reset.body.permissions).toContain('platform.institution.update');
   });
 
   it('refuses to change the Organization admin role or unknown permissions', async () => {

@@ -6,13 +6,13 @@
  *   GET    /api/v1/organization                           platform.organization.view
  *   PATCH  /api/v1/organization                           platform.organization.update
  *   GET    /api/v1/institutions                           platform.institution.view
- *   POST   /api/v1/institutions                           platform.institution.create
  *   GET    /api/v1/institutions/:id                       platform.institution.view
  *   PATCH  /api/v1/institutions/:id                       platform.institution.update
- *   DELETE /api/v1/institutions/:id                       platform.institution.delete
  *   POST   /api/v1/institutions/:id/campuses              platform.campus.create
  *   PATCH  /api/v1/campuses/:id                           platform.campus.update
  *   DELETE /api/v1/campuses/:id                           platform.campus.delete
+ *
+ * Institutions are added and deleted by the super admin only (ADR-0025, super-admin module).
  */
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -21,7 +21,6 @@ import { OrganizationUser, RequirePermission } from '../../common/decorators/acc
 import { CurrentUser, OrganizationId } from '../../common/decorators/current-user.decorator';
 import {
   CreateCampusDto,
-  CreateInstitutionDto,
   UpdateCampusDto,
   UpdateInstitutionDto,
   UpdateOwnOrganizationDto,
@@ -62,16 +61,6 @@ export class OrganizationController {
     return this.organization.listInstitutions(organizationId, user);
   }
 
-  @Post('institutions')
-  @RequirePermission('platform.institution.create')
-  createInstitution(
-    @OrganizationId() organizationId: string,
-    @Body() body: CreateInstitutionDto,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.organization.createInstitution(organizationId, body, user);
-  }
-
   @Get('institutions/:id')
   @RequirePermission('platform.institution.view')
   getInstitution(
@@ -91,16 +80,6 @@ export class OrganizationController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.organization.updateInstitution(organizationId, id, body, user);
-  }
-
-  @Delete('institutions/:id')
-  @RequirePermission('platform.institution.delete')
-  deleteInstitution(
-    @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.organization.deleteInstitution(organizationId, id, user);
   }
 
   @Post('institutions/:id/campuses')

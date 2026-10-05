@@ -2,7 +2,7 @@
  * EVERY PERMISSION a role can have (docs/04-roles-and-permissions.md).
  *
  * Permissions are written per RESOURCE (a thing in the app, e.g. "Institutions") and ACTION
- * (what you do with it). The key is module.resource.action, e.g. "platform.institution.create".
+ * (what you do with it). The key is module.resource.action, e.g. "platform.campus.create".
  *
  *   view    see it            create  add new ones
  *   update  edit ("Edit")     delete  remove
@@ -51,7 +51,8 @@ export const RESOURCES: ResourceInfo[] = [
     module: null,
     group: 'Organization',
     label: 'Institutions',
-    actions: CRUD,
+    // Adding and deleting institutions is for the super admin only (ADR-0025).
+    actions: ['view', 'update'],
   },
   {
     key: 'platform.campus',

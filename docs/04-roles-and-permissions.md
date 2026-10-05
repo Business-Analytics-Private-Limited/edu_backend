@@ -59,7 +59,7 @@ Every organization has these roles. Each is given to a user **at a place** (whol
 | Role | Given by | Typical scope (planned) | Starting permissions |
 |---|---|---|---|
 | Organization admin | organization | organization | Everything, always (can't be changed, even by the super admin) |
-| Director | organization | organization | Every *view*, plus create/edit institutions and campuses, export students |
+| Director | organization | organization | Every *view*, plus rename institutions, create/edit campuses, export students (institutions are added by the super admin only, ADR-0025) |
 | Principal | organization | institution | Academics, students (no delete), promotion/transfer, attendance corrections and rules |
 | Campus admin | organization | campus | Runs one campus: its staff, students, documents and attendance (not roles, not institutions) |
 | Senior faculty | organization | node (classes) | View academics and students, mark and correct attendance, attendance reports |

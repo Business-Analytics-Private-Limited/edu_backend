@@ -8,7 +8,16 @@
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
+import {
+  createOrganization,
+  createTestApp,
+  institutionId,
+  JUNIOR_COLLEGE_LEVELS,
+  loginSuperAdmin,
+  loginUser,
+  setClassLevels,
+  SVJC,
+} from './helpers';
 
 describe('Students', () => {
   let app: INestApplication;
@@ -48,7 +57,7 @@ describe('Students', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'stu', 'admin@stu.test');
+    orgId = await createOrganization(app, superAdmin, 'stu', 'admin@stu.test', [SVJC]);
     await createOrganization(app, superAdmin, 'stu-other', 'admin@stu-other.test');
     admin = await loginUser(app, 'admin@stu.test', 'Admin@12345');
     other = await loginUser(app, 'admin@stu-other.test', 'Admin@12345');
@@ -59,11 +68,8 @@ describe('Students', () => {
       .send({ enabled: true })
       .expect(200);
 
-    const svjc = await api()
-      .post('/api/v1/institutions')
-      .set(as(admin))
-      .send({ name: 'Sri Vidya Junior College', code: 'SVJC', type: 'JUNIOR_COLLEGE' });
-    ids.SVJC = svjc.body.id;
+    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
+    await setClassLevels(app, admin, ids.SVJC, JUNIOR_COLLEGE_LEVELS);
     for (const code of ['KKP', 'AMP']) {
       const campus = await api()
         .post(`/api/v1/institutions/${ids.SVJC}/campuses`)
