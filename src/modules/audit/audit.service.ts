@@ -1,5 +1,7 @@
 /**
- * Writes the audit log: who changed what, and when (CLAUDE.md rule 9).
+ * Writes the audit log: who changed what, and when (CLAUDE.md rule 9). It is MANDATORY for every
+ * change (ADR-0027): audit-coverage.spec.ts fails when a method changes data without calling it.
+ * The table is add-only: the app's database role can't change or delete entries.
  *
  * Call it inside the same database transaction as the change, so both are saved or neither:
  *
@@ -10,8 +12,18 @@
  */
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { CurrentUser } from '../../common/current-user';
 import type { Db } from '../../prisma/prisma.service';
+
+/**
+ * Who did it. Usually the logged-in user (CurrentUser fits). For a login attempt it is the person
+ * the email belongs to, or "unknown" with no id when the email belongs to nobody.
+ */
+export interface AuditActor {
+  type: 'super_admin' | 'user' | 'unknown';
+  id: string | null;
+  name: string | null;
+  organizationId: string | null;
+}
 
 export interface AuditEntry {
   action: string; // "create", "update", "delete", "suspend", ...
@@ -31,7 +43,7 @@ export interface AuditEntry {
 
 @Injectable()
 export class AuditService {
-  async log(db: Db, actor: CurrentUser, entry: AuditEntry): Promise<void> {
+  async log(db: Db, actor: AuditActor, entry: AuditEntry): Promise<void> {
     await db.auditLog.create({
       data: {
         organizationId:

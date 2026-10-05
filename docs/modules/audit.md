@@ -5,15 +5,17 @@
 | Status | **Built** |
 | Code | `src/modules/audit/` |
 | Table | `audit_logs` |
-| Decisions | ADR-0015, ADR-0018 |
+| Decisions | ADR-0015, ADR-0018, ADR-0027 (mandatory, add-only, logins and downloads) |
 
 ## What it does
 
-Every create, update and delete of business data writes one row to `audit_logs`, **in the same database transaction** as the change (both are saved, or neither):
+Every create, update and delete of business data writes one row to `audit_logs`, **in the same database transaction** as the change (both are saved, or neither). It is **mandatory**: `audit-coverage.spec.ts` fails when a method changes data without logging (ADR-0027). It is **add-only**: the app's database role can't change or delete entries.
+
+Also recorded: every **login** and **failed login** (with the reason), every **password change**, and every **document download** (staff and portal).
 
 | Column | Example |
 |---|---|
-| `actor_type`, `actor_id`, `actor_name` | `user`, …, `Ravi Kumar` (or `super_admin`) |
+| `actor_type`, `actor_id`, `actor_name` | `user`, …, `Ravi Kumar` (or `super_admin`; `unknown` with no id for a failed login with an unknown email) |
 | `action`, `entity`, `entity_id` | `update`, `campus`, … |
 | `organization_id` | the organization (empty for super admin actions on the platform itself) |
 | `institution_id`, `campus_id` | where it happened, if in one institution / campus |
@@ -36,6 +38,8 @@ await this.audit.log(db, user, {
 
 The web app's **Audit log** page shows who (by name), where, what and when.
 
+`GET /api/v1/super-admin/audit-logs?organizationId=&action=&page=&pageSize=` (super admin): every organization's entries and the platform's own (`organizationId=platform`), with the organization's name. The console's **Audit log** page shows it with filters, e.g. *login failed*.
+
 ## Later
 
-Filters (by person, place, date, entity), export, and keeping logs for a set number of years.
+More filters (by person, place, date) in the web app, export, a retention rule (how many years to keep entries), and the browser's IP address on logins.

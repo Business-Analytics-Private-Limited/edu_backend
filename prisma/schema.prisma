@@ -306,12 +306,14 @@ model UserRole {
 }
 
 /// Who changed what, and when. Written by AuditService for every create, update and delete.
+/// Add-only: the app can't change or delete entries (ADR-0027).
 model AuditLog {
   id             String   @id @default(uuid(7)) @db.Uuid
   /// The organization the change belongs to (empty for super admin actions on the platform).
   organizationId String?  @map("organization_id") @db.Uuid
-  actorType      String   @map("actor_type") // "super_admin" or "user"
-  actorId        String   @map("actor_id") @db.Uuid
+  actorType      String   @map("actor_type") // "super_admin", "user" or "unknown" (failed login)
+  /// Empty only for a failed login with an unknown email.
+  actorId        String?  @map("actor_id") @db.Uuid
   /// The person's name at the time of the change, so the log reads "Ravi Kumar", not an id.
   actorName      String?  @map("actor_name")
   /// Where the change happened, so campus and institution admins see their own part of the log.
@@ -325,6 +327,7 @@ model AuditLog {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   @@index([organizationId, createdAt])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 

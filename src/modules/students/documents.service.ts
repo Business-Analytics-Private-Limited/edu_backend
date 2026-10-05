@@ -266,6 +266,14 @@ export class DocumentsService {
         throw new NotFoundException('Document not found');
       }
       const document = await this.findDocument(db, studentId, documentId);
+      // Who looked at which document is recorded too (ADR-0027): ID copies are sensitive.
+      await this.audit.log(db, actor, {
+        action: 'download document',
+        entity: 'student',
+        entityId: studentId,
+        ...placeOf(student),
+        details: { documentId },
+      });
       return this.files.open(db, document.fileId);
     });
   }
@@ -291,6 +299,14 @@ export class DocumentsService {
         where: { id: documentId, studentId, documentType: { visibleInPortal: true } },
       });
       if (!document) throw new NotFoundException('Document not found');
+      const student = await db.student.findUniqueOrThrow({ where: { id: studentId } });
+      await this.audit.log(db, actor, {
+        action: 'download document',
+        entity: 'student',
+        entityId: studentId,
+        ...placeOf(student),
+        details: { documentId, viaPortal: true },
+      });
       return this.files.open(db, document.fileId);
     });
   }

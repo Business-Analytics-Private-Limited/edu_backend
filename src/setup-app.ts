@@ -41,8 +41,16 @@ export function setupApp(app: INestApplication) {
           'copy the accessToken, then press "Authorize" and paste it.',
       )
       .setVersion('0.2.0')
+      // The address the API is reached at, so Postman's {{baseUrl}} is filled in on import.
+      .addServer(
+        process.env.API_PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 3000}`,
+        'This server',
+      )
       .addBearerAuth()
       .build(),
   );
-  SwaggerModule.setup('api/docs', app, document);
+  // persistAuthorization: the token pasted in "Authorize" survives a page reload.
+  SwaggerModule.setup('api/docs', app, document, {
+    swaggerOptions: { persistAuthorization: true },
+  });
 }

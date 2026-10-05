@@ -32,6 +32,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0024](0024-microservices-and-tenant-sharding.md) | Move to microservices, with tenants spread over several databases | **Proposed** (when accepted, supersedes ADR-0012 and ADR-0015) |
 | [0025](0025-institutions-by-super-admin-without-types.md) | Institutions are added by the super admin, and have no type | Accepted |
 | [0026](0026-deactivate-campuses-and-institutions.md) | Campuses and institutions are deactivated, not deleted | Accepted |
+| [0027](0027-mandatory-add-only-audit-log.md) | The audit log is mandatory and add-only, and covers logins and document access | Accepted |
 
 Template for new ADRs:
 

@@ -41,10 +41,16 @@ npm run dev         # API on http://localhost:3000
 1. Open http://localhost:3000/api/docs.
 2. `POST /api/v1/auth/super-admin/login` → *Try it out* → your `SEED_SUPER_ADMIN_EMAIL` and `SEED_SUPER_ADMIN_PASSWORD` → *Execute*. Copy `accessToken`.
 3. Press **Authorize** (top right), paste the token.
-4. `POST /api/v1/super-admin/organizations` creates an organization and its first admin.
-5. `POST /api/v1/auth/login` with that admin's email and password gives an organization token; with it, try `GET /api/v1/dashboard` and `POST /api/v1/institutions`.
+4. `POST /api/v1/super-admin/organizations` creates an organization with its institutions and first admin.
+5. `POST /api/v1/auth/login` with that admin's email and password gives an organization token. Press **Authorize** again and paste it. Try `GET /api/v1/dashboard` and `POST /api/v1/institutions/{id}/campuses`.
 
-Postman: *Import → Link →* `http://localhost:3000/api/docs-json`.
+The token is kept when the page reloads. Super admin routes need the super admin's token; everything else needs an organization user's token.
+
+**Postman**
+1. *Import → Link →* `http://localhost:3000/api/docs-json` → *Import*. You get one collection with a folder per area (Login, Super admin, Organization, Students, …), and `{{baseUrl}}` is already `http://localhost:3000`.
+2. Send *Login → POST /api/v1/auth/super-admin/login* (or */auth/login*) with an email and password in the body, and copy `accessToken` from the answer.
+3. Open the collection → *Authorization* → type **Bearer Token** → paste the token (or put it in the collection variable `bearerToken`). Every request in the collection uses it.
+4. After the API changes, import the link again to get the new routes.
 
 ## 5. Everyday commands
 
