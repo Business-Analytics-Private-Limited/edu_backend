@@ -10,6 +10,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import {
   createOrganization,
   createTestApp,
+  currentPassword,
   institutionId,
   loginSuperAdmin,
   loginUser,
@@ -74,7 +75,7 @@ describe('Audit log', () => {
         expect.objectContaining({
           action: 'login failed',
           actorName: 'aud admin',
-          details: { email: 'admin@aud.test', reason: 'wrong password' },
+          details: expect.objectContaining({ email: 'admin@aud.test', reason: 'wrong password' }),
         }),
       ]),
     );
@@ -85,7 +86,7 @@ describe('Audit log', () => {
       expect.arrayContaining([
         expect.objectContaining({
           actorType: 'unknown',
-          details: { email: 'nobody@aud.test', reason: 'unknown email' },
+          details: expect.objectContaining({ email: 'nobody@aud.test', reason: 'unknown email' }),
         }),
       ]),
     );
@@ -99,7 +100,10 @@ describe('Audit log', () => {
     await api()
       .post('/api/v1/auth/change-password')
       .set(as(admin))
-      .send({ currentPassword: 'Admin@12345', newPassword: 'Admin@123456' })
+      .send({
+        currentPassword: currentPassword('admin@aud.test', 'Admin@12345'),
+        newPassword: 'Admin@123456',
+      })
       .expect(200);
     const entry = (await orgLog()).find((e) => e.action === 'change password');
     expect(entry).toMatchObject({ entity: 'user', actorName: 'aud admin' });

@@ -16,7 +16,10 @@ export async function createTestApp(): Promise<INestApplication> {
   return app;
 }
 
-/** Logs in the test super admin (created by the seed) and returns the token. */
+/**
+ * Logs in the test super admin (created by the seed) and returns the token. (global-setup.ts
+ * marks its password as already changed, so every test file can use it.)
+ */
 export async function loginSuperAdmin(app: INestApplication): Promise<string> {
   const res = await request(app.getHttpServer())
     .post('/api/v1/auth/super-admin/login')
@@ -25,17 +28,44 @@ export async function loginSuperAdmin(app: INestApplication): Promise<string> {
   return res.body.accessToken;
 }
 
-/** Logs in an organization user and returns the token. */
+/**
+ * Temporary passwords changed at the first login: "email" -> { from, to }. Tests keep using the
+ * password they gave the account; the helpers use the new one.
+ */
+const changedPasswords = new Map<string, { from: string; to: string }>();
+
+/** The password an account has now, for the password a test gave it. */
+export function currentPassword(email: string, password: string): string {
+  const changed = changedPasswords.get(email.toLowerCase());
+  return changed && changed.from === password ? changed.to : password;
+}
+
+/**
+ * Logs in an organization user and returns the token. Accounts start with a temporary password
+ * that must be changed first (ADR-0028): on the first login the helper changes it, like a real
+ * user would, and remembers the new one.
+ */
 export async function loginUser(
   app: INestApplication,
   email: string,
   password: string,
 ): Promise<string> {
+  const now = currentPassword(email, password);
   const res = await request(app.getHttpServer())
     .post('/api/v1/auth/login')
-    .send({ email, password })
+    .send({ email, password: now })
     .expect(200);
-  return res.body.accessToken;
+  const token: string = res.body.accessToken;
+  if (res.body.user.mustChangePassword) {
+    const next = `${now}-new1`;
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ currentPassword: now, newPassword: next })
+      .expect(200);
+    changedPasswords.set(email.toLowerCase(), { from: password, to: next });
+  }
+  return token;
 }
 
 /** The institution most tests use (only the super admin adds institutions, ADR-0025). */

@@ -14,6 +14,14 @@ export function setupApp(app: INestApplication) {
   // Security headers on every response.
   app.use(helmet());
 
+  // The web apps call the API from their own server and forward the visitor's address in
+  // X-Forwarded-For. It is believed only from these addresses, so rate limits and the audit log
+  // see the real visitor (ADR-0028). Default: the same machine. On a server, e.g. "10.0.0.5".
+  (app.getHttpAdapter().getInstance() as { set(name: string, value: unknown): void }).set(
+    'trust proxy',
+    process.env.TRUST_PROXY ?? 'loopback',
+  );
+
   // Browsers may call the API only from our frontends (CORS_ORIGINS in .env).
   const origins = (process.env.CORS_ORIGINS ?? '').split(',').filter(Boolean);
   app.enableCors({ origin: origins });

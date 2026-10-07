@@ -2,7 +2,8 @@
  * Checks the login token on every request and finds who it belongs to.
  *
  * 1. passport-jwt checks the token's signature (JWT_SECRET) and expiry.
- * 2. validate() loads the person from the database, so a deactivated user, a suspended
+ * 2. validate() checks that the token's login session hasn't ended (logout, password change;
+ *    ADR-0028), then loads the person from the database, so a deactivated user, a suspended
  *    organization or changed roles take effect at once, not only when the token expires.
  * 3. What validate() returns becomes request.user (the CurrentUser).
  */
@@ -28,6 +29,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<CurrentUser> {
+    await this.checkSession(payload);
     if (payload.type === 'super_admin') {
       const admin = await this.prisma.superAdmin.findUnique({ where: { id: payload.sub } });
       if (!admin || !admin.isActive) throw new UnauthorizedException('Account is not active');
@@ -36,6 +38,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         id: admin.id,
         name: admin.name,
         email: admin.email,
+        sessionId: payload.sid,
+        mustChangePassword: admin.mustChangePassword,
+        twoFactor: admin.totpEnabled ? 'on' : admin.totpSecret ? 'pending' : 'off',
         organizationId: null,
         kind: null,
         studentIds: [],
@@ -76,6 +81,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         id: user.id,
         name: user.name,
         email: user.email,
+        sessionId: payload.sid,
+        mustChangePassword: user.mustChangePassword,
+        twoFactor: null,
         organizationId: user.organizationId,
         kind: user.kind === 'PARENT' ? 'parent' : 'student',
         studentIds:
@@ -101,6 +109,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       id: user.id,
       name: user.name,
       email: user.email,
+      sessionId: payload.sid,
+      mustChangePassword: user.mustChangePassword,
+      twoFactor: null,
       organizationId: user.organizationId,
       kind: 'staff',
       studentIds: [],
@@ -118,5 +129,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ),
       enabledModules,
     };
+  }
+
+  /** The token's session must exist, belong to this person, and not have ended or expired. */
+  private async checkSession(payload: JwtPayload) {
+    const session = payload.sid
+      ? await this.prisma.loginSession.findUnique({ where: { id: payload.sid } })
+      : null;
+    const owner = payload.type === 'super_admin' ? session?.superAdminId : session?.userId;
+    if (!session || owner !== payload.sub || session.endedAt || session.expiresAt < new Date()) {
+      throw new UnauthorizedException('Your session has ended; please log in again');
+    }
   }
 }

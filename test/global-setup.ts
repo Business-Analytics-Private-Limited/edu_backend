@@ -31,4 +31,14 @@ export default async function globalSetup() {
   const cwd = join(__dirname, '..');
   execSync('npx prisma migrate deploy', { cwd, env, stdio: 'ignore' });
   execSync('npx prisma db seed', { cwd, env, stdio: 'ignore' });
+
+  // The test super admin's seeded password counts as already changed (ADR-0028), so every test
+  // file can log in with it. Real accounts must change a seeded password at the first login.
+  const testDb = new Client({ connectionString: env.DIRECT_DATABASE_URL });
+  await testDb.connect();
+  try {
+    await testDb.query('UPDATE super_admins SET must_change_password = false');
+  } finally {
+    await testDb.end();
+  }
 }

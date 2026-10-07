@@ -4,8 +4,12 @@
  *   POST /api/v1/auth/login               organization users
  *   GET  /api/v1/auth/me                  who am I (and what may I do)
  *   POST /api/v1/auth/change-password
+ *   POST /api/v1/auth/logout              ends this login session (ADR-0028)
+ *
+ * The address a login comes from (request.ip) is the visitor's own: the web apps forward it, and
+ * the API trusts that only from the web apps' servers (TRUST_PROXY, setup-app.ts).
  */
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Ip, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { CurrentUser as CurrentUserType } from '../../common/current-user';
@@ -27,16 +31,16 @@ export class AuthController {
   @Public()
   @HttpCode(200)
   @Throttle(LOGIN_LIMIT)
-  superAdminLogin(@Body() body: LoginDto) {
-    return this.auth.superAdminLogin(body.email, body.password);
+  superAdminLogin(@Body() body: LoginDto, @Ip() ip: string) {
+    return this.auth.superAdminLogin(body, ip ?? null);
   }
 
   @Post('login')
   @Public()
   @HttpCode(200)
   @Throttle(LOGIN_LIMIT)
-  login(@Body() body: LoginDto) {
-    return this.auth.userLogin(body.email, body.password);
+  login(@Body() body: LoginDto, @Ip() ip: string) {
+    return this.auth.userLogin(body, ip ?? null);
   }
 
   /** The logged-in person, their role, permissions and the organization's modules. */
@@ -53,5 +57,13 @@ export class AuthController {
   @HttpCode(200)
   changePassword(@CurrentUser() user: CurrentUserType, @Body() body: ChangePasswordDto) {
     return this.auth.changePassword(user, body.currentPassword, body.newPassword);
+  }
+
+  @Post('logout')
+  @LoggedIn()
+  @ApiBearerAuth()
+  @HttpCode(200)
+  logout(@CurrentUser() user: CurrentUserType) {
+    return this.auth.logout(user);
   }
 }

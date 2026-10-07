@@ -3,7 +3,13 @@
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
+import {
+  createOrganization,
+  createTestApp,
+  currentPassword,
+  loginSuperAdmin,
+  loginUser,
+} from './helpers';
 
 describe('Super admin', () => {
   let app: INestApplication;
@@ -176,7 +182,10 @@ describe('Super admin', () => {
     await api().get('/api/v1/auth/me').set('Authorization', `Bearer ${adminToken}`).expect(401);
     const login = await api()
       .post('/api/v1/auth/login')
-      .send({ email: 'admin@greenvalley.test', password: 'Admin@12345' })
+      .send({
+        email: 'admin@greenvalley.test',
+        password: currentPassword('admin@greenvalley.test', 'Admin@12345'),
+      })
       .expect(401);
     expect(login.body.message).toBe('Your organization is suspended');
 

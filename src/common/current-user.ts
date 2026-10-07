@@ -8,6 +8,15 @@ export interface CurrentUser {
   id: string;
   name: string;
   email: string;
+  /** The login session this request belongs to (ADR-0028); logging out ends it. */
+  sessionId: string | null;
+  /**
+   * The password was set by someone else (an admin, the seed) and must be changed first: until
+   * then only "who am I", changing the password and logging out are allowed (AccessGuard).
+   */
+  mustChangePassword: boolean;
+  /** Super admins' two-step login: off, set up but not confirmed yet, or on. null for others. */
+  twoFactor: 'off' | 'pending' | 'on' | null;
 
   // The fields below are only filled for type "user".
   organizationId: string | null;
@@ -49,4 +58,5 @@ export interface Grant {
 export interface JwtPayload {
   sub: string; // the user's id
   type: CurrentUser['type'];
+  sid: string; // the login session's id (login_sessions)
 }

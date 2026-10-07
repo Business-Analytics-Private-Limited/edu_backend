@@ -33,6 +33,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0025](0025-institutions-by-super-admin-without-types.md) | Institutions are added by the super admin, and have no type | Accepted |
 | [0026](0026-deactivate-campuses-and-institutions.md) | Campuses and institutions are deactivated, not deleted | Accepted |
 | [0027](0027-mandatory-add-only-audit-log.md) | The audit log is mandatory and add-only, and covers logins and document access | Accepted |
+| [0028](0028-login-security.md) | Login security: real visitor addresses, lockout, sessions, forced password change, two-step login | Accepted |
 
 Template for new ADRs:
 

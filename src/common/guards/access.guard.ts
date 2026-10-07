@@ -25,6 +25,12 @@ export class AccessGuard implements CanActivate {
 
     const user: CurrentUser = context.switchToHttp().getRequest().user;
 
+    // A temporary password must be changed before anything else (ADR-0028). "Logged in" routes
+    // (who am I, change password, log out) stay open.
+    if (user.mustChangePassword && rule.kind !== 'logged_in') {
+      throw new ForbiddenException('Change your temporary password first');
+    }
+
     switch (rule.kind) {
       case 'logged_in':
         return true;

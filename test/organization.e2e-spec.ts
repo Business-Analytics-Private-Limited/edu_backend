@@ -339,7 +339,8 @@ describe('Organization area', () => {
   });
 
   it('records changes in the audit log', async () => {
-    const res = await api().get('/api/v1/audit-logs').set(as(adminA)).expect(200);
+    // pageSize 100: logins and password changes are in the log too.
+    const res = await api().get('/api/v1/audit-logs?pageSize=100').set(as(adminA)).expect(200);
     const actions = res.body.items.map(
       (i: { action: string; entity: string }) => `${i.action} ${i.entity}`,
     );

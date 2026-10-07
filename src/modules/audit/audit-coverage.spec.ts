@@ -15,6 +15,9 @@ const MODULES = join(__dirname, '..');
 /** "file :: method" -> why it doesn't log itself. */
 const ALLOWED: Record<string, string> = {
   'audit/audit.service.ts :: log': 'it IS the audit log',
+  'auth/auth.service.ts :: updateAccount':
+    'failed-login counter; the attempt is logged by the caller',
+  'auth/auth.service.ts :: startSession': 'part of a login, which is logged',
   'files/files.service.ts :: save': 'called by documents upload, which logs',
   'organization/institution-records.ts :: addInstitution': 'callers (super admin) log',
   'organization/institution-records.ts :: deleteEmptyInstitution': 'callers (super admin) log',

@@ -29,6 +29,7 @@ export function testDatabaseUrls(databaseName: string) {
 }
 
 process.env.JWT_SECRET ??= 'test-secret-that-is-long-enough-for-tests';
+process.env.SECRETS_KEY ??= 'test-secrets-key-that-is-long-enough-for-tests';
 process.env.SEED_SUPER_ADMIN_EMAIL = 'superadmin@test.local';
 process.env.SEED_SUPER_ADMIN_PASSWORD = 'SuperAdmin@123';
 

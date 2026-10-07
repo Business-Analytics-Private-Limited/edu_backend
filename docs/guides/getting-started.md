@@ -39,7 +39,7 @@ npm run dev         # API on http://localhost:3000
 ## 4. Try it
 
 1. Open http://localhost:3000/api/docs.
-2. `POST /api/v1/auth/super-admin/login` → *Try it out* → your `SEED_SUPER_ADMIN_EMAIL` and `SEED_SUPER_ADMIN_PASSWORD` → *Execute*. Copy `accessToken`.
+2. `POST /api/v1/auth/super-admin/login` → *Try it out* → your `SEED_SUPER_ADMIN_EMAIL` and `SEED_SUPER_ADMIN_PASSWORD` → *Execute*. Copy `accessToken`. The first time, the seeded password must be changed before anything else (`POST /api/v1/auth/change-password`), or simply log in to the console at http://localhost:3003, which asks for it (ADR-0028).
 3. Press **Authorize** (top right), paste the token.
 4. `POST /api/v1/super-admin/organizations` creates an organization with its institutions and first admin.
 5. `POST /api/v1/auth/login` with that admin's email and password gives an organization token. Press **Authorize** again and paste it. Try `GET /api/v1/dashboard` and `POST /api/v1/institutions/{id}/campuses`.

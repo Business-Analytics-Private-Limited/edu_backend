@@ -19,9 +19,18 @@ People log in with email and password and get a token (JWT, 8 hours). **Super ad
 | POST | `/auth/super-admin/login` | super admins |
 | POST | `/auth/login` | organization users |
 | GET | `/auth/me` | anyone logged in: who you are, `roleNames`, `permissions` (anywhere) and `grants` (each role with its place), `enabledModules` |
-| POST | `/auth/change-password` | anyone logged in |
+| POST | `/auth/change-password` | anyone logged in; ends their other sessions |
+| POST | `/auth/logout` | anyone logged in; ends this session at once |
+| POST | `/auth/two-factor/setup`, GET `/auth/two-factor/pending`, POST `/auth/two-factor/enable`, `/disable` | super admins: two-step login |
 
 Every request reloads the user, so deactivating a user or suspending an organization works at once. Passwords are stored as bcrypt hashes. The first super admin is created by `npm run db:seed` from `SEED_SUPER_ADMIN_*` in `.env`; no screen can create super admins.
+
+**Login security (ADR-0028):**
+- Every login is a **session** (`login_sessions`), and a token works only while its session is open: logging out ends it, and a password change ends the other sessions.
+- **5 failed logins** in a row lock the account for 15 minutes.
+- A **temporary password** (from an admin or the seed) must be changed before anything else: `mustChangePassword` in `/auth/me`, and AccessGuard answers 403 "Change your temporary password first".
+- **Super admins** can turn on **two-step login**: a 6-digit code from an authenticator app; the secret is stored encrypted.
+- Rate limits and the audit log use the **visitor's address**, which the web apps forward (`TRUST_PROXY`).
 
 ## Permissions
 
