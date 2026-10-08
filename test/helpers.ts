@@ -68,22 +68,22 @@ export async function loginUser(
   return token;
 }
 
-/** The institution most tests use (only the super admin adds institutions, ADR-0025). */
-export const SVJC = { name: 'Sri Vidya Junior College', code: 'SVJC' };
-
-/** The class levels a junior college works with in the tests. */
-export const JUNIOR_COLLEGE_LEVELS = ['Year', 'Group', 'Section'];
+type OrganizationType = 'SCHOOL' | 'INTERMEDIATE' | 'DEGREE' | 'ENGINEERING';
 
 /**
- * Creates an organization with its first admin and its institutions, as the super admin.
- * Returns its id. Without `institutions` it gets one, code MAIN.
+ * Creates an organization with its first admin and its branches, as the super admin (ADR-0030).
+ * Returns its id. Defaults: an Intermediate college with one branch, code MAIN.
  */
 export async function createOrganization(
   app: INestApplication,
   superAdminToken: string,
   slug: string,
   adminEmail: string,
-  institutions: { name: string; code: string }[] = [{ name: `${slug} college`, code: 'MAIN' }],
+  options: {
+    type?: OrganizationType;
+    branches?: { name: string; code: string }[];
+    modules?: string[];
+  } = {},
 ): Promise<string> {
   const res = await request(app.getHttpServer())
     .post('/api/v1/super-admin/organizations')
@@ -91,15 +91,27 @@ export async function createOrganization(
     .send({
       name: `${slug} society`,
       slug,
+      code: slug
+        .replace(/[^a-z0-9]/g, '')
+        .toUpperCase()
+        .slice(0, 10),
+      type: options.type ?? 'INTERMEDIATE',
       admin: { name: `${slug} admin`, email: adminEmail, password: 'Admin@12345' },
-      institutions,
+      branches: options.branches ?? [{ name: `${slug} main branch`, code: 'MAIN' }],
     })
     .expect(201);
+  for (const key of options.modules ?? []) {
+    await request(app.getHttpServer())
+      .put(`/api/v1/super-admin/organizations/${res.body.id}/modules/${key}`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ enabled: true })
+      .expect(200);
+  }
   return res.body.id;
 }
 
-/** The id of an organization's institution, by its code (asked as the super admin). */
-export async function institutionId(
+/** The id of an organization's branch, by its code (asked as the super admin). */
+export async function branchId(
   app: INestApplication,
   superAdminToken: string,
   organizationId: string,
@@ -109,19 +121,101 @@ export async function institutionId(
     .get(`/api/v1/super-admin/organizations/${organizationId}`)
     .set('Authorization', `Bearer ${superAdminToken}`)
     .expect(200);
-  return res.body.institutions.find((i: { code: string }) => i.code === code).id;
+  return res.body.branches.find((b: { code: string }) => b.code === code).id;
 }
 
-/** Sets an institution's class levels (before it has classes), as an organization admin. */
-export async function setClassLevels(
+/**
+ * The id of a class of the structure, by its codes from the top, e.g. ["JR", "MPC", "REG"]
+ * (Junior > MPC > Regular). Sections need the branch too.
+ */
+export async function classId(
+  app: INestApplication,
+  token: string,
+  codes: string[],
+  branch?: string,
+): Promise<string> {
+  const structure = await request(app.getHttpServer())
+    .get('/api/v1/academic-structure')
+    .set('Authorization', `Bearer ${token}`)
+    .expect(200);
+  let parentId: string | null = null;
+  const nodes = structure.body.classes as { id: string; parentId: string | null; code: string }[];
+  const above = branch ? codes.slice(0, -1) : codes;
+  for (const code of above) {
+    const node = nodes.find((c) => c.parentId === parentId && c.code === code);
+    if (!node) throw new Error(`No class ${codes.join(' > ')} (stuck at ${code})`);
+    parentId = node.id;
+  }
+  if (!branch) return parentId!;
+  const sections = await request(app.getHttpServer())
+    .get(`/api/v1/branches/${branch}/sections`)
+    .set('Authorization', `Bearer ${token}`)
+    .expect(200);
+  const section = sections.body.sections.find(
+    (c: { parentId: string; code: string }) => c.parentId === parentId && c.code === codes.at(-1),
+  );
+  if (!section) throw new Error(`No section ${codes.join(' > ')}`);
+  return section.id;
+}
+
+/**
+ * An Intermediate college's structure for the tests: the groups switched on, extra streams, and
+ * sections (at a branch) under "year > group > stream". Returns the sections' ids by key / code.
+ */
+export async function setUpIntermediate(
   app: INestApplication,
   adminToken: string,
-  institutionId: string,
-  names: string[],
-): Promise<void> {
-  await request(app.getHttpServer())
-    .put(`/api/v1/institutions/${institutionId}/class-levels`)
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ names })
+  branch: string,
+  setup: {
+    groups: string[];
+    streams?: { groupCode: string; name: string; code: string; longTerm?: boolean }[];
+    /** `key` names the section in the returned ids (default: its code). */
+    sections: { under: string[]; name: string; code: string; key?: string }[];
+  },
+): Promise<Record<string, string>> {
+  const api = () => request(app.getHttpServer());
+  const auth = { Authorization: `Bearer ${adminToken}` };
+  await api()
+    .put('/api/v1/academic-structure/groups')
+    .set(auth)
+    .send({ codes: setup.groups })
     .expect(200);
+  for (const stream of setup.streams ?? []) {
+    await api().post('/api/v1/academic-structure/streams').set(auth).send(stream).expect(201);
+  }
+  const ids: Record<string, string> = {};
+  for (const section of setup.sections) {
+    // Looked up first: a request must not be built while another one runs (shared test server).
+    const parentId = await classId(app, adminToken, section.under);
+    const res = await api()
+      .post(`/api/v1/branches/${branch}/sections`)
+      .set(auth)
+      .send({ parentId, name: section.name, code: section.code })
+      .expect(201);
+    ids[section.key ?? section.code] = res.body.id;
+  }
+  return ids;
+}
+
+/** Creates an academic year (as an admin) and returns its id. */
+export async function createYear(
+  app: INestApplication,
+  adminToken: string,
+  name: string,
+  startsOn: string,
+  endsOn: string,
+  activate = false,
+): Promise<string> {
+  const res = await request(app.getHttpServer())
+    .post('/api/v1/academic-years')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ name, startsOn, endsOn })
+    .expect(201);
+  if (activate) {
+    await request(app.getHttpServer())
+      .post(`/api/v1/academic-years/${res.body.id}/activate`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+  }
+  return res.body.id;
 }

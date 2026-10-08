@@ -1,8 +1,8 @@
 /**
  * EVERY PERMISSION a role can have (docs/04-roles-and-permissions.md).
  *
- * Permissions are written per RESOURCE (a thing in the app, e.g. "Institutions") and ACTION
- * (what you do with it). The key is module.resource.action, e.g. "platform.campus.create".
+ * Permissions are written per RESOURCE (a thing in the app, e.g. "Students") and ACTION
+ * (what you do with it). The key is module.resource.action, e.g. "students.student.create".
  *
  *   view    see it            create  add new ones
  *   update  edit ("Edit")     delete  remove
@@ -17,7 +17,7 @@
  */
 
 export interface ResourceInfo {
-  /** module.resource, e.g. "platform.institution". */
+  /** module.resource, e.g. "platform.branch". */
   key: string;
   module: string | null;
   /** Heading the resource is shown under on the roles screen. */
@@ -47,21 +47,12 @@ export const RESOURCES: ResourceInfo[] = [
     actions: ['view', 'update'],
   },
   {
-    key: 'platform.institution',
+    key: 'platform.branch',
     module: null,
     group: 'Organization',
-    label: 'Institutions',
-    // Adding and deleting institutions is for the super admin only (ADR-0025).
+    label: 'Branches',
+    // Adding, closing and deleting branches is for the super admin only (ADR-0030).
     actions: ['view', 'update'],
-  },
-  {
-    key: 'platform.campus',
-    module: null,
-    group: 'Organization',
-    label: 'Campuses',
-    // "delete" = deactivate (close) a campus; a real delete is for the Organization admin only
-    // (ADR-0026).
-    actions: ['create', 'update', 'delete'],
   },
 
   // Users and roles (always available)
@@ -90,17 +81,11 @@ export const RESOURCES: ResourceInfo[] = [
     actions: CRUD,
   },
   {
-    key: 'academic.batch',
-    module: 'academic',
-    group: 'Academic',
-    label: 'Batches',
-    actions: CRUD,
-  },
-  {
+    // Above sections: for the whole organization. Sections: at their branch.
     key: 'academic.structure',
     module: 'academic',
     group: 'Academic',
-    label: 'Years, groups and sections',
+    label: 'Classes, groups, streams and sections',
     actions: CRUD,
   },
   {
@@ -130,7 +115,8 @@ export const RESOURCES: ResourceInfo[] = [
     key: 'students.enrolment',
     module: 'students',
     group: 'Students',
-    label: 'Promotion and transfers',
+    // transfer = change a student's section or branch (one student, from the profile).
+    label: 'Promotion, section and branch changes',
     actions: ['promote', 'transfer'],
   },
   {

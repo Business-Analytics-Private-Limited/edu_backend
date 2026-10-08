@@ -1,50 +1,63 @@
 /**
- * The Academic module: academic years, class levels and classes, batches, subjects and the
- * calendar (ADR-0019).
+ * The Academic module (ADR-0030): one set of academic years per organization, and the academic
+ * structure shaped by the organization's type.
  *
- * Organization "acad": institution SVJC (junior college) with campuses KKP and AMP.
- * Ravi is Campus admin of KKP. Organization "other" must never see any of it.
+ * "acad" (Intermediate): branches KPHB and AMP. Ravi = Branch admin of KPHB.
+ * "school" (School) and "engg" (Engineering) show the other types.
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import {
+  branchId,
+  classId,
   createOrganization,
   createTestApp,
-  institutionId,
   loginSuperAdmin,
   loginUser,
-  SVJC,
 } from './helpers';
 
-describe('Academic', () => {
+interface Node {
+  id: string;
+  parentId: string | null;
+  level: number;
+  code: string;
+  name: string;
+  nextClassId: string | null;
+  longTerm: boolean;
+  builtIn: boolean;
+}
+
+describe('Academic module', () => {
   let app: INestApplication;
   let superAdmin: string;
   let orgId: string;
   let admin: string;
   let ravi: string;
-  let other: string;
   const ids: Record<string, string> = {};
   const api = () => request(app.getHttpServer());
   const as = (token: string) => ({ Authorization: `Bearer ${token}` });
+  const structure = async (token = admin) =>
+    (await api().get('/api/v1/academic-structure').set(as(token)).expect(200)).body as {
+      type: string;
+      levels: string[];
+      classes: Node[];
+      builtIn: { code: string; enabled: boolean }[];
+    };
 
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'acad', 'admin@acad.test', [SVJC]);
-    await createOrganization(app, superAdmin, 'acad-other', 'admin@acad-other.test');
+    orgId = await createOrganization(app, superAdmin, 'acad', 'admin@acad.test', {
+      branches: [
+        { name: 'KPHB', code: 'KPHB' },
+        { name: 'Ameerpet', code: 'AMP' },
+      ],
+    });
     admin = await loginUser(app, 'admin@acad.test', 'Admin@12345');
-    other = await loginUser(app, 'admin@acad-other.test', 'Admin@12345');
-
-    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
-    for (const code of ['KKP', 'AMP']) {
-      const campus = await api()
-        .post(`/api/v1/institutions/${ids.SVJC}/campuses`)
-        .set(as(admin))
-        .send({ name: code, code });
-      ids[code] = campus.body.id;
-    }
-    const roles = await api().get('/api/v1/roles').set(as(admin));
-    const campusAdmin = roles.body.find((r: { name: string }) => r.name === 'Campus admin');
+    ids.KPHB = await branchId(app, superAdmin, orgId, 'KPHB');
+    ids.AMP = await branchId(app, superAdmin, orgId, 'AMP');
+    const roles = await api().get('/api/v1/roles').set(as(admin)).expect(200);
+    const branchAdmin = roles.body.find((r: { name: string }) => r.name === 'Branch admin').id;
     await api()
       .post('/api/v1/users')
       .set(as(admin))
@@ -52,7 +65,7 @@ describe('Academic', () => {
         name: 'Ravi',
         email: 'ravi@acad.test',
         password: 'Password@123',
-        roles: [{ roleId: campusAdmin.id, campusId: ids.KKP }],
+        roles: [{ roleId: branchAdmin, branchId: ids.KPHB }],
       })
       .expect(201);
     ravi = await loginUser(app, 'ravi@acad.test', 'Password@123');
@@ -62,270 +75,337 @@ describe('Academic', () => {
     await app.close();
   });
 
-  it('works only when the Academic module is switched on', async () => {
-    const res = await api().get('/api/v1/academic-years').set(as(admin)).expect(403);
+  it('works only when the super admin switches the Academic module on', async () => {
+    const res = await api().get('/api/v1/academic-structure').set(as(admin)).expect(403);
     expect(res.body.message).toBe('The academic module is not switched on for your organization');
-
     await api()
       .put(`/api/v1/super-admin/organizations/${orgId}/modules/academic`)
       .set(as(superAdmin))
       .send({ enabled: true })
       .expect(200);
-    await api().get('/api/v1/academic-years').set(as(admin)).expect(200);
   });
 
-  it('a new institution starts with default levels, which it can reshape before it has classes', async () => {
-    const levels = await api()
-      .get(`/api/v1/institutions/${ids.SVJC}/class-levels`)
-      .set(as(admin))
-      .expect(200);
-    expect(levels.body.map((l: { name: string }) => l.name)).toEqual(['Class', 'Section']);
-
-    // An institution that works with four levels, e.g. Type -> Group -> Stream -> Section.
-    const reshaped = await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/class-levels`)
-      .set(as(admin))
-      .send({ names: ['Type', 'Group', 'Stream', 'Section'] })
-      .expect(200);
-    expect(reshaped.body.map((l: { position: number }) => l.position)).toEqual([1, 2, 3, 4]);
+  it('an Intermediate college starts with Junior -> Senior, and Long Term', async () => {
+    const s = await structure();
+    expect(s.levels).toEqual(['Year', 'Group', 'Stream', 'Section']);
+    const years = s.classes.filter((c) => c.level === 1);
+    expect(years.map((y) => y.code)).toEqual(['JR', 'SR', 'LT']);
+    const [junior, senior, longTerm] = years;
+    expect(junior.nextClassId).toBe(senior.id);
+    expect(senior.nextClassId).toBeNull(); // completes
+    expect(longTerm).toMatchObject({ longTerm: true, nextClassId: null });
+    expect(s.builtIn.map((g) => g.code)).toEqual(['MPC', 'BIPC', 'CEC', 'HEC']);
   });
 
-  it('builds a campus class tree that follows the levels', async () => {
-    const add = (body: object) =>
-      api().post(`/api/v1/campuses/${ids.KKP}/classes`).set(as(admin)).send(body);
-
-    const junior = await add({ name: 'Junior Inter', code: 'JR' }).expect(201);
-    expect(junior.body.level).toBe(1);
-    const mpc = await add({ parentId: junior.body.id, name: 'MPC', code: 'MPC' }).expect(201);
-    const eamcet = await add({ parentId: mpc.body.id, name: 'EAMCET', code: 'EAM' }).expect(201);
-    const sectionA = await add({ parentId: eamcet.body.id, name: 'Section A', code: 'A' }).expect(
-      201,
-    );
-    expect(sectionA.body.level).toBe(4);
-    ids.JR = junior.body.id;
-    ids.MPC = mpc.body.id;
-    ids.A = sectionA.body.id;
-
-    // Nothing below the last level; codes unique among siblings.
-    await add({ parentId: sectionA.body.id, name: 'Too deep', code: 'X' }).expect(400);
-    await add({ parentId: eamcet.body.id, name: 'Another A', code: 'A' }).expect(409);
-
-    const tree = await api().get(`/api/v1/campuses/${ids.KKP}/classes`).set(as(admin)).expect(200);
-    expect(tree.body.classes).toHaveLength(4);
-    expect(tree.body.levels.map((l: { name: string }) => l.name)).toEqual([
-      'Type',
-      'Group',
-      'Stream',
-      'Section',
-    ]);
-  });
-
-  it('once classes exist, levels can be renamed but not added or removed', async () => {
+  it('groups come with the Regular stream; the college adds its own streams', async () => {
     await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/class-levels`)
+      .put('/api/v1/academic-structure/groups')
       .set(as(admin))
-      .send({ names: ['Year', 'Group', 'Section'] })
-      .expect(400);
-    await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/class-levels`)
-      .set(as(admin))
-      .send({ names: ['Course type', 'Group', 'Stream', 'Section'] })
+      .send({ codes: ['MPC', 'BIPC'] })
       .expect(200);
-  });
-
-  it('a class with classes under it cannot be deleted', async () => {
-    await api().delete(`/api/v1/classes/${ids.JR}`).set(as(admin)).expect(400);
-  });
-
-  it('a campus admin builds only their own campus', async () => {
-    await api().get(`/api/v1/campuses/${ids.KKP}/classes`).set(as(ravi)).expect(200);
-    await api().get(`/api/v1/campuses/${ids.AMP}/classes`).set(as(ravi)).expect(404);
     await api()
-      .post(`/api/v1/campuses/${ids.KKP}/classes`)
-      .set(as(ravi))
-      .send({ name: 'Senior Inter', code: 'SR' })
+      .post('/api/v1/academic-structure/streams')
+      .set(as(admin))
+      .send({ groupCode: 'MPC', name: 'JEE Mains', code: 'JEEM' })
       .expect(201);
     await api()
-      .post(`/api/v1/campuses/${ids.AMP}/classes`)
-      .set(as(ravi))
-      .send({ name: 'Senior Inter', code: 'SR' })
-      .expect(403);
-    // Levels belong to the whole institution: a campus admin sees them, can't change them.
-    await api().get(`/api/v1/institutions/${ids.SVJC}/class-levels`).set(as(ravi)).expect(200);
+      .post('/api/v1/academic-structure/streams')
+      .set(as(admin))
+      .send({ groupCode: 'BIPC', name: 'NEET Long Term', code: 'NLT', longTerm: true })
+      .expect(201);
+    // Each stream once per group; a group must be switched on first.
     await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/class-levels`)
-      .set(as(ravi))
-      .send({ names: ['A', 'B', 'C', 'D'] })
-      .expect(403);
+      .post('/api/v1/academic-structure/streams')
+      .set(as(admin))
+      .send({ groupCode: 'MPC', name: 'Again', code: 'JEEM' })
+      .expect(409);
+    await api()
+      .post('/api/v1/academic-structure/streams')
+      .set(as(admin))
+      .send({ groupCode: 'CEC', name: 'CA', code: 'CA' })
+      .expect(400);
+
+    // Junior > MPC > Regular / JEE Mains; Senior the same; Long Term > BiPC > NEET Long Term.
+    for (const year of ['JR', 'SR']) {
+      expect(await classId(app, admin, [year, 'MPC', 'REG'])).toBeDefined();
+      expect(await classId(app, admin, [year, 'MPC', 'JEEM'])).toBeDefined();
+      expect(await classId(app, admin, [year, 'BIPC', 'REG'])).toBeDefined();
+    }
+    expect(await classId(app, admin, ['LT', 'BIPC', 'NLT'])).toBeDefined();
+    await expect(classId(app, admin, ['LT', 'MPC'])).rejects.toThrow();
+
+    // Renaming a stream renames it everywhere.
+    await api()
+      .patch('/api/v1/academic-structure/streams/MPC/JEEM')
+      .set(as(admin))
+      .send({ name: 'JEE (Mains)' })
+      .expect(200);
+    const renamed = (await structure()).classes.filter((c) => c.code === 'JEEM');
+    expect(renamed.map((c) => c.name)).toEqual(['JEE (Mains)', 'JEE (Mains)']);
   });
 
-  it('academic years: no overlaps, one active year, only planned years can be deleted', async () => {
-    const create = (name: string, startsOn: string, endsOn: string) =>
-      api()
-        .post('/api/v1/academic-years')
-        .set(as(admin))
-        .send({ institutionId: ids.SVJC, name, startsOn, endsOn });
+  it('each branch builds its own sections under a stream', async () => {
+    const jeeJunior = await classId(app, admin, ['JR', 'MPC', 'JEEM']);
+    const section = await api()
+      .post(`/api/v1/branches/${ids.KPHB}/sections`)
+      .set(as(ravi))
+      .send({ parentId: jeeJunior, name: 'JEE-A', code: 'A' })
+      .expect(201);
+    ids.SECTION = section.body.id;
+    // The same code at another branch is fine; twice at one branch is not.
+    await api()
+      .post(`/api/v1/branches/${ids.AMP}/sections`)
+      .set(as(admin))
+      .send({ parentId: jeeJunior, name: 'JEE-A', code: 'A' })
+      .expect(201);
+    await api()
+      .post(`/api/v1/branches/${ids.KPHB}/sections`)
+      .set(as(ravi))
+      .send({ parentId: jeeJunior, name: 'Again', code: 'A' })
+      .expect(409);
+    // Ravi works at KPHB only, and only on sections (the structure above is the organization's).
+    await api()
+      .post(`/api/v1/branches/${ids.AMP}/sections`)
+      .set(as(ravi))
+      .send({ parentId: jeeJunior, name: 'JEE-B', code: 'B' })
+      .expect(403);
+    await api()
+      .post('/api/v1/academic-structure/streams')
+      .set(as(ravi))
+      .send({ groupCode: 'MPC', name: 'IIT', code: 'IIT' })
+      .expect(403);
+    // A section sits under a stream, not under a group.
+    const group = await classId(app, admin, ['JR', 'MPC']);
+    await api()
+      .post(`/api/v1/branches/${ids.KPHB}/sections`)
+      .set(as(admin))
+      .send({ parentId: group, name: 'X', code: 'X' })
+      .expect(400);
 
+    const kphb = await api().get(`/api/v1/branches/${ids.KPHB}/sections`).set(as(ravi)).expect(200);
+    expect(kphb.body.sections).toEqual([
+      expect.objectContaining({ code: 'A', path: 'Junior (1st Year) › MPC › JEE (Mains)' }),
+    ]);
+    await api().get(`/api/v1/branches/${ids.AMP}/sections`).set(as(ravi)).expect(404);
+  });
+
+  it("a stream or group with sections can't go, and built-in classes are switched off instead", async () => {
+    const stream = await api()
+      .delete('/api/v1/academic-structure/streams/MPC/JEEM')
+      .set(as(admin))
+      .expect(400);
+    expect(stream.body.message).toBe('JEE (Mains) has sections; delete those first');
+    await api()
+      .put('/api/v1/academic-structure/groups')
+      .set(as(admin))
+      .send({ codes: ['BIPC'] })
+      .expect(400);
+    const junior = await classId(app, admin, ['JR']);
+    await api().delete(`/api/v1/classes/${junior}`).set(as(admin)).expect(400);
+    // A stream nobody uses can go.
+    await api()
+      .post('/api/v1/academic-structure/streams')
+      .set(as(admin))
+      .send({ groupCode: 'MPC', name: 'Temporary', code: 'TMP' })
+      .expect(201);
+    await api().delete('/api/v1/academic-structure/streams/MPC/TMP').set(as(admin)).expect(200);
+  });
+
+  it('level names can be renamed, not added or removed', async () => {
+    await api()
+      .put('/api/v1/academic-structure/level-names')
+      .set(as(admin))
+      .send({ names: ['Year', 'Group', 'Course', 'Section'] })
+      .expect(200);
+    await api()
+      .put('/api/v1/academic-structure/level-names')
+      .set(as(admin))
+      .send({ names: ['Year', 'Section'] })
+      .expect(400);
+    expect((await structure()).levels[2]).toBe('Course');
+  });
+
+  it('a school ticks its classes; each one moves on to the next', async () => {
+    const schoolId = await createOrganization(app, superAdmin, 'school', 'admin@school.test', {
+      type: 'SCHOOL',
+      modules: ['academic'],
+    });
+    const school = await loginUser(app, 'admin@school.test', 'Admin@12345');
+    const branch = await branchId(app, superAdmin, schoolId, 'MAIN');
+    await api()
+      .put('/api/v1/academic-structure/school-classes')
+      .set(as(school))
+      .send({ codes: ['C8', 'C9', 'C10'] })
+      .expect(200);
+    const s = await structure(school);
+    expect(s.levels).toEqual(['Class', 'Section']);
+    const [c8, c9, c10] = s.classes;
+    expect([c8.name, c9.name, c10.name]).toEqual(['Class 8', 'Class 9', 'Class 10']);
+    expect(c8.nextClassId).toBe(c9.id);
+    expect(c9.nextClassId).toBe(c10.id);
+    expect(c10.nextClassId).toBeNull();
+
+    await api()
+      .post(`/api/v1/branches/${branch}/sections`)
+      .set(as(school))
+      .send({ parentId: c9.id, name: 'Section A', code: 'A' })
+      .expect(201);
+    // Class 9 has a section: it can't be unticked.
+    await api()
+      .put('/api/v1/academic-structure/school-classes')
+      .set(as(school))
+      .send({ codes: ['C8', 'C10'] })
+      .expect(400);
+    // Intermediate-only routes are refused for a school.
+    await api()
+      .put('/api/v1/academic-structure/groups')
+      .set(as(school))
+      .send({ codes: ['MPC'] })
+      .expect(400);
+  });
+
+  it('an engineering college adds courses and specializations with their years', async () => {
+    const enggId = await createOrganization(app, superAdmin, 'engg', 'admin@engg.test', {
+      type: 'ENGINEERING',
+      modules: ['academic'],
+    });
+    const engg = await loginUser(app, 'admin@engg.test', 'Admin@12345');
+    const course = await api()
+      .post('/api/v1/academic-structure/courses')
+      .set(as(engg))
+      .send({ name: 'B.Tech', code: 'BTECH' })
+      .expect(201);
+    await api()
+      .post(`/api/v1/academic-structure/courses/${course.body.id}/specializations`)
+      .set(as(engg))
+      .send({ name: 'Computer Science', code: 'CSE', years: 4 })
+      .expect(201);
+    const s = await structure(engg);
+    expect(s.levels).toEqual(['Course', 'Specialization', 'Year', 'Section']);
+    const years = s.classes.filter((c) => c.level === 3);
+    expect(years.map((y) => y.name)).toEqual(['1st Year', '2nd Year', '3rd Year', '4th Year']);
+    expect(years[0].nextClassId).toBe(years[1].id);
+    expect(years[3].nextClassId).toBeNull();
+
+    // A 3-year degree inside it: change where 3rd Year students go (nowhere = complete).
+    await api()
+      .patch(`/api/v1/classes/${years[2].id}`)
+      .set(as(engg))
+      .send({ nextClassId: null })
+      .expect(200);
+    // "Next" is only for a year, and only to another year.
+    await api()
+      .patch(`/api/v1/classes/${course.body.id}`)
+      .set(as(engg))
+      .send({ nextClassId: years[0].id })
+      .expect(400);
+    const branch = await branchId(app, superAdmin, enggId, 'MAIN');
+    await api()
+      .post(`/api/v1/branches/${branch}/sections`)
+      .set(as(engg))
+      .send({ parentId: years[0].id, name: 'Section A', code: 'A' })
+      .expect(201);
+  });
+
+  it('academic years belong to the whole organization; at most one is active', async () => {
+    const create = (name: string, startsOn: string, endsOn: string, token = admin) =>
+      api().post('/api/v1/academic-years').set(as(token)).send({ name, startsOn, endsOn });
     const y1 = await create('2026-27', '2026-06-01', '2027-03-31').expect(201);
-    await create('2026-28', '2027-01-01', '2027-12-31').expect(400); // overlaps 2026-27
-    await create('Backwards', '2027-06-01', '2027-01-01').expect(400);
     const y2 = await create('2027-28', '2027-06-01', '2028-03-31').expect(201);
+    await create('Overlap', '2027-01-01', '2027-07-31').expect(400);
+    await create('By Ravi', '2028-06-01', '2029-03-31', ravi).expect(403);
 
     await api().post(`/api/v1/academic-years/${y1.body.id}/activate`).set(as(admin)).expect(200);
     await api().post(`/api/v1/academic-years/${y2.body.id}/activate`).set(as(admin)).expect(200);
-    const years = await api()
-      .get(`/api/v1/academic-years?institutionId=${ids.SVJC}`)
-      .set(as(admin))
-      .expect(200);
-    const status = Object.fromEntries(
-      years.body.map((y: { name: string; status: string }) => [y.name, y.status]),
-    );
-    expect(status).toEqual({ '2026-27': 'CLOSED', '2027-28': 'ACTIVE' });
-
-    await api().delete(`/api/v1/academic-years/${y2.body.id}`).set(as(admin)).expect(400);
-
-    // A campus admin sees the institution's years but can't create them.
-    const seen = await api().get('/api/v1/academic-years').set(as(ravi)).expect(200);
-    expect(seen.body).toHaveLength(2);
-    await api()
-      .post('/api/v1/academic-years')
-      .set(as(ravi))
-      .send({
-        institutionId: ids.SVJC,
-        name: '2028-29',
-        startsOn: '2028-06-01',
-        endsOn: '2029-03-31',
-      })
-      .expect(403);
+    const years = await api().get('/api/v1/academic-years').set(as(ravi)).expect(200);
+    expect(years.body.map((y: { name: string; status: string }) => [y.name, y.status])).toEqual([
+      ['2027-28', 'ACTIVE'],
+      ['2026-27', 'CLOSED'],
+    ]);
+    await api().delete(`/api/v1/academic-years/${y1.body.id}`).set(as(admin)).expect(400);
   });
 
-  it("batches carry a stage in the institution's own words", async () => {
-    const batch = await api()
-      .post('/api/v1/batches')
-      .set(as(admin))
-      .send({ institutionId: ids.SVJC, name: '2026-28 batch', code: 'B2026', stage: 'Junior' })
-      .expect(201);
-    const moved = await api()
-      .patch(`/api/v1/batches/${batch.body.id}`)
-      .set(as(admin))
-      .send({ stage: 'Senior' })
-      .expect(200);
-    expect(moved.body.stage).toBe('Senior');
-
-    const seen = await api().get('/api/v1/batches').set(as(ravi)).expect(200);
-    expect(seen.body.map((b: { code: string }) => b.code)).toEqual(['B2026']);
-    await api()
-      .post('/api/v1/batches')
-      .set(as(ravi))
-      .send({ institutionId: ids.SVJC, name: 'Long term 2026', code: 'LT26', stage: 'Long term' })
-      .expect(403);
-  });
-
-  it('subjects attached to a class are inherited by the classes below it', async () => {
-    const add = (name: string, code: string) =>
-      api()
-        .post('/api/v1/subjects')
-        .set(as(admin))
-        .send({ institutionId: ids.SVJC, name, code })
-        .expect(201);
-    const maths = await add('Mathematics', 'MATHS');
-    const physics = await add('Physics', 'PHY');
-    ids.MATHS = maths.body.id;
-
-    // A campus admin can't change the institution's subject list...
-    await api()
+  it('subjects are the organization’s; a class inherits those of the classes above it', async () => {
+    const maths = await api()
       .post('/api/v1/subjects')
-      .set(as(ravi))
-      .send({ institutionId: ids.SVJC, name: 'Chemistry', code: 'CHEM' })
-      .expect(403);
-    // ...but attaches subjects to their own campus's classes.
-    await api()
-      .put(`/api/v1/classes/${ids.MPC}/subjects`)
-      .set(as(ravi))
-      .send({ subjectIds: [maths.body.id, physics.body.id] })
-      .expect(200);
-
-    const sectionA = await api()
-      .get(`/api/v1/classes/${ids.A}/subjects`)
       .set(as(admin))
+      .send({ name: 'Mathematics', code: 'MATHS' })
+      .expect(201);
+    const physics = await api()
+      .post('/api/v1/subjects')
+      .set(as(admin))
+      .send({ name: 'Physics', code: 'PHY' })
+      .expect(201);
+    const mpc = await classId(app, admin, ['JR', 'MPC']);
+    await api()
+      .put(`/api/v1/classes/${mpc}/subjects`)
+      .set(as(admin))
+      .send({ subjectIds: [maths.body.id] })
       .expect(200);
-    expect(sectionA.body.own).toEqual([]);
-    expect(
-      sectionA.body.inherited.map((i: { subject: { code: string } }) => i.subject.code).sort(),
-    ).toEqual(['MATHS', 'PHY']);
-    expect(sectionA.body.inherited[0].from.name).toBe('MPC');
-
-    // A subject that classes use can't be deleted.
-    await api().delete(`/api/v1/subjects/${ids.MATHS}`).set(as(admin)).expect(400);
+    await api()
+      .put(`/api/v1/classes/${ids.SECTION}/subjects`)
+      .set(as(ravi))
+      .send({ subjectIds: [physics.body.id] })
+      .expect(200);
+    const res = await api()
+      .get(`/api/v1/classes/${ids.SECTION}/subjects`)
+      .set(as(ravi))
+      .expect(200);
+    expect(res.body.own.map((s: { code: string }) => s.code)).toEqual(['PHY']);
+    expect(res.body.inherited.map((i: { subject: { code: string } }) => i.subject.code)).toEqual([
+      'MATHS',
+    ]);
+    // Ravi can't change the organization's part of the structure.
+    await api()
+      .put(`/api/v1/classes/${mpc}/subjects`)
+      .set(as(ravi))
+      .send({ subjectIds: [] })
+      .expect(403);
   });
 
-  it('calendar: weekly off days and holidays for the institution or one campus', async () => {
+  it('the calendar: weekly off days for all, holidays for all or one branch', async () => {
     await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/weekly-off`)
+      .put('/api/v1/calendar/weekly-off')
       .set(as(admin))
-      .send({ days: [0, 6] })
+      .send({ days: [0] })
       .expect(200);
     await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/weekly-off`)
+      .post('/api/v1/holidays')
+      .set(as(admin))
+      .send({ name: 'Sankranti', startsOn: '2027-01-13', endsOn: '2027-01-16' })
+      .expect(201);
+    await api()
+      .post('/api/v1/holidays')
       .set(as(ravi))
-      .send({ days: [0] })
+      .send({ branchId: ids.KPHB, name: 'Local festival', startsOn: '2026-10-20' })
+      .expect(201);
+    await api()
+      .post('/api/v1/holidays')
+      .set(as(ravi))
+      .send({ branchId: ids.AMP, name: 'Not mine', startsOn: '2026-10-21' })
       .expect(403);
-
-    const holiday = (token: string, body: object) =>
-      api()
-        .post('/api/v1/holidays')
-        .set(as(token))
-        .send({ institutionId: ids.SVJC, ...body });
-    await holiday(admin, {
-      name: 'Sankranti',
-      startsOn: '2027-01-13',
-      endsOn: '2027-01-16',
-    }).expect(201);
-    await holiday(admin, {
-      name: 'Backwards',
-      startsOn: '2027-02-10',
-      endsOn: '2027-02-01',
-    }).expect(400);
-    await holiday(ravi, {
-      name: 'KKP sports day',
-      startsOn: '2026-12-05',
-      campusId: ids.KKP,
-    }).expect(201);
-    await holiday(ravi, { name: 'Whole institution', startsOn: '2026-12-06' }).expect(403);
-    await holiday(ravi, { name: 'Other campus', startsOn: '2026-12-07', campusId: ids.AMP }).expect(
-      403,
-    );
-
-    const cal = await api().get('/api/v1/calendar').set(as(ravi)).expect(200);
-    expect(cal.body.institutions[0].weeklyOffDays).toEqual([0, 6]);
-    expect(cal.body.holidays.map((h: { name: string }) => h.name)).toEqual([
-      'KKP sports day',
+    await api()
+      .post('/api/v1/holidays')
+      .set(as(ravi))
+      .send({ name: 'For everyone', startsOn: '2026-10-22' })
+      .expect(403);
+    const calendar = await api().get('/api/v1/calendar').set(as(ravi)).expect(200);
+    expect(calendar.body.weeklyOffDays).toEqual([0]);
+    expect(calendar.body.holidays.map((h: { name: string }) => h.name)).toEqual([
+      'Local festival',
       'Sankranti',
     ]);
-    const ranged = await api()
-      .get('/api/v1/calendar?from=2027-01-01&to=2027-01-31')
-      .set(as(admin))
-      .expect(200);
-    expect(ranged.body.holidays.map((h: { name: string }) => h.name)).toEqual(['Sankranti']);
   });
 
-  it('another organization sees none of it', async () => {
-    await api().get(`/api/v1/campuses/${ids.KKP}/classes`).set(as(other)).expect(403); // module off
-    const otherOrg = await api().get('/api/v1/organization').set(as(other)).expect(200);
-    await api()
-      .put(`/api/v1/super-admin/organizations/${otherOrg.body.id}/modules/academic`)
-      .set(as(superAdmin))
-      .send({ enabled: true })
-      .expect(200);
-    await api().get(`/api/v1/campuses/${ids.KKP}/classes`).set(as(other)).expect(404);
-    await api().get(`/api/v1/institutions/${ids.SVJC}/class-levels`).set(as(other)).expect(404);
-    expect((await api().get('/api/v1/academic-years').set(as(other)).expect(200)).body).toEqual([]);
-    expect((await api().get('/api/v1/batches').set(as(other)).expect(200)).body).toEqual([]);
-    expect((await api().get('/api/v1/subjects').set(as(other)).expect(200)).body).toEqual([]);
-    expect((await api().get('/api/v1/calendar').set(as(other)).expect(200)).body.holidays).toEqual(
-      [],
-    );
-    await api().get(`/api/v1/classes/${ids.A}/subjects`).set(as(other)).expect(404);
-    await api().patch(`/api/v1/classes/${ids.A}`).set(as(other)).send({ name: 'x' }).expect(404);
+  it("another organization never sees this one's structure", async () => {
+    const otherId = await createOrganization(app, superAdmin, 'other', 'admin@other.test', {
+      modules: ['academic'],
+    });
+    const other = await loginUser(app, 'admin@other.test', 'Admin@12345');
+    const theirs = await structure(other);
+    expect(theirs.classes.map((c) => c.code)).toEqual(['JR', 'SR', 'LT']); // only its own presets
+    await api().get(`/api/v1/branches/${ids.KPHB}/sections`).set(as(other)).expect(404);
+    await api().get(`/api/v1/classes/${ids.SECTION}/subjects`).set(as(other)).expect(404);
+    expect(otherId).toBeDefined();
   });
 });

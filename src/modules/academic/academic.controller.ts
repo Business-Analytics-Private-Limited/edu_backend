@@ -1,26 +1,29 @@
 /**
- * THE ACADEMIC MODULE: academic years, class levels and classes, batches.
+ * THE ACADEMIC MODULE: academic years and the academic structure (ADR-0030).
  * Works only when the super admin has switched the Academic module on for the organization
  * (the AccessGuard checks it for every academic.* permission). Where each action applies is
- * checked in the services (institution or campus).
+ * checked in the services: the whole organization, or the branch of a section.
  *
- *   GET    /api/v1/academic-years?institutionId=        academic.year.view
- *   POST   /api/v1/academic-years                       academic.year.create   (institution)
- *   PATCH  /api/v1/academic-years/:id                   academic.year.update   (institution)
- *   POST   /api/v1/academic-years/:id/activate          academic.year.update   (institution)
- *   DELETE /api/v1/academic-years/:id                   academic.year.delete   (institution)
+ *   GET    /api/v1/academic-years                          academic.year.view
+ *   POST   /api/v1/academic-years                          academic.year.create   (organization)
+ *   PATCH  /api/v1/academic-years/:id                      academic.year.update   (organization)
+ *   POST   /api/v1/academic-years/:id/activate             academic.year.update   (organization)
+ *   DELETE /api/v1/academic-years/:id                      academic.year.delete   (organization)
  *
- *   GET    /api/v1/institutions/:id/class-levels        academic.structure.view
- *   PUT    /api/v1/institutions/:id/class-levels        academic.structure.update (institution)
- *   GET    /api/v1/campuses/:id/classes                 academic.structure.view   (campus)
- *   POST   /api/v1/campuses/:id/classes                 academic.structure.create (campus)
- *   PATCH  /api/v1/classes/:id                          academic.structure.update (campus)
- *   DELETE /api/v1/classes/:id                          academic.structure.delete (campus)
+ *   GET    /api/v1/academic-structure                      academic.structure.view
+ *   PUT    /api/v1/academic-structure/level-names          academic.structure.update (organization)
+ *   PUT    /api/v1/academic-structure/school-classes       academic.structure.update  School
+ *   PUT    /api/v1/academic-structure/groups               academic.structure.update  Intermediate
+ *   POST   /api/v1/academic-structure/streams              academic.structure.create  Intermediate
+ *   PATCH  /api/v1/academic-structure/streams/:group/:code academic.structure.update  Intermediate
+ *   DELETE /api/v1/academic-structure/streams/:group/:code academic.structure.delete  Intermediate
+ *   POST   /api/v1/academic-structure/courses              academic.structure.create  Degree / Eng.
+ *   POST   /api/v1/academic-structure/courses/:id/specializations                     Degree / Eng.
+ *   PATCH  /api/v1/classes/:id                             academic.structure.update  (its place)
+ *   DELETE /api/v1/classes/:id                             academic.structure.delete  (its place)
  *
- *   GET    /api/v1/batches?institutionId=               academic.batch.view
- *   POST   /api/v1/batches                              academic.batch.create  (institution)
- *   PATCH  /api/v1/batches/:id                          academic.batch.update  (institution)
- *   DELETE /api/v1/batches/:id                          academic.batch.delete  (institution)
+ *   GET    /api/v1/branches/:id/sections                   academic.structure.view    (branch)
+ *   POST   /api/v1/branches/:id/sections                   academic.structure.create  (branch)
  */
 import {
   Body,
@@ -33,25 +36,25 @@ import {
   Patch,
   Post,
   Put,
-  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { CurrentUser as CurrentUserType } from '../../common/current-user';
 import { RequirePermission } from '../../common/decorators/access.decorators';
 import { CurrentUser, OrganizationId } from '../../common/decorators/current-user.decorator';
 import { AcademicYearsService } from './academic-years.service';
-import { BatchesService } from './batches.service';
-import { ClassStructureService } from './class-structure.service';
 import {
+  AddCourseDto,
+  AddSpecializationDto,
+  AddStreamDto,
   CreateAcademicYearDto,
-  CreateBatchDto,
-  CreateClassDto,
-  InstitutionFilterQuery,
-  SetClassLevelsDto,
+  CreateSectionDto,
+  RenameDto,
+  SetCodesDto,
+  SetLevelNamesDto,
   UpdateAcademicYearDto,
-  UpdateBatchDto,
   UpdateClassDto,
 } from './dto/academic.dto';
+import { StructureService } from './structure.service';
 
 @ApiTags('Academic')
 @ApiBearerAuth()
@@ -59,20 +62,15 @@ import {
 export class AcademicController {
   constructor(
     private readonly years: AcademicYearsService,
-    private readonly structure: ClassStructureService,
-    private readonly batches: BatchesService,
+    private readonly structure: StructureService,
   ) {}
 
   // --- Academic years --------------------------------------------------------------------------
 
   @Get('academic-years')
   @RequirePermission('academic.year.view')
-  listYears(
-    @OrganizationId() organizationId: string,
-    @Query() query: InstitutionFilterQuery,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.years.list(organizationId, user, query.institutionId);
+  listYears(@OrganizationId() organizationId: string, @CurrentUser() user: CurrentUserType) {
+    return this.years.list(organizationId, user);
   }
 
   @Post('academic-years')
@@ -117,48 +115,96 @@ export class AcademicController {
     return this.years.delete(organizationId, id, user);
   }
 
-  // --- Class levels and classes ------------------------------------------------------------------
+  // --- The structure ---------------------------------------------------------------------------
 
-  @Get('institutions/:id/class-levels')
+  @Get('academic-structure')
   @RequirePermission('academic.structure.view')
-  getLevels(
-    @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.structure.getLevels(organizationId, id, user);
+  getStructure(@OrganizationId() organizationId: string, @CurrentUser() user: CurrentUserType) {
+    return this.structure.get(organizationId, user);
   }
 
-  @Put('institutions/:id/class-levels')
+  @Put('academic-structure/level-names')
   @RequirePermission('academic.structure.update')
-  setLevels(
+  setLevelNames(
     @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: SetClassLevelsDto,
+    @Body() body: SetLevelNamesDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.structure.setLevels(organizationId, id, body, user);
+    return this.structure.setLevelNames(organizationId, body.names, user);
   }
 
-  @Get('campuses/:id/classes')
-  @RequirePermission('academic.structure.view')
-  listClasses(
+  @Put('academic-structure/school-classes')
+  @RequirePermission('academic.structure.update')
+  setSchoolClasses(
     @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SetCodesDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.structure.listClasses(organizationId, id, user);
+    return this.structure.setSchoolClasses(organizationId, body.codes, user);
   }
 
-  @Post('campuses/:id/classes')
+  @Put('academic-structure/groups')
+  @RequirePermission('academic.structure.update')
+  setGroups(
+    @OrganizationId() organizationId: string,
+    @Body() body: SetCodesDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.setGroups(organizationId, body.codes, user);
+  }
+
+  @Post('academic-structure/streams')
   @RequirePermission('academic.structure.create')
-  createClass(
+  addStream(
     @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: CreateClassDto,
+    @Body() body: AddStreamDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.structure.createClass(organizationId, id, body, user);
+    return this.structure.addStream(organizationId, body, user);
+  }
+
+  @Patch('academic-structure/streams/:group/:code')
+  @RequirePermission('academic.structure.update')
+  renameStream(
+    @OrganizationId() organizationId: string,
+    @Param('group') group: string,
+    @Param('code') code: string,
+    @Body() body: RenameDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.renameStream(organizationId, group, code, body.name, user);
+  }
+
+  @Delete('academic-structure/streams/:group/:code')
+  @RequirePermission('academic.structure.delete')
+  deleteStream(
+    @OrganizationId() organizationId: string,
+    @Param('group') group: string,
+    @Param('code') code: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.deleteStream(organizationId, group, code, user);
+  }
+
+  @Post('academic-structure/courses')
+  @RequirePermission('academic.structure.create')
+  addCourse(
+    @OrganizationId() organizationId: string,
+    @Body() body: AddCourseDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.addCourse(organizationId, body, user);
+  }
+
+  @Post('academic-structure/courses/:id/specializations')
+  @RequirePermission('academic.structure.create')
+  addSpecialization(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AddSpecializationDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.addSpecialization(organizationId, id, body, user);
   }
 
   @Patch('classes/:id')
@@ -182,46 +228,26 @@ export class AcademicController {
     return this.structure.deleteClass(organizationId, id, user);
   }
 
-  // --- Batches -----------------------------------------------------------------------------------
+  // --- Sections of a branch --------------------------------------------------------------------
 
-  @Get('batches')
-  @RequirePermission('academic.batch.view')
-  listBatches(
-    @OrganizationId() organizationId: string,
-    @Query() query: InstitutionFilterQuery,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.batches.list(organizationId, user, query.institutionId);
-  }
-
-  @Post('batches')
-  @RequirePermission('academic.batch.create')
-  createBatch(
-    @OrganizationId() organizationId: string,
-    @Body() body: CreateBatchDto,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.batches.create(organizationId, body, user);
-  }
-
-  @Patch('batches/:id')
-  @RequirePermission('academic.batch.update')
-  updateBatch(
-    @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: UpdateBatchDto,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.batches.update(organizationId, id, body, user);
-  }
-
-  @Delete('batches/:id')
-  @RequirePermission('academic.batch.delete')
-  deleteBatch(
+  @Get('branches/:id/sections')
+  @RequirePermission('academic.structure.view')
+  listSections(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.batches.delete(organizationId, id, user);
+    return this.structure.listSections(organizationId, id, user);
+  }
+
+  @Post('branches/:id/sections')
+  @RequirePermission('academic.structure.create')
+  createSection(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: CreateSectionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.createSection(organizationId, id, body, user);
   }
 }

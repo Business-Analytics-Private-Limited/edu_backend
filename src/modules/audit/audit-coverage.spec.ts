@@ -19,18 +19,22 @@ const ALLOWED: Record<string, string> = {
     'failed-login counter; the attempt is logged by the caller',
   'auth/auth.service.ts :: startSession': 'part of a login, which is logged',
   'files/files.service.ts :: save': 'called by documents upload, which logs',
-  'organization/institution-records.ts :: addInstitution': 'callers (super admin) log',
-  'organization/institution-records.ts :: deleteEmptyInstitution': 'callers (super admin) log',
+  'academic/structure.service.ts :: ensurePresets':
+    'built-in years of a new organization (logged with it) or the startup sync',
+  'academic/structure.service.ts :: ensureChild': 'part of set groups / add stream, which log',
+  'academic/structure.service.ts :: deleteIfEmpty': 'part of the deletes that call it, which log',
   'roles/predefined-roles.service.ts :: copyToOrganization': 'part of creating an organization',
   'roles/predefined-roles.service.ts :: ensureTemplates': 'startup sync of the code, no person',
-  'students/admission-numbers.ts :: nextAdmissionNo': 'part of admission / import, which log',
+  'students/admission-numbers.ts :: admissionNumberFor': 'part of admission / import, which log',
+  'students/students.service.ts :: moveCurrent': 'part of section / branch change, which log',
+  'students/placement.ts :: closePortalLogins': 'part of leaving / completing, which log',
   'students/guardians.service.ts :: link': 'called by admit and add guardian, which log',
   'students/guardians.service.ts :: clearPrimary': 'called by add / update guardian, which log',
 };
 
 const WRITE =
   /\b(db|tx|this\.prisma)\.\w+\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/;
-const LOGS = /audit\.log\(|this\.(logInstitution|recordLogin)\(/;
+const LOGS = /audit\.log\(|this\.recordLogin\(/;
 /** Where a method (2-space indented) or an exported function starts. */
 const METHOD_START =
   /\n(?= {2}(?:(?:private|public|protected|async) )*\w+\(|export (?:async )?function )/;

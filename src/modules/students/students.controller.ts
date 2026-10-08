@@ -1,13 +1,17 @@
 /**
- * THE STUDENTS MODULE (part 1): admission, profile, status, guardians, enrolments.
+ * THE STUDENTS MODULE: admission, profile, leaving and re-admission, section and branch changes,
+ * guardians, placements, promotion, import and admission numbers (ADR-0020, ADR-0030).
  * Works only when the super admin has switched the Students module on for the organization.
- * Every action is checked at the student's campus (see the services).
+ * Every action is checked at the student's branch (see the services).
  *
- *   GET    /api/v1/students?search=&campusId=&classId=&batchId=&academicYearId=&status=   students.student.view
+ *   GET    /api/v1/students?search=&branchId=&classId=&academicYearId=&show=&status=   students.student.view
  *   POST   /api/v1/students                                    students.student.create  (admission)
- *   GET    /api/v1/students/:id                                students.student.view
+ *   GET    /api/v1/students/:id                                students.student.view    (profile + timeline)
  *   PATCH  /api/v1/students/:id                                students.student.update
- *   POST   /api/v1/students/:id/status                         students.student.update
+ *   POST   /api/v1/students/:id/leave                          students.student.update  (becomes outgoing)
+ *   POST   /api/v1/students/:id/readmit                        students.student.update
+ *   POST   /api/v1/students/:id/change-section                 students.enrolment.transfer
+ *   POST   /api/v1/students/:id/change-branch                  students.enrolment.transfer (both branches)
  *   DELETE /api/v1/students/:id                                students.student.delete  (mistakes only)
  *
  *   GET    /api/v1/guardians?phone=                            students.student.view
@@ -15,19 +19,16 @@
  *   PATCH  /api/v1/students/:id/guardians/:guardianId          students.student.update
  *   DELETE /api/v1/students/:id/guardians/:guardianId          students.student.update
  *
- *   POST   /api/v1/students/:id/enrolments                     students.student.update
- *   PATCH  /api/v1/students/:id/enrolments/:enrolmentId        students.student.update, or
- *                                                              students.enrolment.transfer to move
+ *   POST   /api/v1/students/:id/enrolments                     students.student.update  (place in a section)
+ *   PATCH  /api/v1/students/:id/enrolments/:enrolmentId        students.student.update  (roll number)
  *
- *   GET    /api/v1/promotions/preview?campusId=&fromYearId=&toYearId=   students.enrolment.promote
+ *   GET    /api/v1/promotions/preview?branchId=&fromYearId=&toYearId=   students.enrolment.promote
  *   POST   /api/v1/promotions                                  students.enrolment.promote
- *   GET    /api/v1/promotions?campusId=                        students.enrolment.promote (applied, newest first)
+ *   GET    /api/v1/promotions?branchId=                        students.enrolment.promote (newest first)
  *   POST   /api/v1/promotions/:id/undo                         students.enrolment.promote
- *   POST   /api/v1/enrolments/move                             students.enrolment.transfer (shuffle)
  *
- *   POST   /api/v1/students/:id/transfer                       students.enrolment.transfer (both campuses)
  *   POST   /api/v1/students/import                             students.student.import (dryRun to check)
- *   PUT    /api/v1/institutions/:id/admission-numbering        students.settings.update (institution)
+ *   PUT    /api/v1/organization/admission-numbering            students.settings.update (organization)
  */
 import {
   Body,
@@ -48,26 +49,27 @@ import { RequirePermission } from '../../common/decorators/access.decorators';
 import { CurrentUser, OrganizationId } from '../../common/decorators/current-user.decorator';
 import {
   AdmitStudentDto,
-  ChangeStatusDto,
+  ApplyPromotionDto,
+  BranchQuery,
+  ChangeBranchDto,
+  ChangeSectionDto,
   EnrolmentDto,
   GuardianDto,
   GuardianSearchQuery,
-  ListStudentsQuery,
-  ApplyPromotionDto,
-  CampusQuery,
   ImportStudentsDto,
-  MoveStudentsDto,
+  LeaveDto,
+  ListStudentsQuery,
   PromotionQuery,
+  ReadmitDto,
   SetNumberingDto,
-  TransferCampusDto,
   UpdateEnrolmentDto,
   UpdateGuardianDto,
   UpdateStudentDto,
 } from './dto/student.dto';
 import { EnrolmentsService } from './enrolments.service';
+import { GuardiansService } from './guardians.service';
 import { ImportService } from './import.service';
 import { PromotionsService } from './promotions.service';
-import { GuardiansService } from './guardians.service';
 import { StudentsService } from './students.service';
 
 @ApiTags('Students')
@@ -104,6 +106,18 @@ export class StudentsController {
     return this.students.admit(organizationId, body, user);
   }
 
+  // Before 'students/:id', so "import" isn't read as an id.
+  @Post('students/import')
+  @RequirePermission('students.student.import')
+  @HttpCode(200)
+  importStudents(
+    @OrganizationId() organizationId: string,
+    @Body() body: ImportStudentsDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.importer.importStudents(organizationId, body, user);
+  }
+
   @Get('students/:id')
   @RequirePermission('students.student.view')
   get(
@@ -125,16 +139,52 @@ export class StudentsController {
     return this.students.update(organizationId, id, body, user);
   }
 
-  @Post('students/:id/status')
+  @Post('students/:id/leave')
   @RequirePermission('students.student.update')
   @HttpCode(200)
-  changeStatus(
+  leave(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: ChangeStatusDto,
+    @Body() body: LeaveDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.students.changeStatus(organizationId, id, body, user);
+    return this.students.leave(organizationId, id, body, user);
+  }
+
+  @Post('students/:id/readmit')
+  @RequirePermission('students.student.update')
+  @HttpCode(200)
+  readmit(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ReadmitDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.students.readmit(organizationId, id, body, user);
+  }
+
+  @Post('students/:id/change-section')
+  @RequirePermission('students.enrolment.transfer')
+  @HttpCode(200)
+  changeSection(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ChangeSectionDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.students.changeSection(organizationId, id, body, user);
+  }
+
+  @Post('students/:id/change-branch')
+  @RequirePermission('students.enrolment.transfer')
+  @HttpCode(200)
+  changeBranch(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ChangeBranchDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.students.changeBranch(organizationId, id, body, user);
   }
 
   @Delete('students/:id')
@@ -193,7 +243,7 @@ export class StudentsController {
     return this.guardians.remove(organizationId, id, guardianId, user);
   }
 
-  // --- Enrolments --------------------------------------------------------------------------------
+  // --- Placements --------------------------------------------------------------------------------
 
   @Post('students/:id/enrolments')
   @RequirePermission('students.student.update')
@@ -207,7 +257,7 @@ export class StudentsController {
   }
 
   @Patch('students/:id/enrolments/:enrolmentId')
-  @RequirePermission('students.student.view') // the service checks update / transfer at the campus
+  @RequirePermission('students.student.update')
   updateEnrolment(
     @OrganizationId() organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -218,7 +268,7 @@ export class StudentsController {
     return this.enrolments.update(organizationId, id, enrolmentId, body, user);
   }
 
-  // --- Promotion and shuffle ---------------------------------------------------------------------
+  // --- Promotion ---------------------------------------------------------------------------------
 
   @Get('promotions/preview')
   @RequirePermission('students.enrolment.promote')
@@ -245,10 +295,10 @@ export class StudentsController {
   @RequirePermission('students.enrolment.promote')
   listPromotions(
     @OrganizationId() organizationId: string,
-    @Query() query: CampusQuery,
+    @Query() query: BranchQuery,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.promotions.listRuns(organizationId, query.campusId, user);
+    return this.promotions.listRuns(organizationId, query.branchId, user);
   }
 
   @Post('promotions/:id/undo')
@@ -262,50 +312,15 @@ export class StudentsController {
     return this.promotions.undo(organizationId, id, user);
   }
 
-  @Post('enrolments/move')
-  @RequirePermission('students.enrolment.transfer')
-  @HttpCode(200)
-  moveStudents(
-    @OrganizationId() organizationId: string,
-    @Body() body: MoveStudentsDto,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.promotions.move(organizationId, body, user);
-  }
+  // --- Admission numbers -------------------------------------------------------------------------
 
-  // --- Campus transfer, import, numbering ---------------------------------------------------------
-
-  @Post('students/:id/transfer')
-  @RequirePermission('students.enrolment.transfer')
-  @HttpCode(200)
-  transferCampus(
-    @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: TransferCampusDto,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.students.transferCampus(organizationId, id, body, user);
-  }
-
-  @Post('students/import')
-  @RequirePermission('students.student.import')
-  @HttpCode(200)
-  importStudents(
-    @OrganizationId() organizationId: string,
-    @Body() body: ImportStudentsDto,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.importer.importStudents(organizationId, body, user);
-  }
-
-  @Put('institutions/:id/admission-numbering')
+  @Put('organization/admission-numbering')
   @RequirePermission('students.settings.update')
   setNumbering(
     @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: SetNumberingDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.importer.setNumbering(organizationId, id, body.pattern, user);
+    return this.importer.setNumbering(organizationId, body, user);
   }
 }

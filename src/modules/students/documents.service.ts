@@ -1,11 +1,11 @@
 /**
- * STUDENT DOCUMENTS (ADR-0023): document types per institution, and each student's documents.
+ * STUDENT DOCUMENTS (ADR-0023): the organization's document types, and each student's documents.
  *
- * Document types ("Transfer certificate", "Aadhaar copy", ...): per institution, managed with
- * "students.settings.update" there. A type can be REQUIRED (shown as missing until uploaded) and
+ * Document types ("Transfer certificate", "Aadhaar copy", ...): one list for the whole
+ * organization (ADR-0030), managed with "students.settings.update" for the whole organization. A type can be REQUIRED (shown as missing until uploaded) and
  * VISIBLE IN THE PORTAL (parents / students may see and download it).
  *
- * A student's documents, at the student's campus:
+ * A student's documents, at the student's branch:
  *   view / download   students.document.view
  *   upload            students.document.create
  *   verify / reject   students.document.update
@@ -14,7 +14,7 @@
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { CurrentUser } from '../../common/current-user';
-import { assertCan, can, canSomewhereIn } from '../../common/scope';
+import { assertCan, can, canSomewhere } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { FilesService, Upload } from '../files/files.service';
@@ -43,32 +43,25 @@ export class DocumentsService {
 
   // --- Document types ----------------------------------------------------------------------------
 
-  listTypes(organizationId: string, actor: CurrentUser, institutionId?: string) {
-    return this.prisma.forOrganization(organizationId, async (db) => {
-      const types = await db.documentType.findMany({
-        where: { organizationId, ...(institutionId && { institutionId }) },
+  listTypes(organizationId: string, actor: CurrentUser) {
+    if (
+      !canSomewhere(actor, 'students.document.view') &&
+      !canSomewhere(actor, 'students.settings.update')
+    ) {
+      return Promise.resolve([]);
+    }
+    return this.prisma.forOrganization(organizationId, (db) =>
+      db.documentType.findMany({
+        where: { organizationId },
         orderBy: { name: 'asc' },
-        include: {
-          institution: { select: { id: true, name: true } },
-          _count: { select: { documents: true } },
-        },
-      });
-      return types.filter(
-        (t) =>
-          canSomewhereIn(actor, 'students.document.view', t.institutionId) ||
-          canSomewhereIn(actor, 'students.settings.update', t.institutionId),
-      );
-    });
+        include: { _count: { select: { documents: true } } },
+      }),
+    );
   }
 
   createType(organizationId: string, dto: CreateDocumentTypeDto, actor: CurrentUser) {
-    const place = { institutionId: dto.institutionId };
-    assertCan(actor, 'students.settings.update', place);
+    assertCan(actor, 'students.settings.update', {});
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const institution = await db.institution.findFirst({
-        where: { id: dto.institutionId, organizationId },
-      });
-      if (!institution) throw new NotFoundException('Institution not found');
       const type = await db.documentType.create({
         data: { ...dto, name: dto.name.trim(), organizationId },
       });
@@ -76,7 +69,6 @@ export class DocumentsService {
         action: 'create',
         entity: 'document_type',
         entityId: type.id,
-        ...place,
         details: { name: type.name },
       });
       return type;
@@ -85,9 +77,8 @@ export class DocumentsService {
 
   updateType(organizationId: string, id: string, dto: UpdateDocumentTypeDto, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const existing = await this.findType(db, organizationId, id);
-      const place = { institutionId: existing.institutionId };
-      assertCan(actor, 'students.settings.update', place);
+      await this.findType(db, organizationId, id);
+      assertCan(actor, 'students.settings.update', {});
       const type = await db.documentType.update({
         where: { id },
         data: { ...dto, name: dto.name?.trim() },
@@ -96,7 +87,6 @@ export class DocumentsService {
         action: 'update',
         entity: 'document_type',
         entityId: id,
-        ...place,
         details: { ...dto },
       });
       return type;
@@ -106,8 +96,7 @@ export class DocumentsService {
   deleteType(organizationId: string, id: string, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const existing = await this.findType(db, organizationId, id);
-      const place = { institutionId: existing.institutionId };
-      assertCan(actor, 'students.settings.update', place);
+      assertCan(actor, 'students.settings.update', {});
       if ((await db.studentDocument.count({ where: { documentTypeId: id } })) > 0) {
         throw new BadRequestException(
           'Students have documents of this type; mark it "not in use" instead',
@@ -118,7 +107,6 @@ export class DocumentsService {
         action: 'delete',
         entity: 'document_type',
         entityId: id,
-        ...place,
         details: { name: existing.name },
       });
       return { deleted: true };
@@ -141,7 +129,7 @@ export class DocumentsService {
           orderBy: { createdAt: 'desc' },
         }),
         db.documentType.findMany({
-          where: { institutionId: student.institutionId, isRequired: true, isActive: true },
+          where: { organizationId, isRequired: true, isActive: true },
           select: { id: true, name: true },
         }),
       ]);
@@ -166,9 +154,9 @@ export class DocumentsService {
         const place = placeOf(student);
         assertCan(actor, 'students.document.create', place);
         const type = await db.documentType.findFirst({
-          where: { id: documentTypeId, institutionId: student.institutionId },
+          where: { id: documentTypeId, organizationId },
         });
-        if (!type) throw new BadRequestException("Choose one of the institution's document types");
+        if (!type) throw new BadRequestException("Choose one of the organization's document types");
         if (!type.isActive) throw new BadRequestException(`${type.name} is not in use any more`);
 
         const file = await this.files.save(db, organizationId, upload, actor);

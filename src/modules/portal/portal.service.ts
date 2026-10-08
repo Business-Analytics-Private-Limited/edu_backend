@@ -3,7 +3,7 @@
  * (CurrentUser.studentIds), read-only.
  *
  *   me()            who is logged in and their students (a parent: all their children)
- *   student(id)     one student's profile: name, admission no, campus, section, batch
+ *   student(id)     one student's profile: name, admission no, branch, current section
  *   attendance(id)  one student's attendance over a period (with the Attendance module)
  *
  * Any other student id gives 404, exactly as if it didn't exist.
@@ -11,6 +11,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { CurrentUser } from '../../common/current-user';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ClassTree } from '../academic/class-tree';
 import { percentage } from '../attendance/attendance.service';
 import { PortalRangeQuery } from './dto/portal.dto';
 
@@ -22,19 +23,34 @@ const STUDENT_FIELDS = {
   admissionNo: true,
   dateOfBirth: true,
   status: true,
-  institution: { select: { name: true } },
-  campus: { select: { name: true } },
-  batch: { select: { name: true, stage: true } },
+  organization: { select: { name: true } },
+  branch: { select: { name: true } },
   enrolments: {
-    orderBy: { academicYear: { startsOn: 'desc' as const } },
+    orderBy: [{ enrolledOn: 'desc' as const }, { createdAt: 'desc' as const }],
     take: 1,
-    select: {
-      rollNo: true,
-      academicYear: { select: { name: true } },
-      class: { select: { name: true, parent: { select: { name: true } } } },
-    },
+    select: { rollNo: true, classId: true, academicYear: { select: { name: true } } },
   },
 };
+
+/** The current placement as text ("Junior › MPC › JEE Mains › JEE-A"), instead of class ids. */
+function withPlacement<
+  T extends {
+    enrolments: { classId: string; rollNo: string | null; academicYear: { name: string } }[];
+  },
+>(tree: ClassTree, student: T) {
+  const { enrolments, ...rest } = student;
+  const current = enrolments[0];
+  return {
+    ...rest,
+    placement: current
+      ? {
+          academicYear: current.academicYear.name,
+          section: tree.label(current.classId),
+          rollNo: current.rollNo,
+        }
+      : null,
+  };
+}
 
 @Injectable()
 export class PortalService {
@@ -42,16 +58,19 @@ export class PortalService {
 
   me(actor: CurrentUser) {
     return this.prisma.forOrganization(actor.organizationId!, async (db) => {
-      const students = await db.student.findMany({
-        where: { id: { in: actor.studentIds } },
-        select: STUDENT_FIELDS,
-        orderBy: { fullName: 'asc' },
-      });
+      const [students, tree] = await Promise.all([
+        db.student.findMany({
+          where: { id: { in: actor.studentIds } },
+          select: STUDENT_FIELDS,
+          orderBy: { fullName: 'asc' },
+        }),
+        ClassTree.load(db, actor.organizationId!),
+      ]);
       return {
         name: actor.name,
         kind: actor.kind,
         attendance: actor.enabledModules.includes('attendance'),
-        students,
+        students: students.map((s) => withPlacement(tree, s)),
       };
     });
   }
@@ -73,7 +92,7 @@ export class PortalService {
         },
       });
       if (!student) throw new NotFoundException('Student not found');
-      return student;
+      return withPlacement(await ClassTree.load(db, actor.organizationId!), student);
     });
   }
 

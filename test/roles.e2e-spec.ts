@@ -56,7 +56,7 @@ describe('Predefined roles changed by an organization', () => {
       'Organization admin': false,
       Director: true,
       Principal: true,
-      'Campus admin': true,
+      'Branch admin': true,
       'Senior faculty': true,
       'Junior faculty': true,
       'DTP operator': true,

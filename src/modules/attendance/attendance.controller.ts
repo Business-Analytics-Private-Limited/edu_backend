@@ -1,14 +1,14 @@
 /**
  * THE ATTENDANCE MODULE (part 1): daily attendance per section, changes and corrections, the
  * daily overview, reports, settings. Works only when the Attendance module is switched on.
- * Every action is checked at the section's / student's campus (see the service).
+ * Every action is checked at the section's / student's branch (see the service).
  *
  *   GET  /api/v1/attendance/roster?classId=&date=             attendance.record.view
  *   POST /api/v1/attendance/markings                          attendance.record.mark (+ .correct for past days)
- *   GET  /api/v1/attendance/daily-summary?campusId=&date=     attendance.record.view
+ *   GET  /api/v1/attendance/daily-summary?branchId=&date=     attendance.record.view
  *   GET  /api/v1/attendance/section-report?classId=&from=&to= attendance.report.view
  *   GET  /api/v1/students/:id/attendance?from=&to=            attendance.record.view
- *   PUT  /api/v1/institutions/:id/attendance-settings         attendance.policy.update
+ *   PUT  /api/v1/organization/attendance-settings             attendance.policy.update (organization)
  */
 import {
   Body,
@@ -93,14 +93,13 @@ export class AttendanceController {
     return this.attendance.studentReport(organizationId, id, query, user);
   }
 
-  @Put('institutions/:id/attendance-settings')
+  @Put('organization/attendance-settings')
   @RequirePermission('attendance.policy.update')
   updateSettings(
     @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: AttendanceSettingsDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.attendance.updateSettings(organizationId, id, body, user);
+    return this.attendance.updateSettings(organizationId, body, user);
   }
 }

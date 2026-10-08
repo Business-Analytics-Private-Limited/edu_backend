@@ -1,18 +1,20 @@
 /**
  * ATTENDANCE: marking a section's register for a day, changes and corrections, the daily
- * overview of a campus, and reports.
+ * overview of a branch, and reports.
  *
- * Rules (ADR-0021):
+ * Rules (ADR-0021, ADR-0030):
  *   - attendance is marked per SECTION (a class of the last level) and DAY, at the section's
- *     campus ("attendance.record.mark");
+ *     branch ("attendance.record.mark");
+ *   - a section's register on a day = the students whose placement in that section covers that
+ *     day (a student who changed section on 15 July is in the old register until 14 July);
  *   - only on a working day (not a weekly off day, not a holiday), never in the future, inside
- *     an academic year that isn't closed, and not further back than the institution's correction
- *     window (default 7 days);
+ *     an academic year that isn't closed, and not further back than the organization's
+ *     correction window (default 7 days);
  *   - the first marking of a day covers every student of the section;
  *   - records are never overwritten: a change makes a new version pointing to the old one.
  *     Changing TODAY's attendance needs "mark"; changing a past day is a correction: it needs
  *     "attendance.record.correct" and a reason;
- *   - "today" is the date in the institution's time zone.
+ *   - "today" is the date in the organization's time zone.
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AttendanceStatus } from '@prisma/client';
@@ -36,7 +38,9 @@ import {
   todayIn,
   workingDay,
 } from './working-days';
-import { assertCampusInUse } from '../organization/places-in-use';
+import { ClassTree } from '../academic/class-tree';
+import { sectionLevel } from '../academic/presets';
+import { assertBranchInUse, findBranch, findOrganization } from '../organization/places-in-use';
 
 type Counts = Record<AttendanceStatus, number>;
 const emptyCounts = (): Counts => ({ PRESENT: 0, ABSENT: 0, LATE: 0, HALF_DAY: 0, ON_LEAVE: 0 });
@@ -83,7 +87,12 @@ export class AttendanceService {
       return {
         date: day,
         today: ctx.today,
-        section: { id: ctx.section.id, name: ctx.section.name, campusId: ctx.section.campusId },
+        section: {
+          id: ctx.section.id,
+          name: ctx.section.name,
+          label: ctx.label,
+          branchId: ctx.section.branchId,
+        },
         academicYear: ctx.year ? { id: ctx.year.id, name: ctx.year.name } : null,
         workingDay: ctx.working.working,
         reason: ctx.working.reason ?? null,
@@ -111,14 +120,14 @@ export class AttendanceService {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const ctx = await this.context(db, organizationId, dto.classId, dto.date);
       assertCan(actor, 'attendance.record.mark', ctx.place);
-      await assertCampusInUse(db, ctx.place.campusId);
+      await assertBranchInUse(db, ctx.place.branchId);
       const blocked = this.blockedReason(ctx);
       if (blocked) throw new BadRequestException(blocked);
       const beyondWindow =
-        dto.date < daysBefore(ctx.today, ctx.institution.attendanceCorrectionDays);
+        dto.date < daysBefore(ctx.today, ctx.organization.attendanceCorrectionDays);
       if (beyondWindow && !can(actor, 'attendance.policy.update', ctx.place)) {
         throw new BadRequestException(
-          `Days more than ${ctx.institution.attendanceCorrectionDays} day(s) back can no longer be marked or changed`,
+          `Days more than ${ctx.organization.attendanceCorrectionDays} day(s) back can no longer be marked or changed`,
         );
       }
 
@@ -160,8 +169,7 @@ export class AttendanceService {
 
       const base = {
         organizationId,
-        institutionId: ctx.section.institutionId,
-        campusId: ctx.section.campusId,
+        branchId: ctx.place.branchId,
         classId: ctx.section.id,
         academicYearId: ctx.year!.id,
         date: ctx.date,
@@ -201,7 +209,7 @@ export class AttendanceService {
           entityId: ctx.section.id,
           ...ctx.place,
           details: {
-            section: ctx.section.name,
+            section: ctx.label,
             date: dto.date,
             marked: additions.length,
             changed: changes.length,
@@ -213,64 +221,56 @@ export class AttendanceService {
     });
   }
 
-  // --- A campus's day at a glance --------------------------------------------------------------
+  // --- A branch's day at a glance --------------------------------------------------------------
 
   dailySummary(organizationId: string, query: DailySummaryQuery, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const campus = await db.campus.findFirst({
-        where: { id: query.campusId, organizationId },
-        include: { institution: true },
-      });
-      if (!campus) throw new NotFoundException('Campus not found');
-      const place = { institutionId: campus.institutionId, campusId: campus.id };
+      const branch = await findBranch(db, organizationId, query.branchId);
+      const place = { branchId: branch.id };
       if (
         !can(actor, 'attendance.record.view', place) &&
         !can(actor, 'attendance.record.mark', place)
       ) {
-        throw new NotFoundException('Campus not found');
+        throw new NotFoundException('Branch not found');
       }
+      const organization = await findOrganization(db, organizationId);
       const date = this.day(query.date);
-      const working = await workingDay(db, campus.institution, campus.id, date);
-      const year = await this.yearOn(db, campus.institutionId, date);
-      const levels = await db.classLevel.count({ where: { institutionId: campus.institutionId } });
-      const sections = await db.class.findMany({
-        where: { campusId: campus.id, level: levels, isActive: true },
-        include: { parent: { select: { name: true } } },
-        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      });
+      const working = await workingDay(db, organization, branch.id, date);
+      const year = await this.yearOn(db, organizationId, date);
+      const tree = await ClassTree.load(db, organizationId);
+      const sections = tree.classes.filter((c) => c.branchId === branch.id && c.isActive);
       const [enrolled, records] = await Promise.all([
         year
           ? db.enrolment.groupBy({
               by: ['classId'],
-              where: { academicYearId: year.id, campusId: campus.id, status: 'ACTIVE' },
+              where: { academicYearId: year.id, branchId: branch.id, ...coversDay(date) },
               _count: { _all: true },
             })
           : [],
         db.attendanceRecord.groupBy({
           by: ['classId', 'status'],
-          where: { campusId: campus.id, date, period: 0, isCurrent: true },
+          where: { branchId: branch.id, date, period: 0, isCurrent: true },
           _count: { _all: true },
         }),
       ]);
-      const rows = sections.map((section) => {
-        const counts = emptyCounts();
-        for (const r of records.filter((r) => r.classId === section.id))
-          counts[r.status] = r._count._all;
-        const markedCount = Object.values(counts).reduce((a, b) => a + b, 0);
-        return {
-          section: {
-            id: section.id,
-            name: section.parent ? `${section.parent.name} › ${section.name}` : section.name,
-          },
-          students: enrolled.find((e) => e.classId === section.id)?._count._all ?? 0,
-          marked: markedCount > 0,
-          counts,
-        };
-      });
+      const rows = sections
+        .map((section) => {
+          const counts = emptyCounts();
+          for (const r of records.filter((r) => r.classId === section.id))
+            counts[r.status] = r._count._all;
+          const markedCount = Object.values(counts).reduce((a, b) => a + b, 0);
+          return {
+            section: { id: section.id, name: tree.label(section.id) },
+            students: enrolled.find((e) => e.classId === section.id)?._count._all ?? 0,
+            marked: markedCount > 0,
+            counts,
+          };
+        })
+        .sort((a, b) => a.section.name.localeCompare(b.section.name));
       return {
         date: query.date,
-        today: todayIn(campus.institution.timeZone),
-        campus: { id: campus.id, name: campus.name },
+        today: todayIn(organization.timeZone),
+        branch: { id: branch.id, name: branch.name },
         academicYear: year ? { id: year.id, name: year.name } : null,
         workingDay: working.working,
         reason: working.reason ?? null,
@@ -285,13 +285,11 @@ export class AttendanceService {
   sectionReport(organizationId: string, query: SectionReportQuery, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const section = await this.findSection(db, organizationId, query.classId);
-      const place = { institutionId: section.institutionId, campusId: section.campusId };
+      const place = { branchId: section.branchId! };
       assertCan(actor, 'attendance.report.view', place);
       const { from, to } = this.range(query);
-      const institution = await db.institution.findUniqueOrThrow({
-        where: { id: section.institutionId },
-      });
-      const today = this.day(todayIn(institution.timeZone));
+      const organization = await findOrganization(db, organizationId);
+      const today = this.day(todayIn(organization.timeZone));
       const until = to < today ? to : today;
 
       const records = await db.attendanceRecord.findMany({
@@ -305,7 +303,12 @@ export class AttendanceService {
           id: true,
           fullName: true,
           admissionNo: true,
-          enrolments: { where: { classId: section.id }, select: { rollNo: true }, take: 1 },
+          enrolments: {
+            where: { classId: section.id },
+            orderBy: { enrolledOn: 'desc' },
+            select: { rollNo: true },
+            take: 1,
+          },
         },
       });
       const rows = students
@@ -329,9 +332,12 @@ export class AttendanceService {
 
       const markedDays = new Set(records.map((r) => isoDay(r.date))).size;
       const workingDays =
-        from <= until ? await countWorkingDays(db, institution, section.campusId, from, until) : 0;
+        from <= until
+          ? await countWorkingDays(db, organization, section.branchId!, from, until)
+          : 0;
+      const tree = await ClassTree.load(db, organizationId);
       return {
-        section: { id: section.id, name: section.name },
+        section: { id: section.id, name: tree.label(section.id) },
         from: query.from,
         to: query.to,
         workingDays,
@@ -347,7 +353,7 @@ export class AttendanceService {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const student = await db.student.findFirst({ where: { id: studentId, organizationId } });
       if (!student) throw new NotFoundException('Student not found');
-      const place = { institutionId: student.institutionId, campusId: student.campusId };
+      const place = { branchId: student.branchId };
       if (!can(actor, 'attendance.record.view', place))
         throw new NotFoundException('Student not found');
       const { from, to } = this.range(query);
@@ -382,32 +388,23 @@ export class AttendanceService {
 
   // --- Settings ----------------------------------------------------------------------------------
 
-  updateSettings(
-    organizationId: string,
-    institutionId: string,
-    dto: AttendanceSettingsDto,
-    actor: CurrentUser,
-  ) {
-    const place = { institutionId };
-    assertCan(actor, 'attendance.policy.update', place);
+  /** The organization's time zone and correction window ("attendance.policy.update" everywhere). */
+  updateSettings(organizationId: string, dto: AttendanceSettingsDto, actor: CurrentUser) {
+    assertCan(actor, 'attendance.policy.update', {});
     if (dto.timeZone && !isTimeZone(dto.timeZone)) {
       throw new BadRequestException(`Unknown time zone "${dto.timeZone}" (e.g. Asia/Kolkata)`);
     }
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const before = await db.institution.findFirst({
-        where: { id: institutionId, organizationId },
-      });
-      if (!before) throw new NotFoundException('Institution not found');
-      const after = await db.institution.update({
-        where: { id: institutionId },
+      const before = await findOrganization(db, organizationId);
+      const after = await db.organization.update({
+        where: { id: organizationId },
         data: { timeZone: dto.timeZone, attendanceCorrectionDays: dto.correctionDays },
         select: { id: true, timeZone: true, attendanceCorrectionDays: true },
       });
       await this.audit.log(db, actor, {
         action: 'update',
         entity: 'attendance_settings',
-        entityId: institutionId,
-        ...place,
+        entityId: organizationId,
         details: {
           before: { timeZone: before.timeZone, correctionDays: before.attendanceCorrectionDays },
           after: { timeZone: after.timeZone, correctionDays: after.attendanceCorrectionDays },
@@ -422,44 +419,38 @@ export class AttendanceService {
   /** Everything needed to mark one section on one day. */
   private async context(db: Db, organizationId: string, classId: string, day: string) {
     const section = await this.findSection(db, organizationId, classId);
-    const institution = await db.institution.findUniqueOrThrow({
-      where: { id: section.institutionId },
-    });
+    const organization = await findOrganization(db, organizationId);
     const date = this.day(day);
-    const [working, year] = await Promise.all([
-      workingDay(db, institution, section.campusId, date),
-      this.yearOn(db, institution.id, date),
+    const [working, year, tree] = await Promise.all([
+      workingDay(db, organization, section.branchId!, date),
+      this.yearOn(db, organizationId, date),
+      ClassTree.load(db, organizationId),
     ]);
     return {
       section,
-      institution,
+      label: tree.label(section.id),
+      organization,
       date,
       day,
-      today: todayIn(institution.timeZone),
+      today: todayIn(organization.timeZone),
       working,
       year,
-      place: { institutionId: section.institutionId, campusId: section.campusId },
+      place: { branchId: section.branchId! },
     };
   }
 
   private blockedReason(ctx: Awaited<ReturnType<AttendanceService['context']>>): string | null {
     if (ctx.day > ctx.today) return 'Attendance cannot be marked for a future day';
     if (!ctx.working.working) return `Not a working day: ${ctx.working.reason}`;
-    if (!ctx.year) return 'No academic year of the institution covers this day';
+    if (!ctx.year) return 'No academic year covers this day';
     if (ctx.year.status === 'CLOSED') return `The academic year ${ctx.year.name} is closed`;
     return null;
   }
 
-  /** The students of a section in a year (not those who left), in roll number order. */
+  /** The students placed in a section on a day (ADR-0030), in roll number order. */
   private async studentsOf(db: Db, classId: string, academicYearId: string, date: Date) {
     const enrolments = await db.enrolment.findMany({
-      where: {
-        classId,
-        academicYearId,
-        status: { not: 'LEFT' },
-        // Not admitted yet that day: not on the register.
-        student: { admissionDate: { lte: date } },
-      },
+      where: { classId, academicYearId, ...coversDay(date) },
       include: { student: { select: { id: true, fullName: true, admissionNo: true } } },
     });
     return enrolments
@@ -479,16 +470,16 @@ export class AttendanceService {
   private async findSection(db: Db, organizationId: string, classId: string) {
     const section = await db.class.findFirst({ where: { id: classId, organizationId } });
     if (!section) throw new NotFoundException('Section not found');
-    const levels = await db.classLevel.count({ where: { institutionId: section.institutionId } });
-    if (section.level !== levels) {
-      throw new BadRequestException('Attendance is marked per section (a class of the last level)');
+    const organization = await findOrganization(db, organizationId);
+    if (section.level !== sectionLevel(organization.type) || !section.branchId) {
+      throw new BadRequestException('Attendance is marked per section');
     }
     return section;
   }
 
-  private yearOn(db: Db, institutionId: string, date: Date) {
+  private yearOn(db: Db, organizationId: string, date: Date) {
     return db.academicYear.findFirst({
-      where: { institutionId, startsOn: { lte: date }, endsOn: { gte: date } },
+      where: { organizationId, startsOn: { lte: date }, endsOn: { gte: date } },
     });
   }
 
@@ -507,4 +498,12 @@ export class AttendanceService {
     }
     return { from, to };
   }
+}
+
+/** Placements that cover a day: started on or before it, and not ended before it. */
+function coversDay(date: Date) {
+  return {
+    enrolledOn: { lte: date },
+    OR: [{ endedOn: null }, { endedOn: { gte: date } }],
+  };
 }

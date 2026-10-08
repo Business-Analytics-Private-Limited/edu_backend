@@ -1,8 +1,8 @@
 /**
- * STUDENT DOCUMENTS and their types (ADR-0023). Checked at the student's campus / institution in
+ * STUDENT DOCUMENTS and their types (ADR-0023). Checked at the student's branch (types: the organization) in
  * DocumentsService.
  *
- *   GET    /api/v1/document-types?institutionId=                 students.document.view
+ *   GET    /api/v1/document-types                                students.document.view
  *   POST   /api/v1/document-types                                students.settings.update
  *   PATCH  /api/v1/document-types/:id                            students.settings.update
  *   DELETE /api/v1/document-types/:id                            students.settings.update
@@ -25,7 +25,6 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
-  Query,
   Res,
   StreamableFile,
   UploadedFile,
@@ -41,7 +40,6 @@ import { MAX_FILE_BYTES, Upload } from '../files/files.service';
 import { DocumentsService } from './documents.service';
 import {
   CreateDocumentTypeDto,
-  DocumentTypeQuery,
   ReviewDocumentDto,
   UpdateDocumentTypeDto,
   UploadDocumentDto,
@@ -74,12 +72,8 @@ export class DocumentsController {
 
   @Get('document-types')
   @RequirePermission('students.document.view')
-  listTypes(
-    @OrganizationId() organizationId: string,
-    @Query() query: DocumentTypeQuery,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.documents.listTypes(organizationId, user, query.institutionId);
+  listTypes(@OrganizationId() organizationId: string, @CurrentUser() user: CurrentUserType) {
+    return this.documents.listTypes(organizationId, user);
   }
 
   @Post('document-types')

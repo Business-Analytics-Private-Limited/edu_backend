@@ -1,6 +1,6 @@
 /**
  * The organization's staff users. Each user has roles, each at a place (whole organization,
- * one institution or one campus); see users.service.ts for the rules.
+ * or one branch); see users.service.ts for the rules.
  *
  *   GET    /api/v1/users?search=&status=&page=&pageSize=    access.user.view
  *   POST   /api/v1/users                                    access.user.create

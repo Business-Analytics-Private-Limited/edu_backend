@@ -5,7 +5,7 @@
  * adding the second child's mother links the existing record instead of a copy. Changing a
  * guardian's name or phone therefore changes it for all their children.
  *
- * Rules: changing a student's guardians needs "students.student.update" at the student's campus;
+ * Rules: changing a student's guardians needs "students.student.update" at the student's branch;
  * one guardian per student is the PRIMARY contact; a guardian no longer linked to any student
  * is removed.
  */
@@ -16,7 +16,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { CurrentUser } from '../../common/current-user';
-import { assertCan, reachOf } from '../../common/scope';
+import { assertCan, inReach, reachOf } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { GuardianDto, UpdateGuardianDto } from './dto/student.dto';
@@ -39,13 +39,7 @@ export class GuardiansService {
           students: {
             include: {
               student: {
-                select: {
-                  id: true,
-                  fullName: true,
-                  admissionNo: true,
-                  campusId: true,
-                  institutionId: true,
-                },
+                select: { id: true, fullName: true, admissionNo: true, branchId: true },
               },
             },
           },
@@ -56,11 +50,8 @@ export class GuardiansService {
       return guardians
         .map((g) => ({
           ...g,
-          students: g.students.filter(
-            ({ student }) =>
-              reach.everywhere ||
-              reach.campusIds.includes(student.campusId) ||
-              reach.institutionIds.includes(student.institutionId),
+          students: g.students.filter(({ student }) =>
+            inReach(reach, { branchId: student.branchId }),
           ),
         }))
         .filter((g) => g.students.length > 0);

@@ -1,50 +1,54 @@
 /**
- * STUDENTS: admission, the list, the profile, status changes, deleting a mistake.
+ * STUDENTS: admission, the list, the profile, leaving and re-admission, section and branch
+ * changes, deleting a mistake (ADR-0020, ADR-0030).
  *
- * A student belongs to an institution and studies at one of its CAMPUSES; that campus is the
- * student's place (ADR-0018): a Campus admin sees and manages the students of their campus,
- * a Principal those of their institution. Guardians and enrolments are in their own services.
+ * A student studies at one BRANCH; that branch is the student's place: a Branch admin sees and
+ * manages the students of their branch, organization-wide roles (Director ...) see everyone.
+ * Guardians and placing a student in a year are in their own services.
  *
  * Rules:
- *   - the admission number is unique in the institution; left empty, it is the next number of
- *     the institution's pattern (admission-numbers.ts);
- *   - a student can move to another campus of the same institution ("students.enrolment.transfer"
- *     at BOTH campuses); their current section moves with them;
- *   - a batch must belong to the student's institution;
- *   - placing a student needs an academic year of the institution that isn't closed, and a
- *     section (a class of the LAST level) on the student's campus (see placement.ts);
- *   - every status change is kept in the status history with its date and reason; leaving
- *     (transferred, discontinued, alumni) also closes the student's active enrolment.
+ *   - admission numbers: AUTOMATIC from the organization's pattern, or MANUAL (typed); unique in
+ *     the organization (admission-numbers.ts);
+ *   - CURRENT students are ACTIVE; OUTGOING students (TRANSFERRED, DISCONTINUED, COMPLETED) are
+ *     kept in full but hidden from current lists, registers and promotion, and lose their portal
+ *     login. They can be re-admitted;
+ *   - a placement (enrolment) is never overwritten: a section or branch change ends it the day
+ *     before the change and starts a new one, so the timeline and attendance stay right;
+ *   - section and branch changes are made for one student, from the profile
+ *     ("students.enrolment.transfer"; for a branch change at BOTH branches).
  */
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { paginated, toSkipTake } from '../../common/pagination';
 import { assertCan } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
+import { ClassTree } from '../academic/class-tree';
 import { AuditService } from '../audit/audit.service';
 import { FilesService } from '../files/files.service';
-import { nextAdmissionNo } from './admission-numbers';
+import { assertBranchInUse, findBranch, findOrganization } from '../organization/places-in-use';
+import { admissionNumberFor } from './admission-numbers';
 import {
   AdmitStudentDto,
-  ChangeStatusDto,
+  ChangeBranchDto,
+  ChangeSectionDto,
+  LeaveDto,
   ListStudentsQuery,
-  TransferCampusDto,
+  ReadmitDto,
   UpdateStudentDto,
 } from './dto/student.dto';
 import { GuardiansService } from './guardians.service';
 import {
-  checkBatch,
   checkPlacement,
-  descendantClassIds,
-  findCampus,
+  closePortalLogins,
+  dayBefore,
+  effectiveDay,
   findVisibleStudent,
   placeOf,
   visibleStudentsWhere,
 } from './placement';
-import { assertCampusInUse } from '../organization/places-in-use';
 
-/** What the list shows of each student. */
+/** What the list shows of each student (the placement label is added from the class tree). */
 const LIST_FIELDS = {
   id: true,
   admissionNo: true,
@@ -53,15 +57,15 @@ const LIST_FIELDS = {
   gender: true,
   phone: true,
   status: true,
-  campus: { select: { id: true, name: true } },
-  batch: { select: { id: true, name: true, stage: true } },
+  branch: { select: { id: true, name: true } },
   enrolments: {
-    orderBy: { academicYear: { startsOn: 'desc' } },
+    orderBy: [{ enrolledOn: 'desc' }, { createdAt: 'desc' }],
     take: 1,
     select: {
+      classId: true,
       rollNo: true,
+      status: true,
       academicYear: { select: { id: true, name: true } },
-      class: { select: { id: true, name: true, parent: { select: { name: true } } } },
     },
   },
 } satisfies Prisma.StudentSelect;
@@ -75,18 +79,35 @@ export class StudentsService {
     private readonly files: FilesService,
   ) {}
 
+  /**
+   * Current students (default), outgoing ones, or all; filtered by branch, by any class of the
+   * structure (a year, group, stream ... in every branch, or one section), and by year.
+   */
   list(organizationId: string, query: ListStudentsQuery, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const enrolmentFilter: Prisma.EnrolmentWhereInput = {
-        ...(query.academicYearId && { academicYearId: query.academicYearId }),
-        ...(query.classId && { classId: { in: await descendantClassIds(db, query.classId) } }),
-      };
+      const tree = await ClassTree.load(db, organizationId);
+      const show = query.show ?? 'current';
+      const statusFilter: Prisma.StudentWhereInput = query.status
+        ? { status: query.status }
+        : show === 'current'
+          ? { status: 'ACTIVE' }
+          : show === 'outgoing'
+            ? { status: { not: 'ACTIVE' } }
+            : {};
+      const placement: Prisma.EnrolmentWhereInput | null =
+        query.classId || query.academicYearId
+          ? {
+              ...(query.classId && { classId: { in: tree.below(query.classId) } }),
+              ...(query.academicYearId && { academicYearId: query.academicYearId }),
+              // Current students: where they are NOW; outgoing: where they ever were.
+              ...(show === 'current' && !query.status && { status: 'ACTIVE' }),
+            }
+          : null;
       const where: Prisma.StudentWhereInput = {
         ...visibleStudentsWhere(organizationId, actor),
-        ...(query.campusId && { campusId: query.campusId }),
-        ...(query.batchId && { batchId: query.batchId }),
-        ...(query.status && { status: query.status }),
-        ...((query.classId || query.academicYearId) && { enrolments: { some: enrolmentFilter } }),
+        ...statusFilter,
+        ...(query.branchId && { branchId: query.branchId }),
+        ...(placement && { enrolments: { some: placement } }),
         ...(query.search && {
           OR: [
             { fullName: { contains: query.search, mode: 'insensitive' } },
@@ -105,49 +126,66 @@ export class StudentsService {
         }),
         db.student.count({ where }),
       ]);
-      return paginated(items, total, query);
+      return paginated(
+        items.map(({ enrolments, ...student }) => ({
+          ...student,
+          placement: enrolments[0]
+            ? {
+                academicYear: enrolments[0].academicYear,
+                section: tree.label(enrolments[0].classId),
+                rollNo: enrolments[0].rollNo,
+                status: enrolments[0].status,
+              }
+            : null,
+        })),
+        total,
+        query,
+      );
     });
   }
 
   get(organizationId: string, id: string, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
       await findVisibleStudent(db, organizationId, id, actor);
-      return this.profile(db, id);
+      return this.profile(db, organizationId, id);
     });
   }
 
   /** Admission: the student, and optionally their first section and guardians, all at once. */
   admit(organizationId: string, dto: AdmitStudentDto, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const campus = await findCampus(db, organizationId, dto.campusId);
-      const place = { institutionId: campus.institutionId, campusId: campus.id };
+      const branch = await findBranch(db, organizationId, dto.branchId);
+      const place = { branchId: branch.id };
       assertCan(actor, 'students.student.create', place);
-      await assertCampusInUse(db, campus.id);
-      if (dto.batchId) await checkBatch(db, campus.institutionId, dto.batchId);
-      if (dto.enrolment) await checkPlacement(db, place, dto.enrolment);
+      await assertBranchInUse(db, branch.id);
+      if (dto.enrolment) await checkPlacement(db, organizationId, branch.id, dto.enrolment);
 
-      const { enrolment, guardians, campusId, ...profile } = dto;
-      const admissionNo =
-        dto.admissionNo ??
-        (await nextAdmissionNo(
-          db,
-          await db.institution.findUniqueOrThrow({ where: { id: campus.institutionId } }),
-          new Date(dto.admissionDate),
-        ));
+      // With AUTOMATIC numbering, a typed number is ignored.
+      const { enrolment, guardians, branchId, admissionNo: typed, ...profile } = dto;
+      const organization = await findOrganization(db, organizationId);
+      const admissionDate = new Date(dto.admissionDate);
+      const admissionNo = await admissionNumberFor(
+        db,
+        { ...organization, organizationId },
+        branch,
+        admissionDate,
+        typed,
+      );
+      await this.checkAdmissionNoFree(db, organizationId, admissionNo);
+
       const student = await db.student.create({
         data: {
           ...profile,
           admissionNo,
           organizationId,
-          institutionId: campus.institutionId,
-          campusId,
-          admissionDate: new Date(dto.admissionDate),
+          branchId,
+          admissionDate,
           dateOfBirth: new Date(dto.dateOfBirth),
           statusChanges: {
             create: {
               organizationId,
               toStatus: 'ACTIVE',
-              effectiveOn: new Date(dto.admissionDate),
+              effectiveOn: admissionDate,
               reason: 'Admission',
               changedBy: actor.id,
             },
@@ -156,12 +194,12 @@ export class StudentsService {
             enrolments: {
               create: {
                 organizationId,
-                institutionId: campus.institutionId,
-                campusId,
+                branchId,
                 academicYearId: enrolment.academicYearId,
                 classId: enrolment.classId,
                 rollNo: enrolment.rollNo,
-                enrolledOn: new Date(dto.admissionDate),
+                enrolledOn: admissionDate,
+                reason: 'Admission',
               },
             },
           }),
@@ -177,7 +215,7 @@ export class StudentsService {
         ...place,
         details: { admissionNo: student.admissionNo, fullName: student.fullName },
       });
-      return this.profile(db, student.id);
+      return this.profile(db, organizationId, student.id);
     });
   }
 
@@ -186,7 +224,9 @@ export class StudentsService {
       const existing = await findVisibleStudent(db, organizationId, id, actor);
       const place = placeOf(existing);
       assertCan(actor, 'students.student.update', place);
-      if (dto.batchId) await checkBatch(db, existing.institutionId, dto.batchId);
+      if (dto.admissionNo && dto.admissionNo !== existing.admissionNo) {
+        await this.checkAdmissionNoFree(db, organizationId, dto.admissionNo);
+      }
       await db.student.update({
         where: { id },
         data: {
@@ -201,17 +241,35 @@ export class StudentsService {
         ...place,
         details: { ...dto },
       });
-      return this.profile(db, id);
+      return this.profile(db, organizationId, id);
     });
   }
 
-  changeStatus(organizationId: string, id: string, dto: ChangeStatusDto, actor: CurrentUser) {
+  /**
+   * The student leaves (transferred, discontinued, or completed): they become OUTGOING. Their
+   * current placement ends on that day, and their portal login (and a parent's, if that parent
+   * has no other current child) stops working.
+   */
+  leave(organizationId: string, id: string, dto: LeaveDto, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const existing = await findVisibleStudent(db, organizationId, id, actor);
       const place = placeOf(existing);
       assertCan(actor, 'students.student.update', place);
-      if (existing.status === dto.status) {
-        throw new BadRequestException(`The student is already ${dto.status.toLowerCase()}`);
+      if (existing.status !== 'ACTIVE') {
+        throw new BadRequestException('The student has already left');
+      }
+      const day = effectiveDay(dto.effectiveOn, existing.admissionDate);
+      const current = await db.enrolment.findFirst({ where: { studentId: id, status: 'ACTIVE' } });
+      if (current) {
+        if (day < current.enrolledOn) {
+          throw new BadRequestException(
+            `The student is in their section since ${isoDay(current.enrolledOn)}; choose that day or later`,
+          );
+        }
+        await db.enrolment.update({
+          where: { id: current.id },
+          data: { status: dto.status === 'COMPLETED' ? 'COMPLETED' : 'LEFT', endedOn: day },
+        });
       }
       await db.student.update({ where: { id }, data: { status: dto.status } });
       await db.studentStatusChange.create({
@@ -220,90 +278,139 @@ export class StudentsService {
           studentId: id,
           fromStatus: existing.status,
           toStatus: dto.status,
-          effectiveOn: new Date(dto.effectiveOn),
+          effectiveOn: day,
           reason: dto.reason,
+          destination: dto.destination,
           changedBy: actor.id,
         },
       });
-      // Leaving ends the current enrolment (back to ACTIVE doesn't reopen it automatically).
-      if (dto.status !== 'ACTIVE') {
-        await db.enrolment.updateMany({
-          where: { studentId: id, status: 'ACTIVE' },
-          data: { status: dto.status === 'ALUMNI' ? 'COMPLETED' : 'LEFT' },
-        });
-      }
+      const logins = await closePortalLogins(db, id);
       await this.audit.log(db, actor, {
-        action: 'change status',
+        action: 'leave',
         entity: 'student',
         entityId: id,
         ...place,
-        details: { from: existing.status, to: dto.status, reason: dto.reason },
+        details: {
+          status: dto.status,
+          effectiveOn: dto.effectiveOn,
+          reason: dto.reason,
+          destination: dto.destination,
+          portalLoginsClosed: logins,
+        },
       });
-      return this.profile(db, id);
+      return this.profile(db, organizationId, id);
+    });
+  }
+
+  /** An outgoing student comes back: current again. Place them in a section afterwards. */
+  readmit(organizationId: string, id: string, dto: ReadmitDto, actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      const existing = await findVisibleStudent(db, organizationId, id, actor);
+      const place = placeOf(existing);
+      assertCan(actor, 'students.student.update', place);
+      await assertBranchInUse(db, existing.branchId);
+      if (existing.status === 'ACTIVE') {
+        throw new BadRequestException('The student is already a current student');
+      }
+      await db.student.update({ where: { id }, data: { status: 'ACTIVE' } });
+      await db.studentStatusChange.create({
+        data: {
+          organizationId,
+          studentId: id,
+          fromStatus: existing.status,
+          toStatus: 'ACTIVE',
+          effectiveOn: effectiveDay(dto.effectiveOn),
+          reason: dto.reason ?? 'Re-admitted',
+          changedBy: actor.id,
+        },
+      });
+      await this.audit.log(db, actor, {
+        action: 'readmit',
+        entity: 'student',
+        entityId: id,
+        ...place,
+        details: { from: existing.status, effectiveOn: dto.effectiveOn, reason: dto.reason },
+      });
+      return this.profile(db, organizationId, id);
     });
   }
 
   /**
-   * Moves a student to another campus of the same institution. A current section (in a year
-   * that isn't closed) moves to `toSectionId` on the new campus; its roll number is cleared.
+   * Another section of the same branch (e.g. Regular -> JEE Mains, or JEE-A -> JEE-B) from a day:
+   * the current placement ends the day before, a new one starts.
    */
-  transferCampus(organizationId: string, id: string, dto: TransferCampusDto, actor: CurrentUser) {
+  changeSection(organizationId: string, id: string, dto: ChangeSectionDto, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const student = await findVisibleStudent(db, organizationId, id, actor);
-      const from = placeOf(student);
-      const toCampus = await findCampus(db, organizationId, dto.toCampusId);
-      await assertCampusInUse(db, toCampus.id);
-      const to = { institutionId: toCampus.institutionId, campusId: toCampus.id };
-      if (toCampus.institutionId !== student.institutionId) {
-        throw new BadRequestException(
-          'A student can only move to a campus of the same institution; for another institution, admit them there',
-        );
-      }
-      if (toCampus.id === student.campusId) {
-        throw new BadRequestException('The student is already at this campus');
-      }
-      assertCan(actor, 'students.enrolment.transfer', from);
-      assertCan(actor, 'students.enrolment.transfer', to);
-
-      const current = await db.enrolment.findFirst({
-        where: { studentId: id, status: 'ACTIVE', academicYear: { status: { not: 'CLOSED' } } },
+      const place = placeOf(student);
+      assertCan(actor, 'students.enrolment.transfer', place);
+      const { current, from } = await this.moveCurrent(
+        db,
+        organizationId,
+        student,
+        student.branchId,
+        dto,
+      );
+      await this.audit.log(db, actor, {
+        action: 'change section',
+        entity: 'student',
+        entityId: id,
+        ...place,
+        details: { from, to: current.label, effectiveOn: dto.effectiveOn, reason: dto.reason },
       });
-      if (current) {
-        if (!dto.toSectionId) {
-          throw new BadRequestException(
-            'The student has a current section: choose their section on the new campus',
-          );
-        }
-        await checkPlacement(db, to, {
-          academicYearId: current.academicYearId,
-          classId: dto.toSectionId,
-        });
-        await db.enrolment.update({
-          where: { id: current.id },
-          data: { campusId: toCampus.id, classId: dto.toSectionId, rollNo: null },
-        });
-      }
-      await db.student.update({ where: { id }, data: { campusId: toCampus.id } });
-      // Logged at both campuses, so both campus admins see it.
-      for (const place of [from, to]) {
-        await this.audit.log(db, actor, {
-          action: 'transfer campus',
-          entity: 'student',
-          entityId: id,
-          ...place,
-          details: { from: from.campusId, to: to.campusId, reason: dto.reason },
-        });
-      }
-      return this.profile(db, id);
+      return this.profile(db, organizationId, id);
     });
   }
 
-  /** For mistakes only (normal exits use a status). Removes enrolments, links and history too. */
+  /** Another branch, and a section there, from a day (the history stays at the old branch). */
+  changeBranch(organizationId: string, id: string, dto: ChangeBranchDto, actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      const student = await findVisibleStudent(db, organizationId, id, actor);
+      const toBranch = await findBranch(db, organizationId, dto.branchId);
+      if (toBranch.id === student.branchId) {
+        throw new BadRequestException('The student is already at this branch');
+      }
+      const from = placeOf(student);
+      const to = { branchId: toBranch.id };
+      assertCan(actor, 'students.enrolment.transfer', from);
+      assertCan(actor, 'students.enrolment.transfer', to);
+      if (student.status !== 'ACTIVE') {
+        throw new BadRequestException('Only a current student can change branch');
+      }
+      const moved = await this.moveCurrent(db, organizationId, student, toBranch.id, dto);
+      await db.student.update({ where: { id }, data: { branchId: toBranch.id } });
+      // Logged at both branches, so both branch admins see it.
+      for (const branchPlace of [from, to]) {
+        await this.audit.log(db, actor, {
+          action: 'change branch',
+          entity: 'student',
+          entityId: id,
+          ...branchPlace,
+          details: {
+            fromBranch: from.branchId,
+            toBranch: to.branchId,
+            from: moved.from,
+            to: moved.current.label,
+            effectiveOn: dto.effectiveOn,
+            reason: dto.reason,
+          },
+        });
+      }
+      return this.profile(db, organizationId, id);
+    });
+  }
+
+  /** For mistakes only (leaving uses "leave"). Removes enrolments, links and history too. */
   async delete(organizationId: string, id: string, actor: CurrentUser) {
     const storageKeys = await this.prisma.forOrganization(organizationId, async (db) => {
       const existing = await findVisibleStudent(db, organizationId, id, actor);
       const place = placeOf(existing);
       assertCan(actor, 'students.student.delete', place);
+      if ((await db.attendanceRecord.count({ where: { studentId: id } })) > 0) {
+        throw new BadRequestException(
+          'This student has attendance on record; mark them as left instead',
+        );
+      }
       const files = (
         await db.studentDocument.findMany({ where: { studentId: id }, select: { file: true } })
       ).map((d) => d.file);
@@ -331,33 +438,115 @@ export class StudentsService {
     return { deleted: true };
   }
 
-  /** The full profile: details, campus, batch, guardians, enrolments, status history. */
-  private profile(db: Db, id: string) {
-    return db.student.findUniqueOrThrow({
-      where: { id },
-      include: {
-        institution: { select: { id: true, name: true } },
-        campus: { select: { id: true, name: true } },
-        batch: { select: { id: true, name: true, stage: true } },
-        guardians: {
-          include: {
-            guardian: {
-              include: { login: { select: { id: true, email: true, status: true } } },
+  // --- Helpers ---------------------------------------------------------------------------------
+
+  /**
+   * Ends the student's current placement the day before `dto.effectiveOn` and starts a new one in
+   * `dto.classId` (a section of `branchId`), in the same academic year. On the placement's own
+   * first day it is simply corrected instead (nothing happened in the old section yet).
+   */
+  private async moveCurrent(
+    db: Db,
+    organizationId: string,
+    student: { id: string; status: string },
+    branchId: string,
+    dto: ChangeSectionDto,
+  ) {
+    if (student.status !== 'ACTIVE') {
+      throw new BadRequestException('Only a current student can change section');
+    }
+    const current = await db.enrolment.findFirst({
+      where: { studentId: student.id, status: 'ACTIVE' },
+    });
+    if (!current) {
+      throw new BadRequestException('The student has no current section; place them in one first');
+    }
+    if (current.classId === dto.classId) {
+      throw new BadRequestException('The student is already in this section');
+    }
+    const { section } = await checkPlacement(db, organizationId, branchId, {
+      academicYearId: current.academicYearId,
+      classId: dto.classId,
+    });
+    const day = effectiveDay(dto.effectiveOn, current.enrolledOn);
+    const tree = await ClassTree.load(db, organizationId);
+    const from = tree.label(current.classId);
+
+    if (day.getTime() === current.enrolledOn.getTime()) {
+      await db.enrolment.update({
+        where: { id: current.id },
+        data: { branchId, classId: section.id, rollNo: dto.rollNo ?? null, reason: dto.reason },
+      });
+    } else {
+      await db.enrolment.update({
+        where: { id: current.id },
+        data: { status: 'MOVED', endedOn: dayBefore(day) },
+      });
+      await db.enrolment.create({
+        data: {
+          organizationId,
+          studentId: student.id,
+          academicYearId: current.academicYearId,
+          branchId,
+          classId: section.id,
+          rollNo: dto.rollNo,
+          enrolledOn: day,
+          reason: dto.reason,
+        },
+      });
+    }
+    return { from, current: { label: tree.label(section.id) } };
+  }
+
+  private async checkAdmissionNoFree(db: Db, organizationId: string, admissionNo: string) {
+    if (await db.student.findFirst({ where: { organizationId, admissionNo } })) {
+      throw new ConflictException(`Admission number ${admissionNo} is already used`);
+    }
+  }
+
+  /**
+   * The full profile: details, branch, guardians, logins, every placement (with its place in the
+   * structure, oldest last) and the status history; the screen draws the timeline from them.
+   */
+  private async profile(db: Db, organizationId: string, id: string) {
+    const [student, tree] = await Promise.all([
+      db.student.findUniqueOrThrow({
+        where: { id },
+        include: {
+          branch: { select: { id: true, name: true, status: true } },
+          guardians: {
+            include: {
+              guardian: {
+                include: { login: { select: { id: true, email: true, status: true } } },
+              },
+            },
+            orderBy: { isPrimary: 'desc' },
+          },
+          // The student's own portal login, if any.
+          login: { select: { id: true, email: true, status: true } },
+          enrolments: {
+            orderBy: [{ enrolledOn: 'desc' }, { createdAt: 'desc' }],
+            include: {
+              academicYear: { select: { id: true, name: true, status: true } },
+              branch: { select: { id: true, name: true } },
             },
           },
-          orderBy: { isPrimary: 'desc' },
+          statusChanges: { orderBy: [{ effectiveOn: 'desc' }, { changedAt: 'desc' }] },
         },
-        // The student's own portal login, if any.
-        login: { select: { id: true, email: true, status: true } },
-        enrolments: {
-          orderBy: { academicYear: { startsOn: 'desc' } },
-          include: {
-            academicYear: { select: { id: true, name: true, status: true } },
-            class: { select: { id: true, name: true, parent: { select: { name: true } } } },
-          },
-        },
-        statusChanges: { orderBy: { changedAt: 'desc' } },
-      },
-    });
+      }),
+      ClassTree.load(db, organizationId),
+    ]);
+    return {
+      ...student,
+      enrolments: student.enrolments.map((e) => ({
+        ...e,
+        section: tree.label(e.classId),
+        path: tree.path(e.classId).map((c) => ({ id: c.id, name: c.name, level: c.level })),
+      })),
+    };
   }
+}
+
+function isoDay(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }

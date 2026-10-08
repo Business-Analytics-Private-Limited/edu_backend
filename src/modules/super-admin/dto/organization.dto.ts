@@ -17,9 +17,9 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { OrganizationStatus } from '@prisma/client';
+import { OrganizationStatus, OrganizationType } from '@prisma/client';
 import { PaginationQuery } from '../../../common/pagination';
-import { CreateInstitutionDto } from '../../organization/dto/institution.dto';
+import { CreateBranchDto } from '../../organization/dto/organization.dto';
 
 /** The organization's first admin, created together with the organization. */
 export class FirstAdminDto {
@@ -39,7 +39,7 @@ export class FirstAdminDto {
 }
 
 export class CreateOrganizationDto {
-  /** @example Sri Vidya Educational Society */
+  /** @example Sri Vidya Junior College */
   @IsString()
   @Length(2, 200)
   name: string;
@@ -50,6 +50,15 @@ export class CreateOrganizationDto {
   })
   @Length(3, 40)
   slug: string;
+
+  /** Short code used in admission numbers ({CODE}). @example SVJC */
+  @Matches(/^[A-Z0-9]+$/, { message: 'code may only contain capital letters and digits' })
+  @Length(2, 10)
+  code: string;
+
+  /** What kind of institution it is; decides the academic structure (ADR-0030). */
+  @IsEnum(OrganizationType)
+  type: OrganizationType;
 
   @IsOptional()
   @IsString()
@@ -67,16 +76,13 @@ export class CreateOrganizationDto {
   @Type(() => FirstAdminDto)
   admin: FirstAdminDto;
 
-  /**
-   * The organization's institutions (at least one). Only the super admin adds institutions
-   * (ADR-0025); more can be added later on the organization's page.
-   */
+  /** The organization's branches (at least one); more can be added later. */
   @IsArray()
-  @ArrayMinSize(1, { message: 'add at least one institution' })
-  @ArrayMaxSize(50)
+  @ArrayMinSize(1, { message: 'add at least one branch' })
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
-  @Type(() => CreateInstitutionDto)
-  institutions: CreateInstitutionDto[];
+  @Type(() => CreateBranchDto)
+  branches: CreateBranchDto[];
 }
 
 export class UpdateOrganizationDto {
@@ -84,6 +90,16 @@ export class UpdateOrganizationDto {
   @IsString()
   @Length(2, 200)
   name?: string;
+
+  @IsOptional()
+  @Matches(/^[A-Z0-9]+$/, { message: 'code may only contain capital letters and digits' })
+  @Length(2, 10)
+  code?: string;
+
+  /** Only while the organization has no academic structure yet. */
+  @IsOptional()
+  @IsEnum(OrganizationType)
+  type?: OrganizationType;
 
   @IsOptional()
   @IsString()

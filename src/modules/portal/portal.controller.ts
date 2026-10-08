@@ -6,7 +6,7 @@
  *   GET    /api/v1/portal/students/:id
  *   GET    /api/v1/portal/students/:id/attendance?from=&to=
  *
- * For staff, on a student's page (students.student.update at the student's campus):
+ * For staff, on a student's page (students.student.update at the student's branch):
  *   POST   /api/v1/students/:id/portal-access            give the student or a guardian a login
  *   DELETE /api/v1/students/:id/portal-access/:userId    remove it
  */

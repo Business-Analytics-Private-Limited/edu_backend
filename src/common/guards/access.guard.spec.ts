@@ -40,7 +40,7 @@ const teacher: CurrentUser = {
   sessionId: 's1',
   mustChangePassword: false,
   twoFactor: null,
-  permissions: ['platform.institution.view', 'students.student.view'],
+  permissions: ['platform.branch.view', 'students.student.view'],
   enabledModules: [],
 };
 
@@ -89,9 +89,7 @@ describe('AccessGuard', () => {
   });
 
   it('needs the permission in the user role', () => {
-    expect(check({ kind: 'permission', permission: 'platform.institution.view' }, teacher)).toBe(
-      true,
-    );
+    expect(check({ kind: 'permission', permission: 'platform.branch.view' }, teacher)).toBe(true);
     expect(() => check({ kind: 'permission', permission: 'access.user.create' }, teacher)).toThrow(
       'Your role needs the permission "access.user.create"',
     );

@@ -2,12 +2,13 @@
  * The staff users of an organization: list, add, edit, deactivate, activate, and give or take
  * away roles.
  *
- * A user has one or more ROLES, each at a PLACE (ADR-0018): the whole organization, one
- * institution, or one campus. E.g. Kiran is "Senior faculty" at Kukatpally and at Ameerpet.
+ * A user has one or more ROLES, each at a PLACE (ADR-0030): the whole organization or one
+ * branch. E.g. Kiran is "Senior faculty" at KPHB and at Ameerpet; Lakshmi is "Principal" AND
+ * "Branch admin" at KPHB.
  *
  * Rules:
  *   - you see the users who have a role in a place you look after ("access.user.view" there);
- *     a Campus admin sees their campus's staff, not the Organization admin;
+ *     a Branch admin sees their branch's staff, not the Organization admin;
  *   - you give a role at a place only if you have "access.user.create" / "access.user.update"
  *     there, AND every permission of that role there: nobody hands out more than they have;
  *   - you change a user's name or status only if ALL their roles are within your reach;
@@ -32,7 +33,7 @@ import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ORG_ADMIN } from '../roles/predefined-roles';
 import { CreateUserDto, ListUsersQuery, RoleAssignmentDto, UpdateUserDto } from './dto/user.dto';
-import { assertCampusInUse, assertInstitutionInUse } from '../organization/places-in-use';
+import { assertBranchInUse, findBranch } from '../organization/places-in-use';
 
 /** User fields we read: everything except the password hash, with each role and its place. */
 const USER_FIELDS = {
@@ -45,26 +46,23 @@ const USER_FIELDS = {
   roles: {
     select: {
       id: true,
-      institutionId: true,
-      campusId: true,
+      branchId: true,
       role: { select: { id: true, name: true, permissions: true, templateKey: true } },
-      institution: { select: { id: true, name: true } },
-      campus: { select: { id: true, name: true } },
+      branch: { select: { id: true, name: true } },
     },
   },
 } satisfies Prisma.UserSelect;
 
 type UserRow = Prisma.UserGetPayload<{ select: typeof USER_FIELDS }>;
 
-/** A user as the API sends it: each role with its place ("institution" / "campus" or neither). */
+/** A user as the API sends it: each role with its place (a branch, or none = everywhere). */
 function toPublicUser(user: UserRow) {
   return {
     ...user,
     roles: user.roles.map((r) => ({
       id: r.id,
       role: { id: r.role.id, name: r.role.name },
-      institution: r.institution,
-      campus: r.campus,
+      branch: r.branch,
     })),
   };
 }
@@ -125,8 +123,7 @@ export class UsersService {
             create: assignments.map(({ role, place }) => ({
               roleId: role.id,
               organizationId,
-              institutionId: place.institutionId,
-              campusId: place.campusId,
+              branchId: place.branchId,
             })),
           },
         },
@@ -194,10 +191,7 @@ export class UsersService {
         'access.user.update',
       );
       const duplicate = user.roles.some(
-        (r) =>
-          r.role.id === role.id &&
-          r.institutionId === place.institutionId &&
-          r.campusId === place.campusId,
+        (r) => r.role.id === role.id && r.branchId === place.branchId,
       );
       if (duplicate) throw new ConflictException(`${user.name} already has this role here`);
 
@@ -206,8 +200,7 @@ export class UsersService {
           userId: id,
           roleId: role.id,
           organizationId,
-          institutionId: place.institutionId,
-          campusId: place.campusId,
+          branchId: place.branchId,
         },
       });
       await this.audit.log(db, actor, {
@@ -227,7 +220,7 @@ export class UsersService {
       const user = await this.findVisibleUser(db, organizationId, id, actor);
       const assignment = user.roles.find((r) => r.id === assignmentId);
       if (!assignment) throw new NotFoundException('This user does not have that role');
-      const place = { institutionId: assignment.institutionId, campusId: assignment.campusId };
+      const place = { branchId: assignment.branchId };
 
       if (
         !can(actor, 'access.user.update', place) ||
@@ -255,7 +248,7 @@ export class UsersService {
         details: { user: user.name, role: assignment.role.name },
       });
       // Read without the reach filter: after this change the user may no longer be the
-      // actor's staff (e.g. their only role at the actor's campus was just taken away).
+      // actor's staff (e.g. their only role at the actor's branch was just taken away).
       const updated = await db.user.findFirstOrThrow({
         where: { id, organizationId },
         select: USER_FIELDS,
@@ -274,15 +267,7 @@ export class UsersService {
     return {
       organizationId,
       kind: 'STAFF',
-      roles: {
-        some: {
-          OR: [
-            { campusId: { in: reach.campusIds } },
-            // An institution's staff: roles at the institution itself and at its campuses.
-            { institutionId: { in: reach.institutionIds } },
-          ],
-        },
-      },
+      roles: { some: { branchId: { in: reach.branchIds } } },
     };
   }
 
@@ -319,7 +304,7 @@ export class UsersService {
     }
 
     const place = await this.resolvePlace(db, organizationId, wanted);
-    if (role.templateKey === ORG_ADMIN && (place.institutionId || place.campusId)) {
+    if (role.templateKey === ORG_ADMIN && place.branchId) {
       throw new BadRequestException(
         'The Organization admin role always applies to the whole organization',
       );
@@ -335,30 +320,16 @@ export class UsersService {
     return { role, place };
   }
 
-  /** Turns { institutionId?, campusId? } into a checked place of this organization. */
+  /** Turns { branchId? } into a checked place of this organization. */
   private async resolvePlace(
     db: Db,
     organizationId: string,
-    wanted: { institutionId?: string; campusId?: string },
-  ): Promise<{ institutionId: string | null; campusId: string | null }> {
-    if (wanted.campusId) {
-      const campus = await db.campus.findFirst({ where: { id: wanted.campusId, organizationId } });
-      if (!campus) throw new BadRequestException('Campus not found in this organization');
-      if (wanted.institutionId && wanted.institutionId !== campus.institutionId) {
-        throw new BadRequestException('That campus belongs to another institution');
-      }
-      await assertCampusInUse(db, campus.id);
-      return { institutionId: campus.institutionId, campusId: campus.id };
-    }
-    if (wanted.institutionId) {
-      const institution = await db.institution.findFirst({
-        where: { id: wanted.institutionId, organizationId },
-      });
-      if (!institution) throw new BadRequestException('Institution not found in this organization');
-      await assertInstitutionInUse(db, institution.id);
-      return { institutionId: institution.id, campusId: null };
-    }
-    return { institutionId: null, campusId: null };
+    wanted: { branchId?: string },
+  ): Promise<{ branchId: string | null }> {
+    if (!wanted.branchId) return { branchId: null };
+    const branch = await findBranch(db, organizationId, wanted.branchId);
+    await assertBranchInUse(db, branch.id);
+    return { branchId: branch.id };
   }
 
   /**
@@ -367,7 +338,7 @@ export class UsersService {
    */
   private checkCanChangeWholeUser(user: UserRow, actor: CurrentUser) {
     for (const r of user.roles) {
-      const place = { institutionId: r.institutionId, campusId: r.campusId };
+      const place = { branchId: r.branchId };
       if (
         !can(actor, 'access.user.update', place) ||
         missingAt(actor, r.role.permissions, place).length > 0
@@ -399,19 +370,15 @@ export class UsersService {
 
 /** Every place a user has a role. */
 function placesOf(user: UserRow): Place[] {
-  return user.roles.map((r) => ({ institutionId: r.institutionId, campusId: r.campusId }));
+  return user.roles.map((r) => ({ branchId: r.branchId }));
 }
 
 /**
- * For the audit log: the place, if all of them are the same one; otherwise the organization
+ * For the audit log: the branch, if all of them are the same one; otherwise the organization
  * (then only organization-wide admins see the entry).
  */
-function onePlace(places: Place[]): { institutionId: string | null; campusId: string | null } {
+function onePlace(places: Place[]): { branchId: string | null } {
   const [first] = places;
-  const same = places.every(
-    (p) => p.institutionId === first?.institutionId && p.campusId === first?.campusId,
-  );
-  return same && first
-    ? { institutionId: first.institutionId ?? null, campusId: first.campusId ?? null }
-    : { institutionId: null, campusId: null };
+  const same = places.every((p) => (p.branchId ?? null) === (first?.branchId ?? null));
+  return { branchId: same && first ? (first.branchId ?? null) : null };
 }

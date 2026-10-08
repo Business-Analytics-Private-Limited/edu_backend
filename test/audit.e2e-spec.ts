@@ -8,13 +8,12 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
 import {
+  branchId,
   createOrganization,
   createTestApp,
   currentPassword,
-  institutionId,
   loginSuperAdmin,
   loginUser,
-  SVJC,
 } from './helpers';
 
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n');
@@ -50,7 +49,7 @@ describe('Audit log', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'aud', 'admin@aud.test', [SVJC]);
+    orgId = await createOrganization(app, superAdmin, 'aud', 'admin@aud.test');
     admin = await loginUser(app, 'admin@aud.test', 'Admin@12345');
   });
 
@@ -121,17 +120,12 @@ describe('Audit log', () => {
       .set(as(superAdmin))
       .send({ enabled: true })
       .expect(200);
-    const svjc = await institutionId(app, superAdmin, orgId, 'SVJC');
-    const campus = await api()
-      .post(`/api/v1/institutions/${svjc}/campuses`)
-      .set(as(admin))
-      .send({ name: 'Main', code: 'MAIN' })
-      .expect(201);
+    const branch = await branchId(app, superAdmin, orgId, 'MAIN');
     const student = await api()
       .post('/api/v1/students')
       .set(as(admin))
       .send({
-        campusId: campus.body.id,
+        branchId: branch,
         admissionNo: 'A1',
         admissionDate: '2026-06-01',
         fullName: 'Teja',
@@ -142,7 +136,7 @@ describe('Audit log', () => {
     const type = await api()
       .post('/api/v1/document-types')
       .set(as(admin))
-      .send({ institutionId: svjc, name: 'Aadhaar copy' })
+      .send({ name: 'Aadhaar copy' })
       .expect(201);
     const document = await api()
       .post(`/api/v1/students/${student.body.id}/documents`)

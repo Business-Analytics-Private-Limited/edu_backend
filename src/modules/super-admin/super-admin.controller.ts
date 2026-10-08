@@ -10,12 +10,12 @@
  *   POST  /api/v1/super-admin/organizations/:id/suspend
  *   POST  /api/v1/super-admin/organizations/:id/activate
  *   PUT   /api/v1/super-admin/organizations/:id/modules/:moduleKey
- *   POST   /api/v1/super-admin/organizations/:id/institutions
- *   DELETE /api/v1/super-admin/organizations/:id/institutions/:institutionId   (empty only)
- *   POST   /api/v1/super-admin/organizations/:id/institutions/:institutionId/deactivate
- *   POST   /api/v1/super-admin/organizations/:id/institutions/:institutionId/activate
+ *   POST   /api/v1/super-admin/organizations/:id/branches
+ *   POST   /api/v1/super-admin/organizations/:id/branches/:branchId/deactivate
+ *   POST   /api/v1/super-admin/organizations/:id/branches/:branchId/activate
+ *   DELETE /api/v1/super-admin/organizations/:id/branches/:branchId   (empty only)
  *
- * Only the super admin adds and deletes institutions (ADR-0025).
+ * Only the super admin adds, closes and deletes branches (ADR-0030).
  */
 import {
   Body,
@@ -34,7 +34,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { CurrentUser as CurrentUserType } from '../../common/current-user';
 import { SuperAdminOnly } from '../../common/decorators/access.decorators';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CreateInstitutionDto } from '../organization/dto/institution.dto';
+import { CreateBranchDto } from '../organization/dto/organization.dto';
 import {
   CreateOrganizationDto,
   ListOrganizationsQuery,
@@ -106,42 +106,42 @@ export class SuperAdminController {
     return this.organizations.setModule(id, moduleKey, body.enabled, user);
   }
 
-  @Post('organizations/:id/institutions')
-  addInstitution(
+  @Post('organizations/:id/branches')
+  addBranch(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: CreateInstitutionDto,
+    @Body() body: CreateBranchDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.organizations.addInstitution(id, body, user);
+    return this.organizations.addBranch(id, body, user);
   }
 
-  /** Closes an institution (ADR-0026); refused while it has active students. */
-  @Post('organizations/:id/institutions/:institutionId/deactivate')
+  /** Closes a branch (ADR-0026); refused while current students study there. */
+  @Post('organizations/:id/branches/:branchId/deactivate')
   @HttpCode(200)
-  deactivateInstitution(
+  deactivateBranch(
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('institutionId', ParseUUIDPipe) institutionId: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.organizations.deactivateInstitution(id, institutionId, user);
+    return this.organizations.deactivateBranch(id, branchId, user);
   }
 
-  @Post('organizations/:id/institutions/:institutionId/activate')
+  @Post('organizations/:id/branches/:branchId/activate')
   @HttpCode(200)
-  activateInstitution(
+  activateBranch(
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('institutionId', ParseUUIDPipe) institutionId: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.organizations.activateInstitution(id, institutionId, user);
+    return this.organizations.activateBranch(id, branchId, user);
   }
 
-  @Delete('organizations/:id/institutions/:institutionId')
-  deleteInstitution(
+  @Delete('organizations/:id/branches/:branchId')
+  deleteBranch(
     @Param('id', ParseUUIDPipe) id: string,
-    @Param('institutionId', ParseUUIDPipe) institutionId: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.organizations.deleteInstitution(id, institutionId, user);
+    return this.organizations.deleteBranch(id, branchId, user);
   }
 }

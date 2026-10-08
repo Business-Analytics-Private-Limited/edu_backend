@@ -60,8 +60,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           roles: {
             include: {
               role: true,
-              institution: { select: { status: true } },
-              campus: { select: { status: true, institution: { select: { status: true } } } },
+              branch: { select: { status: true } },
             },
           },
           organization: { include: { modules: { where: { enabled: true } } } },
@@ -97,13 +96,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         enabledModules,
       };
     }
-    // Roles at an inactive campus or institution give no access (ADR-0026).
-    const roles = user.roles.filter(
-      (r) =>
-        r.institution?.status !== 'INACTIVE' &&
-        r.campus?.status !== 'INACTIVE' &&
-        r.campus?.institution.status !== 'INACTIVE',
-    );
+    // Roles at an inactive branch give no access (ADR-0026).
+    const roles = user.roles.filter((r) => r.branch?.status !== 'INACTIVE');
     return {
       type: 'user',
       id: user.id,
@@ -121,12 +115,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       grants: roles.map((r) => ({
         roleName: r.role.name,
         permissions: r.role.permissions,
-        institutionId: r.institutionId,
-        campusId: r.campusId,
+        branchId: r.branchId,
       })),
-      isOrganizationAdmin: roles.some(
-        (r) => r.role.templateKey === ORG_ADMIN && !r.institutionId && !r.campusId,
-      ),
+      isOrganizationAdmin: roles.some((r) => r.role.templateKey === ORG_ADMIN && !r.branchId),
       enabledModules,
     };
   }

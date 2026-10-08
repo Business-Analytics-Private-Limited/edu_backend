@@ -1,8 +1,7 @@
 /**
- * Request bodies for the Academic module: academic years, class levels, classes, batches,
- * subjects and the calendar.
+ * Request bodies for the Academic module: academic years, the academic structure (levels,
+ * built-in classes / groups, streams, courses, sections), subjects and the calendar.
  */
-import { BatchStatus } from '@prisma/client';
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -10,7 +9,6 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
-  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -19,8 +17,8 @@ import {
   Matches,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
-import { MAX_LEVELS } from '../default-levels';
 
 const CODE = /^[A-Za-z0-9_-]+$/;
 const CODE_MESSAGE = 'code may only contain letters, digits, _ and -';
@@ -28,9 +26,6 @@ const CODE_MESSAGE = 'code may only contain letters, digits, _ and -';
 // --- Academic years ------------------------------------------------------------------------------
 
 export class CreateAcademicYearDto {
-  @IsUUID()
-  institutionId: string;
-
   /** @example 2026-27 */
   @IsString()
   @Length(2, 40)
@@ -60,45 +55,84 @@ export class UpdateAcademicYearDto {
   endsOn?: string;
 }
 
-export class InstitutionFilterQuery {
-  /** Only this institution's items. */
-  @IsOptional()
-  @IsUUID()
-  institutionId?: string;
-}
+// --- The academic structure ----------------------------------------------------------------------
 
-// --- Class levels and classes -------------------------------------------------------------------
-
-export class SetClassLevelsDto {
-  /** Level names from top to bottom. @example ["Year", "Group", "Section"] */
+export class SetLevelNamesDto {
+  /** New names for the levels, top to bottom (as many as the type has). @example ["Year", "Group", "Stream", "Section"] */
   @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(MAX_LEVELS)
+  @ArrayMinSize(2)
+  @ArrayMaxSize(6)
   @IsString({ each: true })
   @Length(1, 40, { each: true })
   names: string[];
 }
 
-export class CreateClassDto {
-  /** The class this one sits under; leave out for a class of the top level. */
-  @IsOptional()
-  @IsUUID()
-  parentId?: string;
+export class SetCodesDto {
+  /**
+   * The built-in classes (School: e.g. ["NUR", "LKG", "C1"]) or groups (Intermediate: e.g.
+   * ["MPC", "BIPC"]) the organization runs.
+   */
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  codes: string[];
+}
 
-  /** @example MPC */
+export class AddStreamDto {
+  /** The group it belongs to. @example MPC */
+  @IsString()
+  groupCode: string;
+
+  /** @example JEE Mains */
   @IsString()
   @Length(1, 100)
   name: string;
 
-  /** Unique among its siblings. @example MPC */
+  /** Unique in the group. @example JEEM */
   @Matches(CODE, { message: CODE_MESSAGE })
   @Length(1, 20)
   code: string;
 
+  /** For long-term students only (e.g. NEET Long Term): it sits under the Long Term year. */
   @IsOptional()
+  @IsBoolean()
+  longTerm?: boolean;
+}
+
+export class RenameDto {
+  @IsString()
+  @Length(1, 100)
+  name: string;
+}
+
+export class AddCourseDto {
+  /** @example B.Tech */
+  @IsString()
+  @Length(1, 100)
+  name: string;
+
+  /** @example BTECH */
+  @Matches(CODE, { message: CODE_MESSAGE })
+  @Length(1, 20)
+  code: string;
+}
+
+export class AddSpecializationDto {
+  /** @example Computer Science and Engineering */
+  @IsString()
+  @Length(1, 100)
+  name: string;
+
+  /** @example CSE */
+  @Matches(CODE, { message: CODE_MESSAGE })
+  @Length(1, 20)
+  code: string;
+
+  /** How many years of study (1st Year ... Nth Year). @example 4 */
   @IsInt()
-  @Min(0)
-  sortOrder?: number;
+  @Min(1)
+  @Max(6)
+  years: number;
 }
 
 export class UpdateClassDto {
@@ -107,6 +141,7 @@ export class UpdateClassDto {
   @Length(1, 100)
   name?: string;
 
+  /** Not for built-in classes. */
   @IsOptional()
   @Matches(CODE, { message: CODE_MESSAGE })
   @Length(1, 20)
@@ -121,63 +156,47 @@ export class UpdateClassDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /**
+   * Year-level classes only: where students go at promotion; null = they complete after this
+   * year.
+   */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  nextClassId?: string | null;
 }
 
-// --- Batches -------------------------------------------------------------------------------------
-
-export class CreateBatchDto {
+export class CreateSectionDto {
+  /** The class it sits under: one of the level just above Section (e.g. a stream). */
   @IsUUID()
-  institutionId: string;
+  parentId: string;
 
-  /** @example 2026-28 batch */
+  /** @example JEE-A */
   @IsString()
-  @Length(2, 100)
+  @Length(1, 100)
   name: string;
 
-  /** Unique in the institution. @example B2026 */
+  /** Unique under its parent in this branch. @example JEEA */
   @Matches(CODE, { message: CODE_MESSAGE })
   @Length(1, 20)
   code: string;
 
-  /** Where the batch is now, in the institution's own words. @example Junior */
-  @IsString()
-  @Length(1, 40)
-  stage: string;
-}
-
-export class UpdateBatchDto {
   @IsOptional()
-  @IsString()
-  @Length(2, 100)
-  name?: string;
-
-  @IsOptional()
-  @Matches(CODE, { message: CODE_MESSAGE })
-  @Length(1, 20)
-  code?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, 40)
-  stage?: string;
-
-  @IsOptional()
-  @IsEnum(BatchStatus)
-  status?: BatchStatus;
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
 }
 
 // --- Subjects ------------------------------------------------------------------------------------
 
 export class CreateSubjectDto {
-  @IsUUID()
-  institutionId: string;
-
   /** @example Mathematics */
   @IsString()
   @Length(2, 100)
   name: string;
 
-  /** Unique in the institution. @example MATHS */
+  /** Unique in the organization. @example MATHS */
   @Matches(CODE, { message: CODE_MESSAGE })
   @Length(1, 20)
   code: string;
@@ -221,13 +240,10 @@ export class SetWeeklyOffDto {
 }
 
 export class CreateHolidayDto {
-  @IsUUID()
-  institutionId: string;
-
-  /** Only this campus; leave out for every campus of the institution. */
+  /** Only this branch; leave out for every branch. */
   @IsOptional()
   @IsUUID()
-  campusId?: string;
+  branchId?: string;
 
   /** @example Sankranti */
   @IsString()
@@ -245,10 +261,6 @@ export class CreateHolidayDto {
 }
 
 export class HolidayQuery {
-  @IsOptional()
-  @IsUUID()
-  institutionId?: string;
-
   /** Only holidays touching this range. @example 2026-06-01 */
   @IsOptional()
   @IsDateString({ strict: true })

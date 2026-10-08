@@ -1,25 +1,26 @@
 /**
- * The Attendance module, part 1 (ADR-0021): marking a section's day, same-day changes,
- * corrections with reasons, the correction window, working days, reports, places, isolation.
+ * The Attendance module (ADR-0021, ADR-0030): marking a section's day, same-day changes,
+ * corrections with reasons, the correction window, working days, reports, branches, registers
+ * that follow section changes, isolation.
  *
- * Organization "att": institution SVJC (no weekly off days, so every day is a working day for
- * these tests), campuses KKP and AMP, section 1st year > MPC > A on each, three students in KKP A.
- * Ravi = Campus admin of KKP (may correct); Jaya = Junior faculty at KKP (may mark, not correct).
+ * Organization "att" (Intermediate, no weekly off days, so every day is a working day for these
+ * tests): branches KKP and AMP; section Junior > MPC > Regular > A at each, and B at KKP; three
+ * students in KKP A.
+ * Ravi = Branch admin of KKP (may correct); Jaya = Junior faculty at KKP (may mark, not correct).
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import {
+  branchId,
   createOrganization,
   createTestApp,
-  institutionId,
-  JUNIOR_COLLEGE_LEVELS,
+  createYear,
   loginSuperAdmin,
   loginUser,
-  setClassLevels,
-  SVJC,
+  setUpIntermediate,
 } from './helpers';
 
-/** "YYYY-MM-DD", `days` days before today in India (the institution's default time zone). */
+/** "YYYY-MM-DD", `days` days before today in India (the organization's default time zone). */
 function day(daysAgo: number): string {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
   const d = new Date(`${today}T00:00:00Z`);
@@ -44,46 +45,35 @@ describe('Attendance', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'att', 'admin@att.test', [SVJC]);
-    await createOrganization(app, superAdmin, 'att-other', 'admin@att-other.test');
+    orgId = await createOrganization(app, superAdmin, 'att', 'admin@att.test', {
+      branches: [
+        { name: 'KKP', code: 'KKP' },
+        { name: 'AMP', code: 'AMP' },
+      ],
+      modules: ['academic', 'students'],
+    });
+    await createOrganization(app, superAdmin, 'att-other', 'admin@att-other.test', {
+      modules: ['academic', 'students', 'attendance'],
+    });
     admin = await loginUser(app, 'admin@att.test', 'Admin@12345');
     other = await loginUser(app, 'admin@att-other.test', 'Admin@12345');
-    for (const key of ['academic', 'students']) {
-      await api()
-        .put(`/api/v1/super-admin/organizations/${orgId}/modules/${key}`)
-        .set(as(superAdmin))
-        .send({ enabled: true })
-        .expect(200);
-    }
 
-    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
-    await setClassLevels(app, admin, ids.SVJC, JUNIOR_COLLEGE_LEVELS);
-    await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/weekly-off`)
-      .set(as(admin))
-      .send({ days: [] })
-      .expect(200);
+    await api().put('/api/v1/calendar/weekly-off').set(as(admin)).send({ days: [] }).expect(200);
     for (const code of ['KKP', 'AMP']) {
-      const campus = await api()
-        .post(`/api/v1/institutions/${ids.SVJC}/campuses`)
-        .set(as(admin))
-        .send({ name: code, code });
-      ids[code] = campus.body.id;
-      const post = (body: object) =>
-        api().post(`/api/v1/campuses/${ids[code]}/classes`).set(as(admin)).send(body).expect(201);
-      const y1 = await post({ name: '1st year', code: 'Y1' });
-      const mpc = await post({ parentId: y1.body.id, name: 'MPC', code: 'MPC' });
-      ids[`${code}_A`] = (
-        await post({ parentId: mpc.body.id, name: 'Section A', code: 'A' })
-      ).body.id;
+      ids[code] = await branchId(app, superAdmin, orgId, code);
+      const sections = await setUpIntermediate(app, admin, ids[code], {
+        groups: ['MPC'],
+        sections: [
+          { under: ['JR', 'MPC', 'REG'], name: 'Section A', code: 'A' },
+          ...(code === 'KKP'
+            ? [{ under: ['JR', 'MPC', 'REG'], name: 'Section B', code: 'B' }]
+            : []),
+        ],
+      });
+      ids[`${code}_A`] = sections.A;
+      if (sections.B) ids.KKP_B = sections.B;
     }
-    const year = await api()
-      .post('/api/v1/academic-years')
-      .set(as(admin))
-      .send({ institutionId: ids.SVJC, name: 'This year', startsOn: day(200), endsOn: day(-100) })
-      .expect(201);
-    ids.YEAR = year.body.id;
-    await api().post(`/api/v1/academic-years/${ids.YEAR}/activate`).set(as(admin)).expect(200);
+    ids.YEAR = await createYear(app, admin, 'This year', day(200), day(-100), true);
 
     for (const [name, roll] of [
       ['Anil', '1'],
@@ -94,7 +84,7 @@ describe('Attendance', () => {
         .post('/api/v1/students')
         .set(as(admin))
         .send({
-          campusId: ids.KKP,
+          branchId: ids.KKP,
           admissionNo: `ATT${roll}`,
           admissionDate: day(150),
           fullName: name,
@@ -109,7 +99,7 @@ describe('Attendance', () => {
     const roles = await api().get('/api/v1/roles').set(as(admin));
     const role = (name: string) => roles.body.find((r: { name: string }) => r.name === name).id;
     for (const [email, roleName] of [
-      ['ravi@att.test', 'Campus admin'],
+      ['ravi@att.test', 'Branch admin'],
       ['jaya@att.test', 'Junior faculty'],
     ]) {
       await api()
@@ -119,7 +109,7 @@ describe('Attendance', () => {
           name: email.split('@')[0],
           email,
           password: 'Password@123',
-          roles: [{ roleId: role(roleName), campusId: ids.KKP }],
+          roles: [{ roleId: role(roleName), branchId: ids.KKP }],
         })
         .expect(201);
     }
@@ -244,12 +234,12 @@ describe('Attendance', () => {
       .expect(400);
     expect(refused.body.message).toMatch(/7 day/);
     await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/attendance-settings`)
+      .put('/api/v1/organization/attendance-settings')
       .set(as(admin))
       .send({ timeZone: 'Mars/Olympus' })
       .expect(400);
     await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/attendance-settings`)
+      .put('/api/v1/organization/attendance-settings')
       .set(as(admin))
       .send({ correctionDays: 30 })
       .expect(200);
@@ -260,7 +250,7 @@ describe('Attendance', () => {
     await api()
       .post('/api/v1/holidays')
       .set(as(admin))
-      .send({ institutionId: ids.SVJC, name: 'Festival', startsOn: day(2) })
+      .send({ name: 'Festival', startsOn: day(2) })
       .expect(201);
     const roster = await api()
       .get(`/api/v1/attendance/roster?classId=${ids.KKP_A}&date=${day(2)}`)
@@ -277,7 +267,7 @@ describe('Attendance', () => {
       .expect(400);
   });
 
-  it('a campus admin and a teacher work only on their own campus', async () => {
+  it('a branch admin and a teacher work only at their own branch', async () => {
     await api()
       .get(`/api/v1/attendance/roster?classId=${ids.AMP_A}&date=${day(0)}`)
       .set(as(jaya))
@@ -291,7 +281,7 @@ describe('Attendance', () => {
 
   it('daily overview and section report', async () => {
     const summary = await api()
-      .get(`/api/v1/attendance/daily-summary?campusId=${ids.KKP}&date=${day(0)}`)
+      .get(`/api/v1/attendance/daily-summary?branchId=${ids.KKP}&date=${day(0)}`)
       .set(as(ravi))
       .expect(200);
     expect(summary.body.sections).toHaveLength(1);
@@ -317,15 +307,26 @@ describe('Attendance', () => {
       .expect(403);
   });
 
+  it('the register follows a section change: old section before the day, new one from it', async () => {
+    await api()
+      .post(`/api/v1/students/${students[2]}/change-section`)
+      .set(as(ravi))
+      .send({ classId: ids.KKP_B, effectiveOn: day(0), reason: 'Moved to B' })
+      .expect(200);
+    const names = async (classId: string, date: string) =>
+      (
+        await api()
+          .get(`/api/v1/attendance/roster?classId=${classId}&date=${date}`)
+          .set(as(jaya))
+          .expect(200)
+      ).body.students.map((s: { fullName: string }) => s.fullName);
+    expect(await names(ids.KKP_A, day(1))).toEqual(['Anil', 'Bhavya', 'Chitra']);
+    expect(await names(ids.KKP_A, day(0))).toEqual(['Anil', 'Bhavya']);
+    expect(await names(ids.KKP_B, day(0))).toEqual(['Chitra']);
+    expect(await names(ids.KKP_B, day(1))).toEqual([]);
+  });
+
   it('another organization sees none of it', async () => {
-    const otherOrg = await api().get('/api/v1/organization').set(as(other)).expect(200);
-    for (const key of ['academic', 'students', 'attendance']) {
-      await api()
-        .put(`/api/v1/super-admin/organizations/${otherOrg.body.id}/modules/${key}`)
-        .set(as(superAdmin))
-        .send({ enabled: true })
-        .expect(200);
-    }
     await api()
       .get(`/api/v1/attendance/roster?classId=${ids.KKP_A}&date=${day(0)}`)
       .set(as(other))

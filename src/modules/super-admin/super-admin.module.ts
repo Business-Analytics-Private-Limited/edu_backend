@@ -4,7 +4,7 @@ import { OrganizationsService } from './organizations.service';
 import { PlatformAuditController } from './platform-audit.controller';
 import { SuperAdminController } from './super-admin.controller';
 
-/** The super admin area: organizations, their modules and institutions, and the audit log. */
+/** The super admin area: organizations, their modules and branches, and the audit log. */
 @Module({
   imports: [RolesModule],
   controllers: [SuperAdminController, PlatformAuditController],

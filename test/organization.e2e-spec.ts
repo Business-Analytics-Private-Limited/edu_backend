@@ -1,17 +1,11 @@
 /**
- * The tenant admin area, and the most important rule of the product:
+ * The organization's own area, and the most important rule of the product:
  * one organization never sees another organization's data.
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
-import {
-  createOrganization,
-  createTestApp,
-  institutionId,
-  loginSuperAdmin,
-  loginUser,
-} from './helpers';
+import { branchId, createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
 
 describe('Organization area', () => {
   let app: INestApplication;
@@ -19,7 +13,7 @@ describe('Organization area', () => {
   let orgB: string;
   let adminA: string; // token of organization A's admin
   let adminB: string; // token of organization B's admin
-  let institutionA: string;
+  let branchA: string;
   const api = () => request(app.getHttpServer());
   const as = (token: string) => ({ Authorization: `Bearer ${token}` });
   /** The id of organization A's role with this name. */
@@ -31,10 +25,13 @@ describe('Organization area', () => {
   beforeAll(async () => {
     app = await createTestApp();
     const superAdmin = await loginSuperAdmin(app);
-    orgA = await createOrganization(app, superAdmin, 'org-a', 'admin@org-a.test', [
-      { name: 'Org A Junior College', code: 'OAJC' },
-    ]);
-    institutionA = await institutionId(app, superAdmin, orgA, 'OAJC');
+    orgA = await createOrganization(app, superAdmin, 'org-a', 'admin@org-a.test', {
+      branches: [
+        { name: 'KPHB', code: 'KPHB' },
+        { name: 'Ameerpet', code: 'AMP' },
+      ],
+    });
+    branchA = await branchId(app, superAdmin, orgA, 'KPHB');
     orgB = await createOrganization(app, superAdmin, 'org-b', 'admin@org-b.test');
     adminA = await loginUser(app, 'admin@org-a.test', 'Admin@12345');
     adminB = await loginUser(app, 'admin@org-b.test', 'Admin@12345');
@@ -44,38 +41,36 @@ describe('Organization area', () => {
     await app.close();
   });
 
-  it('an admin manages the campuses of their institutions', async () => {
+  it('an admin sees and renames their branches; adding them is for the super admin', async () => {
+    const list = await api().get('/api/v1/branches').set(as(adminA)).expect(200);
+    expect(list.body.map((b: { code: string }) => b.code)).toEqual(['AMP', 'KPHB']);
     await api()
-      .post(`/api/v1/institutions/${institutionA}/campuses`)
+      .patch(`/api/v1/branches/${branchA}`)
       .set(as(adminA))
-      .send({ name: 'Main campus', code: 'MAIN' })
-      .expect(201);
-
-    const detail = await api()
-      .get(`/api/v1/institutions/${institutionA}`)
-      .set(as(adminA))
+      .send({ name: 'KPHB Colony' })
       .expect(200);
-    expect(detail.body.campuses).toHaveLength(1);
+
+    const organization = await api().get('/api/v1/organization').set(as(adminA)).expect(200);
+    expect(organization.body).toMatchObject({
+      type: 'INTERMEDIATE',
+      code: 'ORGA',
+      levelNames: ['Year', 'Group', 'Stream', 'Section'],
+    });
 
     const dashboard = await api().get('/api/v1/dashboard').set(as(adminA)).expect(200);
     // roles: the 9 predefined roles every organization gets
-    expect(dashboard.body).toMatchObject({ institutions: 1, campuses: 1, users: 1, roles: 9 });
+    expect(dashboard.body).toMatchObject({ branches: 2, users: 1, roles: 9 });
   });
 
   it("organization B can't see or change organization A's data", async () => {
-    const list = await api().get('/api/v1/institutions').set(as(adminB)).expect(200);
-    expect(list.body.map((i: { code: string }) => i.code)).toEqual(['MAIN']); // B's own only
+    const list = await api().get('/api/v1/branches').set(as(adminB)).expect(200);
+    expect(list.body.map((b: { code: string }) => b.code)).toEqual(['MAIN']); // B's own only
 
-    await api().get(`/api/v1/institutions/${institutionA}`).set(as(adminB)).expect(404);
+    await api().get(`/api/v1/branches/${branchA}`).set(as(adminB)).expect(404);
     await api()
-      .patch(`/api/v1/institutions/${institutionA}`)
+      .patch(`/api/v1/branches/${branchA}`)
       .set(as(adminB))
       .send({ name: 'Hacked' })
-      .expect(404);
-    await api()
-      .post(`/api/v1/institutions/${institutionA}/campuses`)
-      .set(as(adminB))
-      .send({ name: 'Sneaky', code: 'SNK' })
       .expect(404);
   });
 
@@ -83,22 +78,22 @@ describe('Organization area', () => {
     const prisma = app.get(PrismaService);
 
     // As organization B, with NO "where organizationId" filter: still nothing of A.
-    const seenByB = await prisma.forOrganization(orgB, (db) => db.institution.findMany());
-    expect(seenByB.map((i) => i.code)).toEqual(['MAIN']);
+    const seenByB = await prisma.forOrganization(orgB, (db) => db.branch.findMany());
+    expect(seenByB.map((b) => b.code)).toEqual(['MAIN']);
 
     // Without saying who is asking at all: nothing.
-    expect(await prisma.institution.findMany()).toEqual([]);
+    expect(await prisma.branch.findMany()).toEqual([]);
 
-    // As organization A: its own institution.
-    const seenByA = await prisma.forOrganization(orgA, (db) => db.institution.findMany());
-    expect(seenByA.map((i) => i.code)).toEqual(['OAJC']);
+    // As organization A: its own branches.
+    const seenByA = await prisma.forOrganization(orgA, (db) => db.branch.findMany());
+    expect(seenByA.map((b) => b.code).sort()).toEqual(['AMP', 'KPHB']);
   });
 
   it('a role limits what a user may do', async () => {
     const role = await api()
       .post('/api/v1/roles')
       .set(as(adminA))
-      .send({ name: 'Teacher', permissions: ['platform.institution.view'] })
+      .send({ name: 'Teacher', permissions: ['platform.branch.view'] })
       .expect(201);
 
     await api()
@@ -108,20 +103,19 @@ describe('Organization area', () => {
         name: 'Ravi Teacher',
         email: 'ravi@org-a.test',
         password: 'Teacher@123',
-        roles: [{ roleId: role.body.id }],
+        roles: [{ roleId: role.body.id, branchId: branchA }],
       })
       .expect(201);
     const teacher = await loginUser(app, 'ravi@org-a.test', 'Teacher@123');
 
-    await api().get('/api/v1/institutions').set(as(teacher)).expect(200);
+    const seen = await api().get('/api/v1/branches').set(as(teacher)).expect(200);
+    expect(seen.body.map((b: { id: string }) => b.id)).toEqual([branchA]); // their branch only
     const denied = await api()
-      .patch(`/api/v1/institutions/${institutionA}`)
+      .patch(`/api/v1/branches/${branchA}`)
       .set(as(teacher))
       .send({ name: 'Not allowed' })
       .expect(403);
-    expect(denied.body.message).toBe(
-      'Your role needs the permission "platform.institution.update"',
-    );
+    expect(denied.body.message).toBe('Your role needs the permission "platform.branch.update"');
     await api().get('/api/v1/users').set(as(teacher)).expect(403);
   });
 
@@ -132,7 +126,7 @@ describe('Organization area', () => {
       'Organization admin',
       'Director',
       'Principal',
-      'Campus admin',
+      'Branch admin',
       'Senior faculty',
       'Junior faculty',
       'DTP operator',
@@ -184,35 +178,41 @@ describe('Organization area', () => {
       .expect(400);
   });
 
-  it('a user with several roles may do what any of them allows', async () => {
-    const roles = [
-      { roleId: await roleId('Principal') },
-      { roleId: await roleId('Senior faculty') },
-    ];
+  it('one person can be Principal and Branch admin of a branch at once', async () => {
+    // (Ids are looked up before a request is built: requests share the test server.)
+    const principal = await roleId('Principal');
+    const branchAdmin = await roleId('Branch admin');
     await api()
       .post('/api/v1/users')
       .set(as(adminA))
       .send({
-        name: 'Lakshmi Principal',
+        name: 'Lakshmi',
         email: 'lakshmi@org-a.test',
         password: 'Principal@123',
-        roles,
+        roles: [
+          { roleId: principal, branchId: branchA },
+          { roleId: branchAdmin, branchId: branchA },
+        ],
       })
       .expect(201);
     const token = await loginUser(app, 'lakshmi@org-a.test', 'Principal@123');
 
     const me = await api().get('/api/v1/auth/me').set(as(token)).expect(200);
-    expect(me.body.roleNames.sort()).toEqual(['Principal', 'Senior faculty']);
+    expect(me.body.roleNames.sort()).toEqual(['Branch admin', 'Principal']);
+    expect(me.body.grants.every((g: { branchId: string }) => g.branchId === branchA)).toBe(true);
     expect(me.body.permissions).toEqual(
       expect.arrayContaining(['students.enrolment.promote', 'attendance.record.mark']),
     );
-    // Principal may rename institutions; deleting them is for the super admin only (ADR-0025).
+    // Their own branch: yes (but renaming it is the organization's); the other: not even visible.
+    await api().get(`/api/v1/branches/${branchA}`).set(as(token)).expect(200);
     await api()
-      .patch(`/api/v1/institutions/${institutionA}`)
+      .patch(`/api/v1/branches/${branchA}`)
       .set(as(token))
-      .send({ name: 'Org A Junior College' })
-      .expect(200);
-    await api().delete(`/api/v1/institutions/${institutionA}`).set(as(token)).expect(404);
+      .send({ name: 'KPHB' })
+      .expect(403);
+    const superAdmin = await loginSuperAdmin(app);
+    const other = await branchId(app, superAdmin, orgA, 'AMP');
+    await api().get(`/api/v1/branches/${other}`).set(as(token)).expect(404);
   });
 
   it("parent and student roles can't be given from the Users page", async () => {
@@ -262,7 +262,7 @@ describe('Organization area', () => {
     await api()
       .post('/api/v1/roles')
       .set(as(token))
-      .send({ name: 'Sneaky', permissions: ['platform.campus.delete'] })
+      .send({ name: 'Sneaky', permissions: ['platform.branch.update'] })
       .expect(403);
     // Changing a role that has more than the manager has: refused.
     await api()
@@ -273,7 +273,7 @@ describe('Organization area', () => {
     const bigger = await api()
       .post('/api/v1/roles')
       .set(as(adminA))
-      .send({ name: 'Bigger', permissions: ['platform.campus.delete'] })
+      .send({ name: 'Bigger', permissions: ['platform.branch.update'] })
       .expect(201);
     await api()
       .patch(`/api/v1/roles/${bigger.body.id}`)
@@ -328,6 +328,14 @@ describe('Organization area', () => {
       .send({ roleId: directorRole })
       .expect(409);
 
+    // The Organization admin role only ever applies to the whole organization.
+    const orgAdminRole = await roleId('Organization admin');
+    await api()
+      .post(`/api/v1/users/${me.body.id}/roles`)
+      .set(as(adminA))
+      .send({ roleId: orgAdminRole, branchId: branchA })
+      .expect(400);
+
     // Taking away the only admin's Organization admin role: refused.
     const adminAssignment = both.body.roles.find(
       (r: { role: { name: string } }) => r.role.name === 'Organization admin',
@@ -340,7 +348,7 @@ describe('Organization area', () => {
       'The organization must keep at least one active Organization admin',
     );
 
-    // Taking away Director again: fine. Then the last role can't go.
+    // Taking away Director again: fine.
     const directorAssignment = both.body.roles.find(
       (r: { role: { name: string } }) => r.role.name === 'Director',
     );
@@ -370,8 +378,8 @@ describe('Organization area', () => {
     );
     expect(actions).toEqual(
       expect.arrayContaining([
-        'create institution',
-        'create campus',
+        'create branch',
+        'update branch',
         'create role',
         'create user',
         'deactivate user',

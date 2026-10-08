@@ -36,22 +36,20 @@ export interface CurrentUser {
   permissions: string[];
   /**
    * Each role of the user with the place it applies to (see src/common/scope.ts). Roles at an
-   * inactive campus or institution are left out (ADR-0026): they give no access until it is
-   * activated again.
+   * inactive branch are left out (ADR-0026): they give no access until it is activated again.
    */
   grants: Grant[];
-  /** Has the Organization admin role for the whole organization (e.g. may activate campuses). */
+  /** Has the Organization admin role for the whole organization. */
   isOrganizationAdmin: boolean;
   /** Keys of the modules switched on for the user's organization, e.g. "students". */
   enabledModules: string[];
 }
 
-/** One role assignment: its permissions, and where they apply (no ids = whole organization). */
+/** One role assignment: its permissions, and where they apply (no branch = whole organization). */
 export interface Grant {
   roleName: string;
   permissions: string[];
-  institutionId: string | null;
-  campusId: string | null;
+  branchId: string | null;
 }
 
 /** What we put inside a login token (keep it small: identity only, no permissions). */

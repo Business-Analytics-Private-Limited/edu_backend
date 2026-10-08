@@ -9,7 +9,7 @@
  * of them for every query on organization data:
  *
  *   this.prisma.forOrganization(organizationId, (db) =>
- *     db.institution.findMany({ where: { organizationId } }),
+ *     db.branch.findMany({ where: { organizationId } }),
  *   );
  *
  *   this.prisma.forAllOrganizations((db) => db.organization.findMany());   // super admin, login

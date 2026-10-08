@@ -1,26 +1,32 @@
 /**
- * IMPORTING STUDENTS from a spreadsheet (CSV), and the admission-number setting.
+ * IMPORTING STUDENTS from a spreadsheet (CSV), and the admission-number setting (ADR-0030).
  *
- * Import: the screen reads the file and sends its rows; this service
+ * Import: on the screen the user chooses WHERE the students go, step by step: branch, academic
+ * year, then the structure level by level (e.g. Junior > MPC > JEE Mains), then the section. The
+ * sheet only has the students' own columns; every row goes into that section. This service
  *   1. checks EVERY row and reports all problems with their row numbers (row 2 = the first row
  *      under the header, as in Excel);
  *   2. with dryRun (or if any row has a problem) saves nothing;
  *   3. otherwise admits all rows at once, in one transaction: all or nothing.
- * Columns: admissionNo, admissionDate, fullName, surname, dateOfBirth, gender, phone, email,
- * address, batch (code), section (class codes from the top, e.g. "Y1/MPC/A"), rollNo,
+ * Columns: admissionNo (only with MANUAL numbering), admissionDate, fullName, surname,
+ * dateOfBirth, gender, phone, email, address, previousInstitution, previousMarks, rollNo,
  * guardianName, guardianRelation, guardianPhone. Dates as 2026-06-01 or 01/06/2026.
- * Needs "students.student.import" at the campus.
+ * Needs "students.student.import" and "students.student.create" at the section's branch.
+ *
+ * Admission numbers: the organization admin chooses AUTOMATIC (from a pattern) or MANUAL
+ * ("students.settings.update" for the whole organization).
  */
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Gender, GuardianRelation } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { assertCan } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
+import { ClassTree } from '../academic/class-tree';
 import { AuditService } from '../audit/audit.service';
-import { checkPattern, nextAdmissionNo, render } from './admission-numbers';
-import { ImportRowDto, ImportStudentsDto } from './dto/student.dto';
-import { findCampus } from './placement';
-import { assertCampusInUse } from '../organization/places-in-use';
+import { findOrganization } from '../organization/places-in-use';
+import { admissionNumberFor, checkPattern, render } from './admission-numbers';
+import { ImportRowDto, ImportStudentsDto, SetNumberingDto } from './dto/student.dto';
+import { checkPlacement } from './placement';
 
 const GENDERS: Record<string, Gender> = {
   M: 'MALE',
@@ -66,8 +72,8 @@ interface ReadyRow {
   phone?: string;
   email?: string;
   address?: string;
-  batchId?: string;
-  sectionId?: string;
+  previousInstitution?: string;
+  previousMarks?: string;
   rollNo?: string;
   guardian?: { fullName: string; relation: GuardianRelation; phone?: string };
 }
@@ -84,28 +90,38 @@ export class ImportService {
     return this.prisma.forOrganization(
       organizationId,
       async (db) => {
-        const campus = await findCampus(db, organizationId, dto.campusId);
-        const place = { institutionId: campus.institutionId, campusId: campus.id };
+        const section = await db.class.findFirst({
+          where: { id: dto.sectionId, organizationId },
+          include: { branch: true },
+        });
+        if (!section?.branch) throw new BadRequestException('Choose a section');
+        const branch = section.branch;
+        const place = { branchId: branch.id };
         assertCan(actor, 'students.student.import', place);
         assertCan(actor, 'students.student.create', place);
-        await assertCampusInUse(db, campus.id);
+        const { year } = await checkPlacement(db, organizationId, branch.id, {
+          academicYearId: dto.academicYearId,
+          classId: section.id,
+        });
+        const organization = await findOrganization(db, organizationId);
 
-        const { ready, errors } = await this.check(db, campus, dto);
+        const { ready, errors } = await this.check(db, organization, section.id, year.id, dto);
         if (errors.length > 0 || dto.dryRun) {
           return { ok: errors.length === 0, total: dto.rows.length, imported: 0, errors };
         }
 
-        const institution = await db.institution.findUniqueOrThrow({
-          where: { id: campus.institutionId },
-        });
         for (const r of ready) {
-          const admissionNo =
-            r.admissionNo ?? (await nextAdmissionNo(db, institution, r.admissionDate));
+          const admissionNo = await admissionNumberFor(
+            db,
+            { ...organization, organizationId },
+            branch,
+            r.admissionDate,
+            r.admissionNo,
+          );
           const student = await db.student.create({
             data: {
               organizationId,
-              institutionId: campus.institutionId,
-              campusId: campus.id,
+              branchId: branch.id,
               admissionNo,
               admissionDate: r.admissionDate,
               fullName: r.fullName,
@@ -115,7 +131,8 @@ export class ImportService {
               phone: r.phone,
               email: r.email,
               address: r.address,
-              batchId: r.batchId,
+              previousInstitution: r.previousInstitution,
+              previousMarks: r.previousMarks,
               statusChanges: {
                 create: {
                   organizationId,
@@ -125,19 +142,17 @@ export class ImportService {
                   changedBy: actor.id,
                 },
               },
-              ...(r.sectionId && {
-                enrolments: {
-                  create: {
-                    organizationId,
-                    institutionId: campus.institutionId,
-                    campusId: campus.id,
-                    academicYearId: dto.academicYearId!,
-                    classId: r.sectionId,
-                    rollNo: r.rollNo,
-                    enrolledOn: r.admissionDate,
-                  },
+              enrolments: {
+                create: {
+                  organizationId,
+                  branchId: branch.id,
+                  academicYearId: year.id,
+                  classId: section.id,
+                  rollNo: r.rollNo,
+                  enrolledOn: r.admissionDate > year.startsOn ? r.admissionDate : year.startsOn,
+                  reason: 'Admission (import)',
                 },
-              }),
+              },
             },
           });
           if (r.guardian) {
@@ -155,11 +170,12 @@ export class ImportService {
             });
           }
         }
+        const tree = await ClassTree.load(db, organizationId);
         await this.audit.log(db, actor, {
           action: 'import',
           entity: 'students',
           ...place,
-          details: { imported: ready.length },
+          details: { imported: ready.length, year: year.name, section: tree.label(section.id) },
         });
         return { ok: true, total: dto.rows.length, imported: ready.length, errors: [] };
       },
@@ -167,36 +183,39 @@ export class ImportService {
     );
   }
 
-  /** The admission-number pattern of an institution ("students.settings.update" there). */
-  setNumbering(
-    organizationId: string,
-    institutionId: string,
-    pattern: string | null | undefined,
-    actor: CurrentUser,
-  ) {
-    const place = { institutionId };
-    assertCan(actor, 'students.settings.update', place);
-    const value = pattern?.trim() ? pattern.trim() : null;
-    if (value) checkPattern(value);
+  /** AUTOMATIC (with a pattern) or MANUAL admission numbers, for the whole organization. */
+  setNumbering(organizationId: string, dto: SetNumberingDto, actor: CurrentUser) {
+    assertCan(actor, 'students.settings.update', {});
+    const pattern = dto.pattern?.trim() ? dto.pattern.trim() : null;
+    if (dto.mode === 'AUTOMATIC') {
+      if (!pattern) throw new BadRequestException('Automatic numbers need a pattern');
+      checkPattern(pattern);
+    }
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const institution = await db.institution.findFirst({
-        where: { id: institutionId, organizationId },
-      });
-      if (!institution) throw new BadRequestException('Institution not found');
-      await db.institution.update({
-        where: { id: institutionId },
-        data: { admissionNoPattern: value },
+      const before = await findOrganization(db, organizationId);
+      const organization = await db.organization.update({
+        where: { id: organizationId },
+        data: { admissionNumbering: dto.mode, admissionNoPattern: pattern },
       });
       await this.audit.log(db, actor, {
         action: 'update',
         entity: 'admission_numbering',
-        entityId: institutionId,
-        ...place,
-        details: { before: institution.admissionNoPattern, after: value },
+        entityId: organizationId,
+        details: {
+          before: { mode: before.admissionNumbering, pattern: before.admissionNoPattern },
+          after: { mode: dto.mode, pattern },
+        },
       });
       return {
-        pattern: value,
-        example: value ? render(value, institution.code, new Date().getUTCFullYear(), 1) : null,
+        mode: organization.admissionNumbering,
+        pattern,
+        example: pattern
+          ? render(
+              pattern,
+              { code: organization.code, branch: 'BRANCH', year: new Date().getUTCFullYear() },
+              1,
+            )
+          : null,
       };
     });
   }
@@ -205,120 +224,85 @@ export class ImportService {
 
   private async check(
     db: Db,
-    campus: { id: string; institutionId: string },
+    organization: { id: string; admissionNumbering: 'AUTOMATIC' | 'MANUAL' },
+    sectionId: string,
+    academicYearId: string,
     dto: ImportStudentsDto,
   ): Promise<{ ready: ReadyRow[]; errors: { row: number; message: string }[] }> {
     const errors: { row: number; message: string }[] = [];
     const ready: ReadyRow[] = [];
+    const manual = organization.admissionNumbering === 'MANUAL';
 
-    // What the rows refer to, loaded once.
-    const [institution, batches, classes, levelCount, year] = await Promise.all([
-      db.institution.findUniqueOrThrow({ where: { id: campus.institutionId } }),
-      db.batch.findMany({ where: { institutionId: campus.institutionId } }),
-      db.class.findMany({ where: { campusId: campus.id } }),
-      db.classLevel.count({ where: { institutionId: campus.institutionId } }),
-      dto.academicYearId
-        ? db.academicYear.findFirst({
-            where: { id: dto.academicYearId, institutionId: campus.institutionId },
-          })
-        : Promise.resolve(null),
-    ]);
-    if (dto.academicYearId && (!year || year.status === 'CLOSED')) {
-      errors.push({
-        row: 0,
-        message: "The academic year must be one of the institution's years and not closed",
-      });
-    }
-    const batchByCode = new Map(batches.map((b) => [b.code.toUpperCase(), b.id]));
-    const sectionByPath = new Map<string, string>();
-    const byId = new Map(classes.map((c) => [c.id, c]));
-    const pathOf = (id: string): string[] => {
-      const c = byId.get(id)!;
-      return [...(c.parentId ? pathOf(c.parentId) : []), c.code.toUpperCase()];
-    };
-    for (const c of classes) {
-      if (c.level === levelCount && c.isActive) sectionByPath.set(pathOf(c.id).join('/'), c.id);
-    }
     const existingNos = new Set(
-      (
-        await db.student.findMany({
-          where: {
-            institutionId: campus.institutionId,
-            admissionNo: {
-              in: dto.rows.map((r) => clean(r.admissionNo)).filter((v): v is string => !!v),
-            },
-          },
-          select: { admissionNo: true },
-        })
-      ).map((s) => s.admissionNo),
+      manual
+        ? (
+            await db.student.findMany({
+              where: {
+                organizationId: organization.id,
+                admissionNo: {
+                  in: dto.rows.map((r) => clean(r.admissionNo)).filter((v): v is string => !!v),
+                },
+              },
+              select: { admissionNo: true },
+            })
+          ).map((s) => s.admissionNo)
+        : [],
     );
     const takenRolls = new Set(
-      year
-        ? (
-            await db.enrolment.findMany({
-              where: { academicYearId: year.id, campusId: campus.id, rollNo: { not: null } },
-              select: { classId: true, rollNo: true },
-            })
-          ).map((e) => `${e.classId}#${e.rollNo}`)
-        : [],
+      (
+        await db.enrolment.findMany({
+          where: { academicYearId, classId: sectionId, status: 'ACTIVE', rollNo: { not: null } },
+          select: { rollNo: true },
+        })
+      ).map((e) => e.rollNo!),
     );
     const seenNos = new Set<string>();
 
     dto.rows.forEach((raw: ImportRowDto, index) => {
       const row = index + 2; // as in the spreadsheet: row 1 is the header
       const problems: string[] = [];
-      const admissionNo = clean(raw.admissionNo);
+      const admissionNo = manual ? clean(raw.admissionNo) : undefined;
       const admissionDate = parseDate(raw.admissionDate);
       const dateOfBirth = parseDate(raw.dateOfBirth);
       const fullName = clean(raw.fullName);
       const gender = GENDERS[(raw.gender ?? '').trim().toUpperCase()];
 
       if (!fullName) problems.push('fullName is empty');
-      if (!admissionDate)
+      if (!admissionDate) {
         problems.push('admissionDate is missing or not a date (2026-06-01 or 01/06/2026)');
+      }
       if (!dateOfBirth) problems.push('dateOfBirth is missing or not a date');
       if (!gender) problems.push('gender must be male, female or other');
-      if (admissionNo) {
-        if (!/^[A-Za-z0-9/_-]{1,30}$/.test(admissionNo))
-          problems.push('admissionNo has characters that are not allowed');
-        if (existingNos.has(admissionNo))
-          problems.push(`admission number ${admissionNo} is already used`);
-        if (seenNos.has(admissionNo))
-          problems.push(`admission number ${admissionNo} appears twice in the file`);
-        seenNos.add(admissionNo);
-      } else if (!institution.admissionNoPattern) {
-        problems.push('admissionNo is empty and the institution has no automatic numbering');
+      if (manual) {
+        if (!admissionNo) {
+          problems.push('admissionNo is empty (this organization types admission numbers)');
+        } else {
+          if (!/^[A-Za-z0-9/_-]{1,30}$/.test(admissionNo)) {
+            problems.push('admissionNo has characters that are not allowed');
+          }
+          if (existingNos.has(admissionNo)) {
+            problems.push(`admission number ${admissionNo} is already used`);
+          }
+          if (seenNos.has(admissionNo)) {
+            problems.push(`admission number ${admissionNo} appears twice in the file`);
+          }
+          seenNos.add(admissionNo);
+        }
       }
 
-      const batchCode = clean(raw.batch)?.toUpperCase();
-      const batchId = batchCode ? batchByCode.get(batchCode) : undefined;
-      if (batchCode && !batchId) problems.push(`no batch with code ${raw.batch}`);
-
-      const sectionPath = clean(raw.section)
-        ?.toUpperCase()
-        .replace(/\s*[/>›]\s*/g, '/');
-      const sectionId = sectionPath ? sectionByPath.get(sectionPath) : undefined;
-      if (sectionPath) {
-        if (!sectionId)
-          problems.push(
-            `no section ${raw.section} on this campus (use class codes, e.g. Y1/MPC/A)`,
-          );
-        if (!dto.academicYearId)
-          problems.push('choose the academic year to place students in sections');
-      }
       const rollNo = clean(raw.rollNo);
-      if (rollNo && sectionId) {
-        const key = `${sectionId}#${rollNo}`;
-        if (takenRolls.has(key))
-          problems.push(`roll number ${rollNo} is already used in that section`);
-        takenRolls.add(key);
+      if (rollNo) {
+        if (takenRolls.has(rollNo)) {
+          problems.push(`roll number ${rollNo} is already used in this section`);
+        }
+        takenRolls.add(rollNo);
       }
 
       const guardianName = clean(raw.guardianName);
-      const relationText = (clean(raw.guardianRelation) ?? 'GUARDIAN').toUpperCase();
-      const relation = RELATIONS[relationText];
-      if (guardianName && !relation)
+      const relation = RELATIONS[(clean(raw.guardianRelation) ?? 'GUARDIAN').toUpperCase()];
+      if (guardianName && !relation) {
         problems.push('guardianRelation must be father, mother, guardian or other');
+      }
 
       if (problems.length > 0) {
         errors.push(...problems.map((message) => ({ row, message })));
@@ -335,8 +319,8 @@ export class ImportService {
         phone: clean(raw.phone),
         email: clean(raw.email),
         address: clean(raw.address),
-        batchId,
-        sectionId,
+        previousInstitution: clean(raw.previousInstitution),
+        previousMarks: clean(raw.previousMarks),
         rollNo,
         guardian: guardianName
           ? { fullName: guardianName, relation: relation!, phone: clean(raw.guardianPhone) }

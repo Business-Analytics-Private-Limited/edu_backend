@@ -18,10 +18,9 @@ import {
 import { PaginationQuery } from '../../../common/pagination';
 
 /**
- * A role and the place it applies to:
- *   neither institutionId nor campusId  -> the whole organization
- *   institutionId                       -> that institution and all its campuses
- *   campusId                            -> that campus only (its institution is filled in)
+ * A role and the place it applies to (ADR-0030):
+ *   no branchId  -> the whole organization
+ *   branchId     -> that branch only
  */
 export class RoleAssignmentDto {
   @IsUUID()
@@ -29,11 +28,7 @@ export class RoleAssignmentDto {
 
   @IsOptional()
   @IsUUID()
-  institutionId?: string;
-
-  @IsOptional()
-  @IsUUID()
-  campusId?: string;
+  branchId?: string;
 }
 
 export class CreateUserDto {

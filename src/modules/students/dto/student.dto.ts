@@ -1,8 +1,9 @@
 /**
- * Request bodies and filters for the Students module: admission, profile, status, guardians,
- * enrolments.
+ * Request bodies and filters for the Students module: admission, profile, leaving and
+ * re-admission, section and branch changes, guardians, promotion, import, admission numbers and
+ * documents (ADR-0020, ADR-0030).
  */
-import { Gender, GuardianRelation, StudentStatus } from '@prisma/client';
+import { AdmissionNumbering, Gender, GuardianRelation, StudentStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -18,11 +19,13 @@ import {
   IsUUID,
   Length,
   Matches,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQuery } from '../../../common/pagination';
 
 const ADMISSION_NO = /^[A-Za-z0-9/_-]+$/;
+const ADMISSION_NO_MESSAGE = 'admissionNo may only contain letters, digits, /, _ and -';
 
 // --- Guardians -----------------------------------------------------------------------------------
 
@@ -94,11 +97,11 @@ export class UpdateGuardianDto {
 // --- Enrolments ----------------------------------------------------------------------------------
 
 export class EnrolmentDto {
-  /** The academic year (of the student's institution, not closed). */
+  /** An academic year of the organization that isn't closed. */
   @IsUUID()
   academicYearId: string;
 
-  /** A section: a class of the LAST level, on the student's campus. */
+  /** A section of the student's branch. */
   @IsUUID()
   classId: string;
 
@@ -109,15 +112,11 @@ export class EnrolmentDto {
 }
 
 export class UpdateEnrolmentDto {
-  /** Move to another section (same campus, same year). Needs "students.enrolment.transfer". */
-  @IsOptional()
-  @IsUUID()
-  classId?: string;
-
-  @IsOptional()
+  /** The roll number in the section; null clears it. */
+  @ValidateIf((_, value) => value !== null)
   @IsString()
   @Length(1, 20)
-  rollNo?: string;
+  rollNo: string | null;
 }
 
 // --- Students ------------------------------------------------------------------------------------
@@ -159,23 +158,30 @@ export class StudentProfileDto {
   @Length(1, 500)
   address?: string;
 
-  /** The batch the student joins (Academic module), of the same institution. */
+  /** Lateral entry: where the student studied before. @example Narayana Junior College */
   @IsOptional()
-  @IsUUID()
-  batchId?: string;
+  @IsString()
+  @Length(1, 200)
+  previousInstitution?: string;
+
+  /** @example 1st year: 845/1000 */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  previousMarks?: string;
 }
 
 export class AdmitStudentDto extends StudentProfileDto {
-  /** The campus the student will study at. */
+  /** The branch the student will study at. */
   @IsUUID()
-  campusId: string;
+  branchId: string;
 
   /**
-   * Unique in the institution. Leave out to get the next number of the institution's pattern
-   * (if it has one). @example SVJC260001
+   * Required when the organization types admission numbers (MANUAL); ignored when they are
+   * AUTOMATIC. Unique in the organization. @example SVJC260001
    */
   @IsOptional()
-  @Matches(ADMISSION_NO, { message: 'admissionNo may only contain letters, digits, /, _ and -' })
+  @Matches(ADMISSION_NO, { message: ADMISSION_NO_MESSAGE })
   @Length(1, 30)
   admissionNo?: string;
 
@@ -183,7 +189,7 @@ export class AdmitStudentDto extends StudentProfileDto {
   @IsDateString({ strict: true })
   admissionDate: string;
 
-  /** Place the student in a section for an academic year right away (optional). */
+  /** Place the student in a section of the branch right away (optional). */
   @IsOptional()
   @ValidateNested()
   @Type(() => EnrolmentDto)
@@ -237,20 +243,28 @@ export class UpdateStudentDto {
   address?: string;
 
   @IsOptional()
-  @IsUUID()
-  batchId?: string;
+  @IsString()
+  @Length(1, 200)
+  previousInstitution?: string;
 
   @IsOptional()
-  @Matches(ADMISSION_NO, { message: 'admissionNo may only contain letters, digits, /, _ and -' })
+  @IsString()
+  @Length(1, 200)
+  previousMarks?: string;
+
+  /** To correct a mistake. Unique in the organization. */
+  @IsOptional()
+  @Matches(ADMISSION_NO, { message: ADMISSION_NO_MESSAGE })
   @Length(1, 30)
   admissionNo?: string;
 }
 
-export class ChangeStatusDto {
-  @IsEnum(StudentStatus)
-  status: StudentStatus;
+/** The student leaves the organization: they become OUTGOING (ADR-0030). */
+export class LeaveDto {
+  @IsIn(['TRANSFERRED', 'DISCONTINUED', 'COMPLETED'])
+  status: 'TRANSFERRED' | 'DISCONTINUED' | 'COMPLETED';
 
-  /** @example 2027-03-31 */
+  /** The day they left. @example 2027-04-30 */
   @IsDateString({ strict: true })
   effectiveOn: string;
 
@@ -258,6 +272,49 @@ export class ChangeStatusDto {
   @IsString()
   @Length(1, 300)
   reason?: string;
+
+  /** Where they went, if known. @example Narayana Junior College */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  destination?: string;
+}
+
+/** An outgoing student comes back: current again (place them in a section afterwards). */
+export class ReadmitDto {
+  @IsDateString({ strict: true })
+  effectiveOn: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  reason?: string;
+}
+
+/** Another section of the same branch, from a date (one student, from the profile). */
+export class ChangeSectionDto {
+  @IsUUID()
+  classId: string;
+
+  /** The first day in the new section. @example 2026-07-15 */
+  @IsDateString({ strict: true })
+  effectiveOn: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  reason?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 20)
+  rollNo?: string;
+}
+
+/** Another branch (and a section there), from a date (one student, from the profile). */
+export class ChangeBranchDto extends ChangeSectionDto {
+  @IsUUID()
+  branchId: string;
 }
 
 export class ListStudentsQuery extends PaginationQuery {
@@ -268,21 +325,27 @@ export class ListStudentsQuery extends PaginationQuery {
 
   @IsOptional()
   @IsUUID()
-  campusId?: string;
+  branchId?: string;
 
-  /** Students enrolled in this class (any level: includes the sections below it). */
+  /**
+   * Students placed in this class or anything under it, in every branch: a year, group, stream,
+   * course ... or one section.
+   */
   @IsOptional()
   @IsUUID()
   classId?: string;
 
-  @IsOptional()
-  @IsUUID()
-  batchId?: string;
-
+  /** Placed in this year (with classId: placed there in this year). */
   @IsOptional()
   @IsUUID()
   academicYearId?: string;
 
+  /** current (default) = ACTIVE students; outgoing = those who left; all. */
+  @IsOptional()
+  @IsIn(['current', 'outgoing', 'all'])
+  show?: 'current' | 'outgoing' | 'all';
+
+  /** One exact status, e.g. TRANSFERRED (overrides "show"). */
   @IsOptional()
   @IsEnum(StudentStatus)
   status?: StudentStatus;
@@ -295,11 +358,11 @@ export class GuardianSearchQuery {
   phone: string;
 }
 
-// --- Promotion and shuffle -----------------------------------------------------------------------
+// --- Promotion -----------------------------------------------------------------------------------
 
 export class PromotionQuery {
   @IsUUID()
-  campusId: string;
+  branchId: string;
 
   /** The year the students are in now. */
   @IsUUID()
@@ -314,15 +377,15 @@ export class SectionChoiceDto {
   @IsUUID()
   fromSectionId: string;
 
-  /** Where this section's students go; leave out (and graduate false) to skip the section. */
+  /** Where this section's students go; leave out (and complete false) to skip the section. */
   @IsOptional()
   @IsUUID()
   toSectionId?: string;
 
-  /** true = these students finish: their enrolment completes and they become alumni. */
+  /** true = these students finish: their enrolment completes and they become outgoing. */
   @IsOptional()
   @IsBoolean()
-  graduate?: boolean;
+  complete?: boolean;
 }
 
 export class ApplyPromotionDto extends PromotionQuery {
@@ -331,51 +394,24 @@ export class ApplyPromotionDto extends PromotionQuery {
   @Type(() => SectionChoiceDto)
   mapping: SectionChoiceDto[];
 
-  /** Move the promoted students' batches to this stage, e.g. "Senior". */
-  @IsOptional()
-  @IsString()
-  @Length(1, 40)
-  batchStage?: string;
-
   /** Keep each student's roll number in the new section. */
   @IsOptional()
   @IsBoolean()
   keepRollNumbers?: boolean;
 }
 
-export class MoveStudentsDto {
+export class BranchQuery {
   @IsUUID()
-  academicYearId: string;
-
-  @IsArray()
-  @IsUUID('all', { each: true })
-  studentIds: string[];
-
-  /** A section on the same campus. */
-  @IsUUID()
-  toSectionId: string;
+  branchId: string;
 }
 
-// --- Campus transfer, numbering, import ----------------------------------------------------------
-
-export class TransferCampusDto {
-  /** Another campus of the same institution. */
-  @IsUUID()
-  toCampusId: string;
-
-  /** The student's section on the new campus (needed if they have a current section). */
-  @IsOptional()
-  @IsUUID()
-  toSectionId?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, 300)
-  reason?: string;
-}
+// --- Admission numbers and import ---------------------------------------------------------------
 
 export class SetNumberingDto {
-  /** e.g. "{CODE}{YY}{SEQ:4}"; empty / null = admission numbers are typed by hand. */
+  @IsEnum(AdmissionNumbering)
+  mode: AdmissionNumbering;
+
+  /** For AUTOMATIC, e.g. "{CODE}{YY}{SEQ:4}" or "{CODE}/{BRANCH}/{SEQ:4}". */
   @IsOptional()
   @IsString()
   @Length(0, 40)
@@ -384,9 +420,11 @@ export class SetNumberingDto {
 
 /**
  * One row of an import, as text exactly as in the file. The service checks every field and
- * reports problems by row number, so one bad row doesn't hide the others.
+ * reports problems by row number, so one bad row doesn't hide the others. Where the students go
+ * (branch, year, section) is chosen on the screen, not in the file (ADR-0030).
  */
 export class ImportRowDto {
+  /** Only with MANUAL admission numbers (ignored with AUTOMATIC). */
   @IsOptional() @IsString() admissionNo?: string;
   @IsOptional() @IsString() admissionDate?: string;
   @IsOptional() @IsString() fullName?: string;
@@ -396,10 +434,8 @@ export class ImportRowDto {
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() email?: string;
   @IsOptional() @IsString() address?: string;
-  /** The batch's code, e.g. B2026. */
-  @IsOptional() @IsString() batch?: string;
-  /** The section as class codes from the top, e.g. "Y1/MPC/A". */
-  @IsOptional() @IsString() section?: string;
+  @IsOptional() @IsString() previousInstitution?: string;
+  @IsOptional() @IsString() previousMarks?: string;
   @IsOptional() @IsString() rollNo?: string;
   @IsOptional() @IsString() guardianName?: string;
   /** father, mother, guardian or other. */
@@ -408,14 +444,13 @@ export class ImportRowDto {
 }
 
 export class ImportStudentsDto {
-  /** All rows are admitted to this campus. */
+  /** The academic year the students are placed in (not closed). */
   @IsUUID()
-  campusId: string;
+  academicYearId: string;
 
-  /** The academic year for the rows' sections (needed when rows have a section). */
-  @IsOptional()
+  /** The section every row goes into; its branch is the students' branch. */
   @IsUUID()
-  academicYearId?: string;
+  sectionId: string;
 
   /** true = only check the rows and report problems; nothing is saved. */
   @IsOptional()
@@ -430,17 +465,9 @@ export class ImportStudentsDto {
   rows: ImportRowDto[];
 }
 
-export class CampusQuery {
-  @IsUUID()
-  campusId: string;
-}
-
 // --- Documents -----------------------------------------------------------------------------------
 
 export class CreateDocumentTypeDto {
-  @IsUUID()
-  institutionId: string;
-
   /** @example Transfer certificate */
   @IsString()
   @Length(2, 100)
@@ -491,10 +518,4 @@ export class ReviewDocumentDto {
   @IsString()
   @Length(0, 300)
   note?: string;
-}
-
-export class DocumentTypeQuery {
-  @IsOptional()
-  @IsUUID()
-  institutionId?: string;
 }

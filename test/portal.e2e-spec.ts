@@ -2,20 +2,19 @@
  * The parent and student portal (ADR-0022): logins linked to a guardian or a student, what they
  * may see, and that they can never use staff screens.
  *
- * Organization "por": campus KKP with siblings Teja and Sita (father Ramesh), campus AMP with
+ * Organization "por": branch KKP with siblings Teja and Sita (father Ramesh), branch AMP with
  * Kiran (mother Lakshmi). Attendance is marked today for Teja and Sita.
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import {
+  branchId,
   createOrganization,
   createTestApp,
-  institutionId,
-  JUNIOR_COLLEGE_LEVELS,
+  createYear,
   loginSuperAdmin,
   loginUser,
-  setClassLevels,
-  SVJC,
+  setUpIntermediate,
 } from './helpers';
 
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
@@ -39,57 +38,48 @@ describe('Parent and student portal', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'por', 'admin@por.test', [SVJC]);
+    orgId = await createOrganization(app, superAdmin, 'por', 'admin@por.test', {
+      branches: [
+        { name: 'KKP', code: 'KKP' },
+        { name: 'AMP', code: 'AMP' },
+      ],
+    });
     admin = await loginUser(app, 'admin@por.test', 'Admin@12345');
     for (const key of ['academic', 'students', 'attendance']) await setModule(key, true);
 
-    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
-    await setClassLevels(app, admin, ids.SVJC, JUNIOR_COLLEGE_LEVELS);
-    await api()
-      .put(`/api/v1/institutions/${ids.SVJC}/weekly-off`)
-      .set(as(admin))
-      .send({ days: [] });
+    await api().put('/api/v1/calendar/weekly-off').set(as(admin)).send({ days: [] }).expect(200);
     for (const code of ['KKP', 'AMP']) {
-      const campus = await api()
-        .post(`/api/v1/institutions/${ids.SVJC}/campuses`)
-        .set(as(admin))
-        .send({ name: code, code });
-      ids[code] = campus.body.id;
-      const post = (body: object) =>
-        api().post(`/api/v1/campuses/${ids[code]}/classes`).set(as(admin)).send(body).expect(201);
-      const y1 = await post({ name: '1st year', code: 'Y1' });
-      const mpc = await post({ parentId: y1.body.id, name: 'MPC', code: 'MPC' });
-      ids[`${code}_A`] = (
-        await post({ parentId: mpc.body.id, name: 'Section A', code: 'A' })
-      ).body.id;
+      ids[code] = await branchId(app, superAdmin, orgId, code);
+      const sections = await setUpIntermediate(app, admin, ids[code], {
+        groups: ['MPC'],
+        sections: [{ under: ['JR', 'MPC', 'REG'], name: 'Section A', code: 'A' }],
+      });
+      ids[`${code}_A`] = sections.A;
     }
     const start = new Date(`${today}T00:00:00Z`);
     start.setUTCDate(start.getUTCDate() - 60);
     const end = new Date(`${today}T00:00:00Z`);
     end.setUTCDate(end.getUTCDate() + 200);
-    const year = await api()
-      .post('/api/v1/academic-years')
-      .set(as(admin))
-      .send({
-        institutionId: ids.SVJC,
-        name: 'This year',
-        startsOn: start.toISOString().slice(0, 10),
-        endsOn: end.toISOString().slice(0, 10),
-      });
-    ids.YEAR = year.body.id;
+    ids.YEAR = await createYear(
+      app,
+      admin,
+      'This year',
+      start.toISOString().slice(0, 10),
+      end.toISOString().slice(0, 10),
+    );
 
-    const admit = async (name: string, campus: string, guardian: object) => {
+    const admit = async (name: string, branch: string, guardian: object) => {
       const res = await api()
         .post('/api/v1/students')
         .set(as(admin))
         .send({
-          campusId: ids[campus],
+          branchId: ids[branch],
           admissionNo: `P-${name}`,
           admissionDate: start.toISOString().slice(0, 10),
           fullName: name,
           dateOfBirth: '2010-01-01',
           gender: 'MALE',
-          enrolment: { academicYearId: ids.YEAR, classId: ids[`${campus}_A`] },
+          enrolment: { academicYearId: ids.YEAR, classId: ids[`${branch}_A`] },
           guardians: [guardian],
         })
         .expect(201);
@@ -114,7 +104,7 @@ describe('Parent and student portal', () => {
       .expect(200);
 
     const roles = await api().get('/api/v1/roles').set(as(admin));
-    const campusAdmin = roles.body.find((r: { name: string }) => r.name === 'Campus admin');
+    const branchAdmin = roles.body.find((r: { name: string }) => r.name === 'Branch admin');
     await api()
       .post('/api/v1/users')
       .set(as(admin))
@@ -122,7 +112,7 @@ describe('Parent and student portal', () => {
         name: 'AMP admin',
         email: 'amp@por.test',
         password: 'Password@123',
-        roles: [{ roleId: campusAdmin.id, campusId: ids.AMP }],
+        roles: [{ roleId: branchAdmin.id, branchId: ids.AMP }],
       })
       .expect(201);
     ampAdmin = await loginUser(app, 'amp@por.test', 'Password@123');
@@ -174,7 +164,10 @@ describe('Parent and student portal', () => {
     const me = await api().get('/api/v1/portal/me').set(as(parent)).expect(200);
     expect(me.body.kind).toBe('parent');
     expect(me.body.students.map((s: { fullName: string }) => s.fullName)).toEqual(['Sita', 'Teja']);
-    expect(me.body.students[0].enrolments[0].class.name).toBe('Section A');
+    expect(me.body.students[0]).toMatchObject({
+      branch: { name: 'KKP' },
+      placement: { section: 'Junior (1st Year) › MPC › Regular (IPE) › Section A' },
+    });
 
     const sita = await api()
       .get(`/api/v1/portal/students/${ids.Sita}/attendance?from=${today}&to=${today}`)
@@ -214,7 +207,7 @@ describe('Parent and student portal', () => {
     expect(emails).not.toContain('teja@por.test');
   });
 
-  it("a campus admin manages only their campus's students' logins", async () => {
+  it("a branch admin manages only their branch's students' logins", async () => {
     await api()
       .post(`/api/v1/students/${ids.Teja}/portal-access`)
       .set(as(ampAdmin))
@@ -244,6 +237,22 @@ describe('Parent and student portal', () => {
       .post('/api/v1/auth/login')
       .send({ email: 'teja@por.test', password: 'Portal@12345' })
       .expect(401);
+  });
+
+  it('a student who leaves loses portal access, and so does a parent with no other child here', async () => {
+    const mother = await loginUser(app, 'lakshmi@por.test', 'Portal@12345');
+    await api().get('/api/v1/portal/me').set(as(mother)).expect(200);
+    await api()
+      .post(`/api/v1/students/${ids.Kiran}/leave`)
+      .set(as(admin))
+      .send({ status: 'TRANSFERRED', effectiveOn: today })
+      .expect(200);
+    await api().get('/api/v1/portal/me').set(as(mother)).expect(401);
+    // An outgoing student gets no new login.
+    await grant(ids.Kiran, { for: 'STUDENT', email: 'kiran@por.test' }).expect(400);
+    // Ramesh still has two current children: his login stays.
+    const father = await loginUser(app, 'ramesh@por.test', 'Portal@12345');
+    await api().get('/api/v1/portal/me').set(as(father)).expect(200);
   });
 
   it('switching the portal module off closes the portal', async () => {

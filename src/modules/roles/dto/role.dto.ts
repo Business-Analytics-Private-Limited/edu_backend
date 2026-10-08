@@ -45,3 +45,22 @@ export class UpdatePredefinedRoleDto {
   @IsString({ each: true })
   permissions: string[];
 }
+
+/** The super admin creates a predefined role (ADR-0030). */
+export class CreatePredefinedRoleDto {
+  /** @example Accountant */
+  @IsString()
+  @Length(2, 60)
+  name: string;
+
+  /** @example Fees and receipts */
+  @IsString()
+  @Length(2, 200)
+  description: string;
+
+  /** Permission keys from GET /super-admin/permissions. */
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  permissions: string[];
+}

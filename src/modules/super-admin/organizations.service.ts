@@ -1,7 +1,7 @@
 /**
- * What the super admin can do with organizations: list, create (with its first admin and its
- * institutions), view, edit, suspend / activate, switch modules on and off, and add or delete
- * institutions (only the super admin does that, ADR-0025).
+ * What the super admin can do with organizations: list, create (with its type, first admin and
+ * branches), view, edit, suspend / activate, switch modules on and off, and add, close, reopen
+ * and delete branches (only the super admin does that, ADR-0030).
  *
  * Super admins work across all organizations, so every query runs in forAllOrganizations.
  * Every change is written to the audit log in the same transaction.
@@ -12,9 +12,10 @@ import * as bcrypt from 'bcryptjs';
 import type { CurrentUser } from '../../common/current-user';
 import { paginated, toSkipTake } from '../../common/pagination';
 import { Db, PrismaService } from '../../prisma/prisma.service';
+import { PRESETS } from '../academic/presets';
+import { ensurePresets } from '../academic/structure.service';
 import { AuditService } from '../audit/audit.service';
-import { CreateInstitutionDto } from '../organization/dto/institution.dto';
-import { addInstitution, deleteEmptyInstitution } from '../organization/institution-records';
+import { CreateBranchDto } from '../organization/dto/organization.dto';
 import { activeStudentCount } from '../organization/places-in-use';
 import { ORG_ADMIN } from '../roles/predefined-roles';
 import { PredefinedRolesService } from '../roles/predefined-roles.service';
@@ -36,18 +37,18 @@ export class OrganizationsService {
   /** Numbers for the super admin dashboard. */
   dashboard() {
     return this.prisma.forAllOrganizations(async (db) => {
-      const [total, active, suspended, users, institutions, recent] = await Promise.all([
+      const [total, active, suspended, users, branches, recent] = await Promise.all([
         db.organization.count(),
         db.organization.count({ where: { status: 'ACTIVE' } }),
         db.organization.count({ where: { status: 'SUSPENDED' } }),
-        db.user.count(),
-        db.institution.count(),
+        db.user.count({ where: { kind: 'STAFF' } }),
+        db.branch.count(),
         db.organization.findMany({ orderBy: { createdAt: 'desc' }, take: 5 }),
       ]);
       return {
         organizations: { total, active, suspended },
         users,
-        institutions,
+        branches,
         recentOrganizations: recent,
       };
     });
@@ -73,7 +74,7 @@ export class OrganizationsService {
         db.organization.findMany({
           where,
           orderBy: { createdAt: 'desc' },
-          include: { _count: { select: { users: true, institutions: true } } },
+          include: { _count: { select: { users: true, branches: true } } },
           ...toSkipTake(query),
         }),
         db.organization.count({ where }),
@@ -85,15 +86,23 @@ export class OrganizationsService {
   /**
    * Creates an organization together with:
    *   - every predefined role (the first admin gets "Organization admin"),
-   *   - its first admin user, and
-   *   - its institutions (the admin then adds campuses, users and everything else).
+   *   - its first admin user,
+   *   - its branches, and
+   *   - what its type always has (Intermediate: Junior, Senior, Long Term).
    */
   create(dto: CreateOrganizationDto, actor: CurrentUser) {
+    const codes = dto.branches.map((b) => b.code);
+    const repeated = codes.find((code, index) => codes.indexOf(code) !== index);
+    if (repeated) throw new BadRequestException(`Branch code ${repeated} is used twice`);
+
     return this.prisma.forAllOrganizations(async (db) => {
       const organization = await db.organization.create({
         data: {
           name: dto.name,
           slug: dto.slug,
+          code: dto.code,
+          type: dto.type,
+          levelNames: PRESETS[dto.type].levels,
           contactName: dto.contactName,
           contactEmail: dto.contactEmail,
           contactPhone: dto.contactPhone,
@@ -110,56 +119,44 @@ export class OrganizationsService {
           passwordHash: await bcrypt.hash(dto.admin.password, 10),
         },
       });
+      await ensurePresets(db, organization);
       await this.audit.log(db, actor, {
         action: 'create',
         entity: 'organization',
         entityId: organization.id,
         organizationId: organization.id,
-        details: { name: organization.name, slug: organization.slug, adminEmail: admin.email },
+        details: {
+          name: organization.name,
+          slug: organization.slug,
+          type: organization.type,
+          adminEmail: admin.email,
+        },
       });
-      const codes = dto.institutions.map((i) => i.code);
-      const repeated = codes.find((code, index) => codes.indexOf(code) !== index);
-      if (repeated) throw new BadRequestException(`Institution code ${repeated} is used twice`);
-      for (const item of dto.institutions) {
-        await this.logInstitution(
-          db,
-          actor,
-          'create',
-          await addInstitution(db, organization.id, item),
-        );
+      for (const item of dto.branches) {
+        await this.createBranch(db, organization.id, item, actor);
       }
       return { ...organization, admin: { id: admin.id, name: admin.name, email: admin.email } };
     });
   }
 
-  /** One organization with its modules (on / off), counts and admins. */
+  /** One organization with its modules (on / off), branches, counts and admins. */
   async get(id: string) {
     return this.prisma.forAllOrganizations(async (db) => {
       const organization = await db.organization.findUnique({
         where: { id },
         include: {
           modules: true,
-          _count: { select: { users: true, institutions: true, campuses: true, roles: true } },
+          _count: { select: { users: true, branches: true, roles: true, classes: true } },
         },
       });
       if (!organization) throw new NotFoundException('Organization not found');
 
       const allModules = await db.module.findMany({ orderBy: { sortOrder: 'asc' } });
-      const institutions = await db.institution.findMany({
+      const branches = await db.branch.findMany({
         where: { organizationId: id },
         orderBy: { name: 'asc' },
-        select: {
-          id: true,
-          name: true,
-          code: true,
-          status: true,
-          _count: { select: { campuses: true } },
-        },
+        select: { id: true, name: true, code: true, status: true },
       });
-      const [activeCampuses, inactiveCampuses] = await Promise.all([
-        db.campus.count({ where: { organizationId: id, status: 'ACTIVE' } }),
-        db.campus.count({ where: { organizationId: id, status: 'INACTIVE' } }),
-      ]);
       const admins = await db.user.findMany({
         where: { organizationId: id, roles: { some: { role: { templateKey: ORG_ADMIN } } } },
         select: { id: true, name: true, email: true, status: true, lastLoginAt: true },
@@ -168,8 +165,7 @@ export class OrganizationsService {
       return {
         ...rest,
         admins,
-        institutions,
-        campuses: { active: activeCampuses, inactive: inactiveCampuses },
+        branches,
         modules: allModules.map((module) => ({
           ...module,
           enabled: switchedModules.some((m) => m.moduleKey === module.key && m.enabled),
@@ -180,7 +176,25 @@ export class OrganizationsService {
 
   update(id: string, dto: UpdateOrganizationDto, actor: CurrentUser) {
     return this.prisma.forAllOrganizations(async (db) => {
-      const organization = await db.organization.update({ where: { id }, data: dto });
+      const existing = await db.organization.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundException('Organization not found');
+      const typeChanges = dto.type !== undefined && dto.type !== existing.type;
+      if (typeChanges) {
+        // The structure follows the type: change it only while there is nothing to fit.
+        const built = await db.class.count({ where: { organizationId: id, builtIn: false } });
+        const students = await db.student.count({ where: { organizationId: id } });
+        if (built + students > 0) {
+          throw new BadRequestException(
+            'The type can only change while the organization has no academic structure and no students',
+          );
+        }
+        await db.class.deleteMany({ where: { organizationId: id, branchId: null } });
+      }
+      const organization = await db.organization.update({
+        where: { id },
+        data: { ...dto, ...(typeChanges && { levelNames: PRESETS[dto.type!].levels }) },
+      });
+      if (typeChanges) await ensurePresets(db, organization);
       await this.audit.log(db, actor, {
         action: 'update',
         entity: 'organization',
@@ -239,93 +253,121 @@ export class OrganizationsService {
     });
   }
 
-  // --- Institutions (ADR-0025) -----------------------------------------------------------------
+  // --- Branches (ADR-0030) ---------------------------------------------------------------------
 
-  /** Adds an institution to an existing organization. */
-  addInstitution(organizationId: string, dto: CreateInstitutionDto, actor: CurrentUser) {
+  addBranch(organizationId: string, dto: CreateBranchDto, actor: CurrentUser) {
     return this.prisma.forAllOrganizations(async (db) => {
       if (!(await db.organization.findUnique({ where: { id: organizationId } }))) {
         throw new NotFoundException('Organization not found');
       }
-      const institution = await addInstitution(db, organizationId, dto);
-      await this.logInstitution(db, actor, 'create', institution);
-      return institution;
-    });
-  }
-
-  /** Deletes an institution that is still empty (no campuses, roles or academic data). */
-  deleteInstitution(organizationId: string, institutionId: string, actor: CurrentUser) {
-    return this.prisma.forAllOrganizations(async (db) => {
-      const institution = await deleteEmptyInstitution(db, organizationId, institutionId);
-      await this.logInstitution(db, actor, 'delete', institution);
-      return { deleted: true };
+      return this.createBranch(db, organizationId, dto, actor);
     });
   }
 
   /**
-   * Closes an institution (ADR-0026): its records stay, nothing new happens there or at its
-   * campuses, and roles given there stop working. Refused while it has active students.
+   * Closes a branch (ADR-0026): its records stay, nothing new happens there, and roles given
+   * there stop working. Refused while current students study there.
    */
-  deactivateInstitution(organizationId: string, institutionId: string, actor: CurrentUser) {
-    return this.setInstitutionStatus(organizationId, institutionId, 'INACTIVE', actor);
+  deactivateBranch(organizationId: string, branchId: string, actor: CurrentUser) {
+    return this.setBranchStatus(organizationId, branchId, 'INACTIVE', actor);
   }
 
-  activateInstitution(organizationId: string, institutionId: string, actor: CurrentUser) {
-    return this.setInstitutionStatus(organizationId, institutionId, 'ACTIVE', actor);
+  activateBranch(organizationId: string, branchId: string, actor: CurrentUser) {
+    return this.setBranchStatus(organizationId, branchId, 'ACTIVE', actor);
   }
 
-  private setInstitutionStatus(
+  /** Deletes a branch that is still empty (e.g. added by mistake); anything else is closed instead. */
+  deleteBranch(organizationId: string, branchId: string, actor: CurrentUser) {
+    return this.prisma.forAllOrganizations(async (db) => {
+      const branch = await this.findBranch(db, organizationId, branchId);
+      const [roles, sections, students, holidays] = await Promise.all([
+        db.userRole.count({ where: { branchId } }),
+        db.class.count({ where: { branchId } }),
+        db.student.count({ where: { branchId } }),
+        db.holiday.count({ where: { branchId } }),
+      ]);
+      if (roles > 0) {
+        throw new BadRequestException(
+          'Some users still have roles at this branch; take those roles away first',
+        );
+      }
+      if (sections + students + holidays > 0) {
+        throw new BadRequestException(
+          'Only an empty branch can be deleted (no sections, students or holidays); deactivate it instead',
+        );
+      }
+      await db.branch.delete({ where: { id: branchId } });
+      await this.audit.log(db, actor, {
+        action: 'delete',
+        entity: 'branch',
+        entityId: branchId,
+        organizationId,
+        details: { name: branch.name, code: branch.code },
+      });
+      return { deleted: true };
+    });
+  }
+
+  private async createBranch(
+    db: Db,
     organizationId: string,
-    institutionId: string,
+    dto: CreateBranchDto,
+    actor: CurrentUser,
+  ) {
+    if (await db.branch.findFirst({ where: { organizationId, code: dto.code } })) {
+      throw new BadRequestException(`This organization already has a branch with code ${dto.code}`);
+    }
+    const branch = await db.branch.create({
+      data: { organizationId, name: dto.name, code: dto.code },
+    });
+    await this.audit.log(db, actor, {
+      action: 'create',
+      entity: 'branch',
+      entityId: branch.id,
+      organizationId,
+      branchId: branch.id,
+      details: { name: branch.name, code: branch.code },
+    });
+    return branch;
+  }
+
+  private setBranchStatus(
+    organizationId: string,
+    branchId: string,
     status: 'ACTIVE' | 'INACTIVE',
     actor: CurrentUser,
   ) {
     return this.prisma.forAllOrganizations(async (db) => {
-      const existing = await db.institution.findFirst({
-        where: { id: institutionId, organizationId },
-      });
-      if (!existing) throw new NotFoundException('Institution not found');
+      const existing = await this.findBranch(db, organizationId, branchId);
       if (existing.status === status) {
         throw new BadRequestException(
           `${existing.name} is already ${status === 'ACTIVE' ? 'active' : 'inactive'}`,
         );
       }
       if (status === 'INACTIVE') {
-        const students = await activeStudentCount(db, { institutionId });
+        const students = await activeStudentCount(db, branchId);
         if (students > 0) {
           throw new BadRequestException(
-            `${students} active student(s) still study at ${existing.name}; it can be deactivated once they have left or moved`,
+            `${students} current student(s) still study at ${existing.name}; it can be deactivated once they have left or moved`,
           );
         }
       }
-      const institution = await db.institution.update({
-        where: { id: institutionId },
-        data: { status },
+      const branch = await db.branch.update({ where: { id: branchId }, data: { status } });
+      await this.audit.log(db, actor, {
+        action: status === 'ACTIVE' ? 'activate' : 'deactivate',
+        entity: 'branch',
+        entityId: branchId,
+        organizationId,
+        branchId,
+        details: { name: branch.name },
       });
-      await this.logInstitution(
-        db,
-        actor,
-        status === 'ACTIVE' ? 'activate' : 'deactivate',
-        institution,
-      );
-      return institution;
+      return branch;
     });
   }
 
-  private logInstitution(
-    db: Db,
-    actor: CurrentUser,
-    action: 'create' | 'delete' | 'activate' | 'deactivate',
-    institution: { id: string; organizationId: string; name: string; code: string },
-  ) {
-    return this.audit.log(db, actor, {
-      action,
-      entity: 'institution',
-      entityId: institution.id,
-      organizationId: institution.organizationId,
-      // A deleted institution can't be linked to any more.
-      institutionId: action === 'delete' ? undefined : institution.id,
-      details: { name: institution.name, code: institution.code },
-    });
+  private async findBranch(db: Db, organizationId: string, branchId: string) {
+    const branch = await db.branch.findFirst({ where: { id: branchId, organizationId } });
+    if (!branch) throw new NotFoundException('Branch not found');
+    return branch;
   }
 }

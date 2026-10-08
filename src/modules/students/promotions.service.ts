@@ -1,46 +1,48 @@
 /**
- * PROMOTION and SHUFFLE: moving many students at once.
+ * PROMOTION: moving a branch's students from one academic year to the next (ADR-0030).
  *
- * PROMOTION (one campus, from one academic year to the next):
- *   1. preview: for every section with active students in the "from" year, a SUGGESTED section
- *      for the "to" year: the next class at the TOP level, then the same path by code, e.g.
- *        1st year > MPC > A            ->  2nd year > MPC > A
- *        Junior > MPC > EAMCET > A     ->  Senior > MPC > EAMCET > A
- *      No next top-level class (e.g. after 2nd year) = the students FINISH (become alumni).
- *      No class with the same codes = the user has to choose.
- *   2. apply: with the user's choices per section (a section, "graduate" or nothing = skip):
- *      the old enrolment becomes PROMOTED (or COMPLETED for those who finish), a new enrolment
- *      is created in the "to" year, roll numbers kept if asked, and the students' batches can
- *      move to a new stage (e.g. Junior -> Senior). Students already placed in the "to" year
- *      are left alone.
+ *   1. preview: for every section with current students in the "from" year, a SUGGESTED
+ *      section for the "to" year. It follows the PROGRESSION of the year-level class (presets.ts):
+ *        Junior > MPC > JEE Mains > JEE-A   ->  Senior > MPC > JEE Mains > JEE-A
+ *        Class 9 > A                        ->  Class 10 > A
+ *        B.Tech > CSE > 1st Year > A        ->  B.Tech > CSE > 2nd Year > A
+ *      i.e. the year's `next` class, then the same codes below it, then the section with the
+ *      same code in the same branch. No `next` (Class 10, Senior, Long Term, the final year) =
+ *      the students COMPLETE. Nothing matching = the user chooses.
+ *   2. apply: with the user's choices per section (a section, "complete", or nothing = skip):
+ *      the old placement becomes PROMOTED (or COMPLETED), a new placement is created in the "to"
+ *      year (roll numbers kept if asked); students who complete become outgoing (COMPLETED).
+ *      Students already placed in the "to" year are left alone.
  *
+ * Nothing is ever overwritten: the old year's placements stay as they were.
  * UNDO: every applied promotion is recorded (promotion_runs) and can be undone once, as long as
  * nothing changed since for its students.
  *
- * SHUFFLE: moving chosen students to another section of the same campus in the same year.
- *
- * Permissions at the campus: "students.enrolment.promote" / "students.enrolment.transfer".
+ * Permission at the branch: "students.enrolment.promote".
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, type Class } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { assertCan } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
+import { byOrder, ClassTree } from '../academic/class-tree';
+import { PRESETS } from '../academic/presets';
 import { AuditService } from '../audit/audit.service';
-import { ApplyPromotionDto, MoveStudentsDto, PromotionQuery } from './dto/student.dto';
-import { checkPlacement, findCampus } from './placement';
+import { findBranch, findOrganization } from '../organization/places-in-use';
+import { ApplyPromotionDto, PromotionQuery } from './dto/student.dto';
+import { checkPlacement, closePortalLogins } from './placement';
 
 /** One student changed by a promotion (kept in promotion_runs.items for undo). */
 interface RunItem {
   studentId: string;
   oldEnrolmentId: string;
-  /** null = the student finished (became alumni). */
+  /** null = the student completed. */
   newEnrolmentId: string | null;
 }
 
 /** Where the students of one section go. */
 type Suggestion =
-  { kind: 'section'; sectionId: string } | { kind: 'graduate' } | { kind: 'choose' };
+  { kind: 'section'; sectionId: string } | { kind: 'complete' } | { kind: 'choose' };
 
 @Injectable()
 export class PromotionsService {
@@ -51,21 +53,19 @@ export class PromotionsService {
 
   preview(organizationId: string, query: PromotionQuery, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const { campus, fromYear, toYear } = await this.checkYears(db, organizationId, query, actor);
-      const classes = await db.class.findMany({ where: { campusId: campus.id } });
-      const levels = await db.classLevel.count({ where: { institutionId: campus.institutionId } });
-      const tree = new ClassTree(classes);
+      const { branch, fromYear, toYear } = await this.checkYears(db, organizationId, query, actor);
+      const tree = await ClassTree.load(db, organizationId);
+      const organization = await findOrganization(db, organizationId);
+      const yearLevel = PRESETS[organization.type].yearLevel;
 
       const enrolments = await db.enrolment.findMany({
         where: {
           academicYearId: fromYear.id,
-          campusId: campus.id,
+          branchId: branch.id,
           status: 'ACTIVE',
           student: { status: 'ACTIVE' },
         },
-        include: {
-          student: { select: { id: true, fullName: true, admissionNo: true } },
-        },
+        include: { student: { select: { id: true, fullName: true, admissionNo: true } } },
         orderBy: [{ rollNo: 'asc' }],
       });
       const alreadyPlaced = new Set(
@@ -80,7 +80,7 @@ export class PromotionsService {
         ).map((e) => e.studentId),
       );
 
-      // One row per "from" section, in tree order.
+      // One row per "from" section.
       const bySection = new Map<string, typeof enrolments>();
       for (const e of enrolments) {
         bySection.set(e.classId, [...(bySection.get(e.classId) ?? []), e]);
@@ -88,7 +88,7 @@ export class PromotionsService {
       const rows = [...bySection.entries()]
         .map(([sectionId, list]) => ({
           from: { id: sectionId, label: tree.label(sectionId) },
-          suggestion: tree.suggest(sectionId),
+          suggestion: suggest(tree, sectionId, yearLevel),
           students: list
             .filter((e) => !alreadyPlaced.has(e.studentId))
             .map((e) => ({ ...e.student, rollNo: e.rollNo })),
@@ -97,13 +97,13 @@ export class PromotionsService {
         .sort((a, b) => a.from.label.localeCompare(b.from.label));
 
       return {
-        campus: { id: campus.id, name: campus.name },
+        branch: { id: branch.id, name: branch.name },
         fromYear: { id: fromYear.id, name: fromYear.name },
         toYear: { id: toYear.id, name: toYear.name },
         rows,
-        // Every section of the campus, as choices for "to".
-        sections: classes
-          .filter((c) => c.level === levels && c.isActive)
+        // Every section of the branch in use, as choices for "to".
+        sections: tree.classes
+          .filter((c) => c.branchId === branch.id && c.isActive)
           .map((c) => ({ id: c.id, label: tree.label(c.id) }))
           .sort((a, b) => a.label.localeCompare(b.label)),
       };
@@ -112,19 +112,17 @@ export class PromotionsService {
 
   apply(organizationId: string, dto: ApplyPromotionDto, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const { campus, fromYear, toYear } = await this.checkYears(db, organizationId, dto, actor);
-      const place = { institutionId: campus.institutionId, campusId: campus.id };
-      const today = new Date();
+      const { branch, fromYear, toYear } = await this.checkYears(db, organizationId, dto, actor);
+      const place = { branchId: branch.id };
       let promoted = 0;
-      let graduated = 0;
-      const batchIds = new Set<string>();
+      let completed = 0;
       // What this promotion changes, so it can be undone (see undo()).
       const items: RunItem[] = [];
 
       for (const choice of dto.mapping) {
-        if (!choice.toSectionId && !choice.graduate) continue; // skip this section
+        if (!choice.toSectionId && !choice.complete) continue; // skip this section
         if (choice.toSectionId) {
-          await checkPlacement(db, place, {
+          await checkPlacement(db, organizationId, branch.id, {
             academicYearId: toYear.id,
             classId: choice.toSectionId,
           });
@@ -132,32 +130,31 @@ export class PromotionsService {
         const enrolments = await db.enrolment.findMany({
           where: {
             academicYearId: fromYear.id,
-            campusId: campus.id,
+            branchId: branch.id,
             classId: choice.fromSectionId,
             status: 'ACTIVE',
             student: { status: 'ACTIVE', enrolments: { none: { academicYearId: toYear.id } } },
           },
-          include: { student: { select: { id: true, batchId: true, status: true } } },
         });
 
         for (const e of enrolments) {
-          if (e.student.batchId) batchIds.add(e.student.batchId);
-          if (choice.graduate) {
+          if (choice.complete) {
             await db.enrolment.update({ where: { id: e.id }, data: { status: 'COMPLETED' } });
-            await db.student.update({ where: { id: e.studentId }, data: { status: 'ALUMNI' } });
+            await db.student.update({ where: { id: e.studentId }, data: { status: 'COMPLETED' } });
             await db.studentStatusChange.create({
               data: {
                 organizationId,
                 studentId: e.studentId,
                 fromStatus: 'ACTIVE',
-                toStatus: 'ALUMNI',
+                toStatus: 'COMPLETED',
                 effectiveOn: fromYear.endsOn,
-                reason: `Finished (${fromYear.name})`,
+                reason: `Completed (${fromYear.name})`,
                 changedBy: actor.id,
               },
             });
+            await closePortalLogins(db, e.studentId);
             items.push({ studentId: e.studentId, oldEnrolmentId: e.id, newEnrolmentId: null });
-            graduated++;
+            completed++;
           } else {
             await db.enrolment.update({ where: { id: e.id }, data: { status: 'PROMOTED' } });
             const created = await db.enrolment.create({
@@ -165,11 +162,11 @@ export class PromotionsService {
                 organizationId,
                 studentId: e.studentId,
                 academicYearId: toYear.id,
-                institutionId: campus.institutionId,
-                campusId: campus.id,
+                branchId: branch.id,
                 classId: choice.toSectionId!,
                 rollNo: dto.keepRollNumbers ? e.rollNo : null,
-                enrolledOn: today,
+                enrolledOn: toYear.startsOn,
+                reason: `Promoted from ${fromYear.name}`,
               },
             });
             items.push({
@@ -182,69 +179,38 @@ export class PromotionsService {
         }
       }
 
-      // The batches' stages before this promotion, to put them back on undo.
-      const batchStages = dto.batchStage
-        ? (
-            await db.batch.findMany({
-              where: { id: { in: [...batchIds] } },
-              select: { id: true, stage: true },
-            })
-          ).map((b) => ({ batchId: b.id, stage: b.stage }))
-        : [];
-      if (dto.batchStage && batchIds.size > 0) {
-        await db.batch.updateMany({
-          where: { id: { in: [...batchIds] }, institutionId: campus.institutionId },
-          data: { stage: dto.batchStage.trim() },
-        });
-      }
       await this.audit.log(db, actor, {
         action: 'promote',
         entity: 'students',
         ...place,
-        details: {
-          from: fromYear.name,
-          to: toYear.name,
-          promoted,
-          graduated,
-          batchStage: dto.batchStage,
-        },
+        details: { from: fromYear.name, to: toYear.name, promoted, completed },
       });
       const run =
         items.length > 0
           ? await db.promotionRun.create({
               data: {
                 organizationId,
-                institutionId: campus.institutionId,
-                campusId: campus.id,
+                branchId: branch.id,
                 fromYearId: fromYear.id,
                 toYearId: toYear.id,
                 promoted,
-                graduated,
+                completed,
                 items: items as unknown as Prisma.InputJsonValue,
-                batchStages,
                 createdBy: actor.id,
               },
             })
           : null;
-      return {
-        promoted,
-        graduated,
-        batchesMoved: dto.batchStage ? batchIds.size : 0,
-        runId: run?.id ?? null,
-      };
+      return { promoted, completed, runId: run?.id ?? null };
     });
   }
 
-  /** The promotions applied on a campus, newest first (for the "Undo" list). */
-  listRuns(organizationId: string, campusId: string, actor: CurrentUser) {
+  /** The promotions applied at a branch, newest first (for the "Undo" list). */
+  listRuns(organizationId: string, branchId: string, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const campus = await findCampus(db, organizationId, campusId);
-      assertCan(actor, 'students.enrolment.promote', {
-        institutionId: campus.institutionId,
-        campusId: campus.id,
-      });
+      await findBranch(db, organizationId, branchId);
+      assertCan(actor, 'students.enrolment.promote', { branchId });
       const runs = await db.promotionRun.findMany({
-        where: { campusId },
+        where: { branchId },
         orderBy: { createdAt: 'desc' },
         take: 20,
       });
@@ -253,8 +219,9 @@ export class PromotionsService {
         select: { id: true, name: true },
       });
       const name = new Map(years.map((y) => [y.id, y.name]));
-      return runs.map(({ items: _items, batchStages: _stages, ...run }) => ({
+      return runs.map(({ items, ...run }) => ({
         ...run,
+        students: (items as unknown as RunItem[]).length,
         fromYear: name.get(run.fromYearId) ?? '',
         toYear: name.get(run.toYearId) ?? '',
       }));
@@ -262,15 +229,15 @@ export class PromotionsService {
   }
 
   /**
-   * Undoes a promotion: the new sections go, the old ones are active again, students who
-   * finished are active again, batches get their old stage back. All or nothing, and refused
-   * if anything changed since (a student was moved on, left, or changed campus).
+   * Undoes a promotion: the new placements go, the old ones are current again, students who
+   * completed are current again. All or nothing, and refused if anything changed since (a
+   * student was moved, left, or changed branch). Portal logins closed on completion stay closed.
    */
   undo(organizationId: string, runId: string, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const run = await db.promotionRun.findFirst({ where: { id: runId, organizationId } });
       if (!run) throw new NotFoundException('Promotion not found');
-      const place = { institutionId: run.institutionId, campusId: run.campusId };
+      const place = { branchId: run.branchId };
       assertCan(actor, 'students.enrolment.promote', place);
       if (run.undoneAt) throw new BadRequestException('This promotion was already undone');
 
@@ -287,10 +254,10 @@ export class PromotionsService {
         const expectedOld = item.newEnrolmentId ? 'PROMOTED' : 'COMPLETED';
         const ok =
           old?.status === expectedOld &&
-          student?.campusId === run.campusId &&
+          student?.branchId === run.branchId &&
           (item.newEnrolmentId
             ? created?.status === 'ACTIVE' && student?.status === 'ACTIVE'
-            : student?.status === 'ALUMNI');
+            : student?.status === 'COMPLETED');
         if (!ok) changed.push(student?.fullName ?? 'a deleted student');
       }
       if (changed.length > 0) {
@@ -309,7 +276,7 @@ export class PromotionsService {
             data: {
               organizationId,
               studentId: item.studentId,
-              fromStatus: 'ALUMNI',
+              fromStatus: 'COMPLETED',
               toStatus: 'ACTIVE',
               effectiveOn: today,
               reason: 'Promotion undone',
@@ -321,12 +288,6 @@ export class PromotionsService {
           where: { id: item.oldEnrolmentId },
           data: { status: 'ACTIVE' },
         });
-      }
-      for (const { batchId, stage } of run.batchStages as unknown as {
-        batchId: string;
-        stage: string;
-      }[]) {
-        await db.batch.update({ where: { id: batchId }, data: { stage } });
       }
       await db.promotionRun.update({
         where: { id: runId },
@@ -343,107 +304,52 @@ export class PromotionsService {
     });
   }
 
-  /** Shuffle: chosen students of one year to another section of the same campus. */
-  move(organizationId: string, dto: MoveStudentsDto, actor: CurrentUser) {
-    return this.prisma.forOrganization(organizationId, async (db) => {
-      const section = await db.class.findFirst({ where: { id: dto.toSectionId, organizationId } });
-      if (!section) throw new NotFoundException('Section not found');
-      const place = { institutionId: section.institutionId, campusId: section.campusId };
-      assertCan(actor, 'students.enrolment.transfer', place);
-      await checkPlacement(db, place, { academicYearId: dto.academicYearId, classId: section.id });
-
-      const enrolments = await db.enrolment.findMany({
-        where: {
-          academicYearId: dto.academicYearId,
-          studentId: { in: dto.studentIds },
-          campusId: section.campusId,
-          status: 'ACTIVE',
-        },
-      });
-      if (enrolments.length !== dto.studentIds.length) {
-        throw new BadRequestException(
-          'Every student must have an active section on this campus in that academic year',
-        );
-      }
-      // Roll numbers belong to a section, so they are cleared when moving several at once.
-      await db.enrolment.updateMany({
-        where: { id: { in: enrolments.map((e) => e.id) } },
-        data: { classId: section.id, rollNo: null },
-      });
-      await this.audit.log(db, actor, {
-        action: 'move students',
-        entity: 'students',
-        ...place,
-        details: { to: section.name, students: enrolments.length },
-      });
-      return { moved: enrolments.length };
-    });
-  }
-
-  /** The campus and two years: same institution, "to" not closed and later than "from". */
+  /** The branch and two years: "to" not closed and later than "from". */
   private async checkYears(
     db: Db,
     organizationId: string,
-    q: { campusId: string; fromYearId: string; toYearId: string },
+    q: { branchId: string; fromYearId: string; toYearId: string },
     actor: CurrentUser,
   ) {
-    const campus = await findCampus(db, organizationId, q.campusId);
-    assertCan(actor, 'students.enrolment.promote', {
-      institutionId: campus.institutionId,
-      campusId: campus.id,
-    });
+    const branch = await findBranch(db, organizationId, q.branchId);
+    assertCan(actor, 'students.enrolment.promote', { branchId: branch.id });
     const [fromYear, toYear] = await Promise.all([
-      db.academicYear.findFirst({
-        where: { id: q.fromYearId, institutionId: campus.institutionId },
-      }),
-      db.academicYear.findFirst({ where: { id: q.toYearId, institutionId: campus.institutionId } }),
+      db.academicYear.findFirst({ where: { id: q.fromYearId, organizationId } }),
+      db.academicYear.findFirst({ where: { id: q.toYearId, organizationId } }),
     ]);
     if (!fromYear || !toYear) {
-      throw new BadRequestException("Both academic years must be the campus's institution's");
+      throw new BadRequestException("Both academic years must be the organization's");
     }
     if (toYear.status === 'CLOSED') throw new BadRequestException(`${toYear.name} is closed`);
     if (toYear.startsOn <= fromYear.startsOn) {
       throw new BadRequestException('Students are promoted to a LATER academic year');
     }
-    return { campus, fromYear, toYear };
+    return { branch, fromYear, toYear };
   }
 }
 
-/** A campus's classes, to name sections ("1st year › MPC › A") and suggest the next one. */
-class ClassTree {
-  private readonly byId: Map<string, Class>;
+/**
+ * Where a section's students go: the year-level class's `next`, then the same codes below it,
+ * then the section with the same code in the same branch.
+ */
+function suggest(tree: ClassTree, sectionId: string, yearLevel: number): Suggestion {
+  const path = tree.path(sectionId);
+  const section = path.at(-1);
+  const yearIndex = path.findIndex((c) => c.level === yearLevel);
+  if (!section || yearIndex < 0) return { kind: 'choose' };
+  const nextYear = path[yearIndex].nextClassId ? tree.get(path[yearIndex].nextClassId!) : null;
+  if (!nextYear) return { kind: 'complete' };
 
-  constructor(private readonly classes: Class[]) {
-    this.byId = new Map(classes.map((c) => [c.id, c]));
+  let current = nextYear;
+  for (const step of path.slice(yearIndex + 1, -1)) {
+    const child = tree.children(current.id).find((c) => c.code === step.code && c.isActive);
+    if (!child) return { kind: 'choose' };
+    current = child;
   }
-
-  path(id: string): Class[] {
-    const c = this.byId.get(id);
-    return c ? [...(c.parentId ? this.path(c.parentId) : []), c] : [];
-  }
-
-  label(id: string): string {
-    return this.path(id)
-      .map((c) => c.name)
-      .join(' › ');
-  }
-
-  /** The next class at the top level, then the same codes below it. */
-  suggest(sectionId: string): Suggestion {
-    const [top, ...rest] = this.path(sectionId);
-    if (!top) return { kind: 'choose' };
-    const tops = this.classes
-      .filter((c) => c.level === 1 && c.isActive)
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
-    const next = tops[tops.findIndex((c) => c.id === top.id) + 1];
-    if (!next) return { kind: 'graduate' };
-    let current: Class | undefined = next;
-    for (const step of rest) {
-      current = this.classes.find(
-        (c) => c.parentId === current!.id && c.code === step.code && c.isActive,
-      );
-      if (!current) return { kind: 'choose' };
-    }
-    return { kind: 'section', sectionId: current.id };
-  }
+  const target = tree
+    .children(current.id)
+    .filter((c) => c.branchId === section.branchId && c.isActive)
+    .sort(byOrder)
+    .find((c) => c.code === section.code);
+  return target ? { kind: 'section', sectionId: target.id } : { kind: 'choose' };
 }

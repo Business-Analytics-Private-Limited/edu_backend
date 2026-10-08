@@ -1,13 +1,14 @@
 /**
- * ENROLMENTS: which section a student is in, in each academic year (one per year).
+ * ENROLMENTS (placements, ADR-0030): which section a student is in, from which day.
  *
- * Rules:
- *   - enrolling: "students.student.update" at the student's campus; the section and year are
- *     checked in placement.ts;
- *   - moving to another section of the same campus in the same year: "students.enrolment.transfer";
- *     changing only the roll number: "students.student.update";
- *   - a roll number is unique in a section in a year;
- *   - promotion to the next year comes with part 2 of the Students module.
+ *   enrol    places a current student who has no current section (e.g. not placed at
+ *            admission, or re-admitted) in a section of their branch for a year;
+ *   update   changes only the roll number of a placement.
+ * Section and branch changes are in students.service.ts (they keep the history); promotion to
+ * the next year is in promotions.service.ts.
+ *
+ * Rules: "students.student.update" at the student's branch; a roll number is unique in a
+ * section in a year.
  */
 import {
   BadRequestException,
@@ -17,7 +18,7 @@ import {
 } from '@nestjs/common';
 import type { CurrentUser } from '../../common/current-user';
 import { assertCan } from '../../common/scope';
-import { PrismaService } from '../../prisma/prisma.service';
+import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { EnrolmentDto, UpdateEnrolmentDto } from './dto/student.dto';
 import { checkPlacement, findVisibleStudent, placeOf } from './placement';
@@ -35,24 +36,26 @@ export class EnrolmentsService {
       const place = placeOf(student);
       assertCan(actor, 'students.student.update', place);
       if (student.status !== 'ACTIVE') {
-        throw new BadRequestException('Only an active student can be placed in a section');
+        throw new BadRequestException('Only a current student can be placed in a section');
       }
-      const { year, section } = await checkPlacement(db, place, dto);
-      if (await db.enrolment.findFirst({ where: { studentId, academicYearId: year.id } })) {
+      if (await db.enrolment.findFirst({ where: { studentId, status: 'ACTIVE' } })) {
         throw new ConflictException(
-          `The student already has a section in ${year.name}; move them instead`,
+          'The student already has a current section; change their section instead',
         );
       }
+      const { year, section } = await checkPlacement(db, organizationId, student.branchId, dto);
+      await this.checkRollFree(db, year.id, section.id, dto.rollNo);
+      // From today, but never before the year starts.
+      const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
       const enrolment = await db.enrolment.create({
         data: {
           organizationId,
           studentId,
           academicYearId: year.id,
-          institutionId: student.institutionId,
-          campusId: student.campusId,
+          branchId: student.branchId,
           classId: section.id,
           rollNo: dto.rollNo,
-          enrolledOn: new Date(),
+          enrolledOn: today < year.startsOn ? year.startsOn : today,
         },
       });
       await this.audit.log(db, actor, {
@@ -76,37 +79,51 @@ export class EnrolmentsService {
     return this.prisma.forOrganization(organizationId, async (db) => {
       const student = await findVisibleStudent(db, organizationId, studentId, actor);
       const place = placeOf(student);
-      const enrolment = await db.enrolment.findFirst({
-        where: { id: enrolmentId, studentId },
-        include: { class: true },
-      });
+      assertCan(actor, 'students.student.update', place);
+      const enrolment = await db.enrolment.findFirst({ where: { id: enrolmentId, studentId } });
       if (!enrolment) throw new NotFoundException('Enrolment not found');
-
-      const moving = dto.classId !== undefined && dto.classId !== enrolment.classId;
-      assertCan(actor, moving ? 'students.enrolment.transfer' : 'students.student.update', place);
       if (enrolment.status !== 'ACTIVE') {
-        throw new BadRequestException('Only an active enrolment can be changed');
+        throw new BadRequestException('Only the current placement can be changed');
       }
-      let sectionName = enrolment.class.name;
-      if (moving) {
-        const { section } = await checkPlacement(db, place, {
-          academicYearId: enrolment.academicYearId,
-          classId: dto.classId!,
-        });
-        sectionName = section.name;
-      }
+      await this.checkRollFree(
+        db,
+        enrolment.academicYearId,
+        enrolment.classId,
+        dto.rollNo,
+        enrolment.id,
+      );
       const updated = await db.enrolment.update({
         where: { id: enrolmentId },
-        data: { classId: dto.classId, rollNo: dto.rollNo },
+        data: { rollNo: dto.rollNo },
       });
       await this.audit.log(db, actor, {
-        action: moving ? 'move section' : 'update enrolment',
+        action: 'update roll number',
         entity: 'student',
         entityId: studentId,
         ...place,
-        details: { from: enrolment.class.name, to: sectionName, rollNo: dto.rollNo },
+        details: { from: enrolment.rollNo, to: dto.rollNo },
       });
       return updated;
     });
+  }
+
+  private async checkRollFree(
+    db: Db,
+    academicYearId: string,
+    classId: string,
+    rollNo: string | null | undefined,
+    exceptId?: string,
+  ) {
+    if (!rollNo) return;
+    const taken = await db.enrolment.findFirst({
+      where: {
+        academicYearId,
+        classId,
+        rollNo,
+        status: 'ACTIVE',
+        ...(exceptId && { id: { not: exceptId } }),
+      },
+    });
+    if (taken) throw new ConflictException(`Roll number ${rollNo} is already used in that section`);
   }
 }

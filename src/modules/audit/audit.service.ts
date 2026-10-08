@@ -6,8 +6,8 @@
  * Call it inside the same database transaction as the change, so both are saved or neither:
  *
  *   await this.prisma.forOrganization(organizationId, async (db) => {
- *     const institution = await db.institution.create({ data });
- *     await this.audit.log(db, user, { action: 'create', entity: 'institution', entityId: institution.id });
+ *     const subject = await db.subject.create({ data });
+ *     await this.audit.log(db, user, { action: 'create', entity: 'subject', entityId: subject.id });
  *   });
  */
 import { Injectable } from '@nestjs/common';
@@ -27,16 +27,12 @@ export interface AuditActor {
 
 export interface AuditEntry {
   action: string; // "create", "update", "delete", "suspend", ...
-  entity: string; // "organization", "institution", "user", ...
+  entity: string; // "organization", "branch", "user", ...
   entityId?: string;
   /** The organization the change belongs to. Defaults to the user's own organization. */
   organizationId?: string | null;
-  /**
-   * Where in the organization it happened, if it belongs to one institution or campus.
-   * Campus and institution admins see only the log of their own place.
-   */
-  institutionId?: string | null;
-  campusId?: string | null;
+  /** The branch it happened at, if it belongs to one. Branch admins see only their branch's log. */
+  branchId?: string | null;
   /** Anything useful to understand the change later. Never passwords. */
   details?: Prisma.InputJsonValue;
 }
@@ -51,8 +47,7 @@ export class AuditService {
         actorType: actor.type,
         actorId: actor.id,
         actorName: actor.name,
-        institutionId: entry.institutionId ?? null,
-        campusId: entry.campusId ?? null,
+        branchId: entry.branchId ?? null,
         action: entry.action,
         entity: entry.entity,
         entityId: entry.entityId,

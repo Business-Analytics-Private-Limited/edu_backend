@@ -1,22 +1,13 @@
 /**
  * Student documents and file storage (ADR-0023): document types, upload with content checks,
- * verify / reject, download, delete, campus limits, the portal, isolation.
+ * verify / reject, download, delete, branch limits, the portal, isolation.
  *
- * Organization "doc": campuses KKP (student Teja, father Ramesh) and AMP. Ravi = Campus admin of
+ * Organization "doc": branches KKP (student Teja, father Ramesh) and AMP. Ravi = Branch admin of
  * KKP; Jaya = Junior faculty at KKP (no document permissions).
  */
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import {
-  createOrganization,
-  createTestApp,
-  institutionId,
-  JUNIOR_COLLEGE_LEVELS,
-  loginSuperAdmin,
-  loginUser,
-  setClassLevels,
-  SVJC,
-} from './helpers';
+import { branchId, createOrganization, createTestApp, loginSuperAdmin, loginUser } from './helpers';
 
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n');
 const PNG = Buffer.concat([
@@ -45,29 +36,21 @@ describe('Student documents', () => {
   beforeAll(async () => {
     app = await createTestApp();
     superAdmin = await loginSuperAdmin(app);
-    orgId = await createOrganization(app, superAdmin, 'doc', 'admin@doc.test', [SVJC]);
+    orgId = await createOrganization(app, superAdmin, 'doc', 'admin@doc.test', {
+      branches: [
+        { name: 'KKP', code: 'KKP' },
+        { name: 'AMP', code: 'AMP' },
+      ],
+      modules: ['academic', 'students', 'portal'],
+    });
     admin = await loginUser(app, 'admin@doc.test', 'Admin@12345');
-    for (const key of ['academic', 'students', 'portal']) {
-      await api()
-        .put(`/api/v1/super-admin/organizations/${orgId}/modules/${key}`)
-        .set(as(superAdmin))
-        .send({ enabled: true })
-        .expect(200);
-    }
-    ids.SVJC = await institutionId(app, superAdmin, orgId, 'SVJC');
-    await setClassLevels(app, admin, ids.SVJC, JUNIOR_COLLEGE_LEVELS);
-    for (const code of ['KKP', 'AMP']) {
-      const campus = await api()
-        .post(`/api/v1/institutions/${ids.SVJC}/campuses`)
-        .set(as(admin))
-        .send({ name: code, code });
-      ids[code] = campus.body.id;
-    }
+    ids.KKP = await branchId(app, superAdmin, orgId, 'KKP');
+    ids.AMP = await branchId(app, superAdmin, orgId, 'AMP');
     const student = await api()
       .post('/api/v1/students')
       .set(as(admin))
       .send({
-        campusId: ids.KKP,
+        branchId: ids.KKP,
         admissionNo: 'D1',
         admissionDate: '2026-06-01',
         fullName: 'Teja',
@@ -82,7 +65,7 @@ describe('Student documents', () => {
     const roles = await api().get('/api/v1/roles').set(as(admin));
     const role = (name: string) => roles.body.find((r: { name: string }) => r.name === name).id;
     for (const [email, name] of [
-      ['ravi@doc.test', 'Campus admin'],
+      ['ravi@doc.test', 'Branch admin'],
       ['jaya@doc.test', 'Junior faculty'],
     ]) {
       await api()
@@ -92,7 +75,7 @@ describe('Student documents', () => {
           name: email.split('@')[0],
           email,
           password: 'Password@123',
-          roles: [{ roleId: role(name), campusId: ids.KKP }],
+          roles: [{ roleId: role(name), branchId: ids.KKP }],
         })
         .expect(201);
     }
@@ -104,23 +87,15 @@ describe('Student documents', () => {
     await app.close();
   });
 
-  it('document types: per institution, required and visible in the portal', async () => {
+  it("document types: the organization's list, required and visible in the portal", async () => {
     const add = (body: object) =>
-      api()
-        .post('/api/v1/document-types')
-        .set(as(admin))
-        .send({ institutionId: ids.SVJC, ...body })
-        .expect(201);
+      api().post('/api/v1/document-types').set(as(admin)).send(body).expect(201);
     ids.TC = (
       await add({ name: 'Transfer certificate', isRequired: true, visibleInPortal: true })
     ).body.id;
     ids.AADHAAR = (await add({ name: 'Aadhaar copy', isRequired: true })).body.id;
-    // A campus admin can't change the institution's list.
-    await api()
-      .post('/api/v1/document-types')
-      .set(as(ravi))
-      .send({ institutionId: ids.SVJC, name: 'Photo' })
-      .expect(403);
+    // A branch admin can't change the organization's list.
+    await api().post('/api/v1/document-types').set(as(ravi)).send({ name: 'Photo' }).expect(403);
     const types = await api().get('/api/v1/document-types').set(as(ravi)).expect(200);
     expect(types.body.map((t: { name: string }) => t.name)).toEqual([
       'Aadhaar copy',
@@ -192,12 +167,12 @@ describe('Student documents', () => {
     // A junior faculty member has no document permissions.
     await api().get(`/api/v1/students/${ids.TEJA}/documents`).set(as(jaya)).expect(403);
     await upload(jaya, ids.TEJA, ids.TC, PDF, 'tc.pdf').expect(403);
-    // A student of another campus is out of Ravi's reach.
+    // A student of another branch is out of Ravi's reach.
     const amp = await api()
       .post('/api/v1/students')
       .set(as(admin))
       .send({
-        campusId: ids.AMP,
+        branchId: ids.AMP,
         admissionNo: 'D2',
         admissionDate: '2026-06-01',
         fullName: 'Kiran',

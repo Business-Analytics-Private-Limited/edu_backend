@@ -65,7 +65,7 @@ export class MarkSectionDto {
 
 export class DailySummaryQuery {
   @IsUUID()
-  campusId: string;
+  branchId: string;
 
   @IsDateString({ strict: true })
   date: string;

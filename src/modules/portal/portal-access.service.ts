@@ -5,7 +5,7 @@
  *   - a PARENT login is linked to a GUARDIAN record, so the parent sees all of that guardian's
  *     children (siblings too) with one login.
  *
- * Rules: needs "students.student.update" at the student's campus and the portal module; one
+ * Rules: needs "students.student.update" at the student's branch and the portal module; one
  * login per student and per guardian; portal logins have no roles or permissions (ADR-0022).
  */
 import {
@@ -36,6 +36,9 @@ export class PortalAccessService {
       const student = await findVisibleStudent(db, organizationId, studentId, actor);
       const place = placeOf(student);
       assertCan(actor, 'students.student.update', place);
+      if (student.status !== 'ACTIVE') {
+        throw new BadRequestException('Outgoing students have no portal access');
+      }
 
       let name = student.fullName;
       let link: { kind: 'STUDENT'; studentId: string } | { kind: 'PARENT'; guardianId: string };

@@ -66,8 +66,9 @@ model Module {
 }
 
 /// The PREDEFINED ROLES (Director, Principal, ...), managed by the super admin. Every
-/// organization gets a copy of each (Role.templateKey) that stays in line with this one.
-/// Created from src/modules/roles/predefined-roles.ts when the app starts.
+/// organization gets a copy of each (Role.templateKey), which it may customize (ADR-0029).
+/// The built-in ones come from src/modules/roles/predefined-roles.ts when the app starts; the
+/// super admin can create more (ADR-0030).
 model RoleTemplate {
   key         String   @id // e.g. "principal"
   name        String
@@ -75,6 +76,9 @@ model RoleTemplate {
   permissions String[]
   /// false for Parent and Student: those logins come from a student's record, not the Users page.
   assignable  Boolean  @default(true)
+  /// true = comes with EduPlatform (predefined-roles.ts) and can't be deleted; false = created
+  /// by the super admin in the console.
+  builtIn     Boolean  @default(true) @map("built_in")
   sortOrder   Int      @default(0) @map("sort_order")
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -93,30 +97,57 @@ enum OrganizationStatus {
   SUSPENDED // its users can't log in; data is kept
 }
 
-/// A customer of EduPlatform: one organization = one tenant. It can run several institutions.
-model Organization {
-  id           String             @id @default(uuid(7)) @db.Uuid
-  name         String
-  /// Short unique name, e.g. "sri-vidya". Lowercase letters, digits and dashes.
-  slug         String             @unique
-  contactName  String?            @map("contact_name")
-  contactEmail String?            @map("contact_email")
-  contactPhone String?            @map("contact_phone")
-  status       OrganizationStatus @default(ACTIVE)
-  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+/// What kind of institution an organization is (ADR-0030). It decides the academic structure's
+/// levels (src/modules/academic/presets.ts) and is chosen by the super admin.
+enum OrganizationType {
+  SCHOOL // Nursery ... Class 10: Class -> Section
+  INTERMEDIATE // Junior / Senior / Long Term -> Group -> Stream -> Section
+  DEGREE // Course -> Specialization -> Year -> Section
+  ENGINEERING // the same as DEGREE (B.Tech -> CSE -> 1st Year -> Section)
+}
 
-  modules      OrganizationModule[]
-  institutions Institution[]
-  campuses     Campus[]
-  roles        Role[]
-  users        User[]
-  userRoles    UserRole[]
+/// How a new student gets an admission number (ADR-0030).
+enum AdmissionNumbering {
+  AUTOMATIC // from the organization's pattern; numbers typed in are ignored
+  MANUAL // typed in the admission form / the import sheet; required
+}
+
+/// A customer of EduPlatform: one organization = one tenant, with one or more branches.
+model Organization {
+  id                       String             @id @default(uuid(7)) @db.Uuid
+  name                     String
+  /// Short unique name, e.g. "sri-vidya". Lowercase letters, digits and dashes.
+  slug                     String             @unique
+  /// Short code, e.g. "SVJC": used in admission numbers ({CODE}).
+  code                     String
+  type                     OrganizationType
+  contactName              String?            @map("contact_name")
+  contactEmail             String?            @map("contact_email")
+  contactPhone             String?            @map("contact_phone")
+  status                   OrganizationStatus @default(ACTIVE)
+  /// The names of the academic structure's levels, top to bottom (the number is fixed by the type;
+  /// the organization may rename them), e.g. ["Year", "Group", "Stream", "Section"].
+  levelNames               String[]           @map("level_names")
+  /// Days without classes every week: 0 = Sunday ... 6 = Saturday.
+  weeklyOffDays            Int[]              @default([0]) @map("weekly_off_days")
+  /// Decides what "today" is (attendance), e.g. "Asia/Kolkata".
+  timeZone                 String             @default("Asia/Kolkata") @map("time_zone")
+  /// Attendance: how many days back a past day may still be marked or corrected.
+  attendanceCorrectionDays Int                @default(7) @map("attendance_correction_days")
+  admissionNumbering       AdmissionNumbering @default(MANUAL) @map("admission_numbering")
+  /// For AUTOMATIC numbering, e.g. "{CODE}{YY}{SEQ:4}" -> "SVJC260001".
+  admissionNoPattern       String?            @map("admission_no_pattern")
+  createdAt                DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  modules   OrganizationModule[]
+  branches  Branch[]
+  roles     Role[]
+  users     User[]
+  userRoles UserRole[]
 
   academicYears AcademicYear[]
-  classLevels   ClassLevel[]
   classes       Class[]
-  batches       Batch[]
   subjects      Subject[]
   classSubjects ClassSubject[]
   holidays      Holiday[]
@@ -150,77 +181,34 @@ model OrganizationModule {
   @@map("organization_modules")
 }
 
-/// Whether a campus or institution is in use (ADR-0026). An INACTIVE one keeps its records, which
-/// can still be read, but nothing new happens there; it is never deleted while it has data.
+/// Whether a branch is in use (ADR-0026). An INACTIVE branch keeps its records, which can still
+/// be read, but nothing new happens there; it is never deleted while it has data.
 enum PlaceStatus {
   ACTIVE
   INACTIVE
 }
 
-/// A college or school of the organization, e.g. "Sri Vidya Junior College". Only the super admin
-/// adds or deletes institutions (ADR-0025); there is no type: each sets up its own class levels.
-model Institution {
-  id                       String      @id @default(uuid(7)) @db.Uuid
-  organizationId           String      @map("organization_id") @db.Uuid
-  name                     String
-  /// Short code, unique inside the organization, e.g. "SVJC".
-  code                     String
-  /// Only the super admin deactivates and activates an institution (ADR-0026).
-  status                   PlaceStatus @default(ACTIVE)
-  /// Days without classes every week (Academic module): 0 = Sunday ... 6 = Saturday.
-  weeklyOffDays            Int[]       @default([0]) @map("weekly_off_days")
-  /// Students module: how admission numbers are made when left empty, e.g. "{CODE}{YY}{SEQ:4}"
-  /// -> "SVJC260001". Empty = numbers are typed by hand.
-  admissionNoPattern       String?     @map("admission_no_pattern")
-  /// The institution's time zone: decides what "today" is (attendance), e.g. "Asia/Kolkata".
-  timeZone                 String      @default("Asia/Kolkata") @map("time_zone")
-  /// Attendance: how many days back a past day may still be marked or corrected.
-  attendanceCorrectionDays Int         @default(7) @map("attendance_correction_days")
-  createdAt                DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt                DateTime    @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  campuses     Campus[]
-  userRoles    UserRole[]
-
-  academicYears      AcademicYear[]
-  classLevels        ClassLevel[]
-  classes            Class[]
-  batches            Batch[]
-  subjects           Subject[]
-  holidays           Holiday[]
-  students           Student[]
-  enrolments         Enrolment[]
-  admissionSequences AdmissionSequence[]
-  documentTypes      DocumentType[]
-
-  @@unique([organizationId, code])
-  @@map("institutions")
-}
-
-/// A physical location of an institution, e.g. "Kukatpally".
-model Campus {
+/// A location of the organization, e.g. "KPHB" or "Dwarakanagar" (ADR-0030). Only the super admin
+/// adds, deactivates and deletes branches; the organization may rename them.
+model Branch {
   id             String      @id @default(uuid(7)) @db.Uuid
   organizationId String      @map("organization_id") @db.Uuid
-  institutionId  String      @map("institution_id") @db.Uuid
   name           String
+  /// Short code, unique in the organization, e.g. "KPHB" ({BRANCH} in admission numbers).
   code           String
-  /// INACTIVE = closed (ADR-0026); only the Organization admin activates it again.
   status         PlaceStatus @default(ACTIVE)
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  institution  Institution  @relation(fields: [institutionId], references: [id])
   userRoles    UserRole[]
   classes      Class[]
   holidays     Holiday[]
   students     Student[]
   enrolments   Enrolment[]
 
-  @@unique([institutionId, code])
-  @@index([organizationId])
-  @@map("campuses")
+  @@unique([organizationId, code])
+  @@map("branches")
 }
 
 /// A set of permissions, e.g. "Organization admin" or "Teacher". Each organization has its own.
@@ -229,11 +217,10 @@ model Role {
   organizationId String   @map("organization_id") @db.Uuid
   name           String
   description    String?
-  /// Permission keys, e.g. ["access.user.view", "platform.institution.manage"].
+  /// Permission keys, e.g. ["access.user.view", "students.student.create"].
   /// The full list is in src/modules/roles/permissions.ts.
   permissions    String[]
-  /// Set for a predefined role (copy of a RoleTemplate): only the super admin can change it.
-  /// Empty for the organization's own roles.
+  /// Set for a predefined role (copy of a RoleTemplate); empty for the organization's own roles.
   templateKey    String?  @map("template_key")
   /// The organization changed this predefined role's permissions (ADR-0029): the super admin's
   /// changes no longer overwrite them, until it is reset to EduPlatform's version.
@@ -296,31 +283,27 @@ model User {
   @@map("users")
 }
 
-/// Which roles a user has, and WHERE each one applies (a "role assignment"):
-///   no institution, no campus  -> the whole organization
-///   institutionId only         -> one institution and all its campuses
-///   campusId (+ institutionId) -> one campus only
-/// A user can have several, e.g. Principal of an institution AND Senior faculty at two
-/// campuses. They may do what each role allows, in that role's place.
+/// Which roles a user has, and WHERE each one applies (a "role assignment", ADR-0030):
+///   no branch  -> the whole organization
+///   branchId   -> one branch only
+/// A user can have several, e.g. Principal AND Branch admin at KPHB, Senior faculty at two
+/// branches. They may do what each role allows, in that role's place.
 model UserRole {
   id             String  @id @default(uuid(7)) @db.Uuid
   userId         String  @map("user_id") @db.Uuid
   roleId         String  @map("role_id") @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
-  institutionId  String? @map("institution_id") @db.Uuid
-  campusId       String? @map("campus_id") @db.Uuid
+  branchId       String? @map("branch_id") @db.Uuid
 
   user         User         @relation(fields: [userId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id])
-  institution  Institution? @relation(fields: [institutionId], references: [id], onDelete: Restrict)
-  campus       Campus?      @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   @@index([userId])
   @@index([roleId])
   @@index([organizationId])
-  @@index([institutionId])
-  @@index([campusId])
+  @@index([branchId])
   @@map("user_roles")
 }
 
@@ -335,12 +318,11 @@ model AuditLog {
   actorId        String?  @map("actor_id") @db.Uuid
   /// The person's name at the time of the change, so the log reads "Ravi Kumar", not an id.
   actorName      String?  @map("actor_name")
-  /// Where the change happened, so campus and institution admins see their own part of the log.
-  /// Kept as plain ids (no foreign key): the log stays even if the campus is deleted.
-  institutionId  String?  @map("institution_id") @db.Uuid
-  campusId       String?  @map("campus_id") @db.Uuid
+  /// The branch the change happened at, so branch admins see their own part of the log.
+  /// A plain id (no foreign key): the log stays even if the branch is deleted.
+  branchId       String?  @map("branch_id") @db.Uuid
   action         String // e.g. "create", "update", "delete", "suspend"
-  entity         String // e.g. "institution"
+  entity         String // e.g. "branch"
   entityId       String?  @map("entity_id")
   details        Json?
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -351,7 +333,7 @@ model AuditLog {
 }
 
 // -------------------------------------------------------------------------------------------------
-// ACADEMIC MODULE (ADR-0019): academic years, class levels and classes, batches.
+// ACADEMIC MODULE (ADR-0019, ADR-0030): academic years and the academic structure.
 // Only for organizations that have the Academic module switched on.
 // -------------------------------------------------------------------------------------------------
 
@@ -361,12 +343,11 @@ enum AcademicYearStatus {
   CLOSED
 }
 
-/// An institution's academic year, e.g. "2026-27" from 1 June 2026 to 31 March 2027.
-/// At most one is ACTIVE per institution; years of one institution don't overlap.
+/// The organization's academic year, e.g. "2026-27" from 1 June 2026 to 31 March 2027, shared by
+/// all branches. At most one is ACTIVE; years don't overlap.
 model AcademicYear {
   id             String             @id @default(uuid(7)) @db.Uuid
   organizationId String             @map("organization_id") @db.Uuid
-  institutionId  String             @map("institution_id") @db.Uuid
   name           String
   startsOn       DateTime           @map("starts_on") @db.Date
   endsOn         DateTime           @map("ends_on") @db.Date
@@ -375,105 +356,60 @@ model AcademicYear {
   updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  institution  Institution  @relation(fields: [institutionId], references: [id])
   enrolments   Enrolment[]
 
-  @@unique([institutionId, name])
-  @@index([organizationId])
+  @@unique([organizationId, name])
   @@map("academic_years")
 }
 
-/// The LEVELS of an institution's classes, top to bottom, e.g.
-///   junior college:  1 Year   -> 2 Group  -> 3 Section
-///   school:          1 Class  -> 2 Section
-///   or anything the institution needs, e.g. Type -> Group -> Stream -> Section.
-/// The last level is where students are placed (a section). Each institution gets defaults for
-/// its type (src/modules/academic/default-levels.ts) and can rename them.
-model ClassLevel {
-  id             String   @id @default(uuid(7)) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  institutionId  String   @map("institution_id") @db.Uuid
-  /// 1 = top level.
-  position       Int
-  name           String
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  institution  Institution  @relation(fields: [institutionId], references: [id])
-
-  @@unique([institutionId, position])
-  @@index([organizationId])
-  @@map("class_levels")
-}
-
-/// A class at one level, on one campus: a tree that follows the institution's levels, e.g.
-///   1st year (level 1) -> MPC (level 2) -> Section A (level 3).
-/// Classes of the last level are the sections students will be placed in.
+/// THE ACADEMIC STRUCTURE (ADR-0030): one tree per organization, following the levels of its type
+/// (Organization.levelNames), e.g. for an Intermediate college:
+///   Junior (level 1, a year) -> MPC (2, a group) -> JEE Mains (3, a stream) -> JEE-A (4, a section)
+/// Everything above the last level belongs to the whole organization (branchId empty); SECTIONS
+/// (the last level) belong to a branch, and are where students are placed.
 model Class {
   id             String   @id @default(uuid(7)) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  institutionId  String   @map("institution_id") @db.Uuid
-  campusId       String   @map("campus_id") @db.Uuid
+  /// Only for sections: the branch the section is at.
+  branchId       String?  @map("branch_id") @db.Uuid
   /// Empty for a class of the top level.
   parentId       String?  @map("parent_id") @db.Uuid
-  /// Which level this class is at (ClassLevel.position).
+  /// 1 = top level ... the number of levels = a section.
   level          Int
   name           String
-  /// Short code, unique among its siblings, e.g. "MPC" or "A".
+  /// Short code, unique among its siblings (per branch for sections), e.g. "MPC" or "A".
   code           String
   sortOrder      Int      @default(0) @map("sort_order")
   isActive       Boolean  @default(true) @map("is_active")
+  /// Comes with the type (Junior, Senior, MPC, Regular, Class 1 ...): its code can't change.
+  builtIn        Boolean  @default(false) @map("built_in")
+  /// Intermediate: the Long Term year, and streams for long-term students (e.g. NEET Long Term).
+  longTerm       Boolean  @default(false) @map("long_term")
+  /// For year-level classes: where students go at promotion (Class 9 -> Class 10, Junior ->
+  /// Senior). Empty = they complete after this year.
+  nextClassId    String?  @map("next_class_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization   @relation(fields: [organizationId], references: [id])
-  institution  Institution    @relation(fields: [institutionId], references: [id])
-  campus       Campus         @relation(fields: [campusId], references: [id])
+  branch       Branch?        @relation(fields: [branchId], references: [id], onDelete: Restrict)
   parent       Class?         @relation("ClassTree", fields: [parentId], references: [id], onDelete: Restrict)
   children     Class[]        @relation("ClassTree")
+  next         Class?         @relation("Progression", fields: [nextClassId], references: [id], onDelete: SetNull)
+  previous     Class[]        @relation("Progression")
   subjects     ClassSubject[]
   enrolments   Enrolment[]
 
   @@index([organizationId])
-  @@index([campusId])
+  @@index([branchId])
   @@index([parentId])
   @@map("classes")
 }
 
-enum BatchStatus {
-  ACTIVE
-  COMPLETED
-}
-
-/// A BATCH: students who joined together and move on together, e.g. "2026-28" or
-/// "Long term 2026". `stage` says where the batch is now, in the institution's own words
-/// (e.g. "Junior", "Senior", "Long term", "Passed out"); promotion (Students module) moves it on.
-model Batch {
-  id             String      @id @default(uuid(7)) @db.Uuid
-  organizationId String      @map("organization_id") @db.Uuid
-  institutionId  String      @map("institution_id") @db.Uuid
-  name           String
-  code           String
-  stage          String
-  status         BatchStatus @default(ACTIVE)
-  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id])
-  institution  Institution  @relation(fields: [institutionId], references: [id])
-  students     Student[]
-
-  @@unique([institutionId, code])
-  @@index([organizationId])
-  @@map("batches")
-}
-
-/// A subject an institution teaches, e.g. Mathematics (MATHS).
+/// A subject the organization teaches, e.g. Mathematics (MATHS).
 model Subject {
   id             String   @id @default(uuid(7)) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  institutionId  String   @map("institution_id") @db.Uuid
   name           String
   code           String
   isActive       Boolean  @default(true) @map("is_active")
@@ -481,16 +417,14 @@ model Subject {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization   @relation(fields: [organizationId], references: [id])
-  institution  Institution    @relation(fields: [institutionId], references: [id])
   classes      ClassSubject[]
 
-  @@unique([institutionId, code])
-  @@index([organizationId])
+  @@unique([organizationId, code])
   @@map("subjects")
 }
 
 /// Which subjects a class has. Attached at any level; the classes below inherit them
-/// (Maths on "MPC" = Maths in every MPC section).
+/// (Maths on "MPC" = Maths in every MPC section of every branch).
 model ClassSubject {
   id             String   @id @default(uuid(7)) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
@@ -508,13 +442,12 @@ model ClassSubject {
   @@map("class_subjects")
 }
 
-/// A holiday (one day or a range) for a whole institution, or for one campus only.
+/// A holiday (one day or a range) for the whole organization, or for one branch only.
 model Holiday {
   id             String   @id @default(uuid(7)) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  institutionId  String   @map("institution_id") @db.Uuid
-  /// Empty = every campus of the institution.
-  campusId       String?  @map("campus_id") @db.Uuid
+  /// Empty = every branch.
+  branchId       String?  @map("branch_id") @db.Uuid
   name           String
   startsOn       DateTime @map("starts_on") @db.Date
   endsOn         DateTime @map("ends_on") @db.Date
@@ -522,16 +455,14 @@ model Holiday {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  institution  Institution  @relation(fields: [institutionId], references: [id])
-  campus       Campus?      @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
-  @@index([organizationId])
-  @@index([institutionId, startsOn])
+  @@index([organizationId, startsOn])
   @@map("holidays")
 }
 
 // -------------------------------------------------------------------------------------------------
-// STUDENTS MODULE (ADR-0020): students, their status history, guardians, enrolments.
+// STUDENTS MODULE (ADR-0020, ADR-0030): students, their status history, guardians, enrolments.
 // Only for organizations that have the Students module switched on.
 // -------------------------------------------------------------------------------------------------
 
@@ -542,52 +473,52 @@ enum Gender {
   UNDISCLOSED
 }
 
+/// ACTIVE = a current student. The others are OUTGOING (ADR-0030): kept in full, but hidden from
+/// current lists, registers and promotion.
 enum StudentStatus {
   ACTIVE
-  TRANSFERRED
-  DISCONTINUED
-  ALUMNI
+  TRANSFERRED // took a transfer certificate, went to another school / college
+  DISCONTINUED // dropped out
+  COMPLETED // finished the final year (Class 10, Senior, Long Term, final year of a course)
 }
 
-/// A student of an institution, studying at one of its campuses.
+/// A student of the organization, studying at one of its BRANCHES.
 model Student {
-  id             String        @id @default(uuid(7)) @db.Uuid
-  organizationId String        @map("organization_id") @db.Uuid
-  institutionId  String        @map("institution_id") @db.Uuid
-  /// The campus the student studies at; it decides who may see and change the student.
-  campusId       String        @map("campus_id") @db.Uuid
-  /// Unique in the institution, e.g. "SVJC260001".
-  admissionNo    String        @map("admission_no")
-  admissionDate  DateTime      @map("admission_date") @db.Date
+  id                  String        @id @default(uuid(7)) @db.Uuid
+  organizationId      String        @map("organization_id") @db.Uuid
+  /// The branch the student studies at (or last studied at); it decides who may see and change
+  /// the student.
+  branchId            String        @map("branch_id") @db.Uuid
+  /// Unique in the organization, e.g. "SVJC260001".
+  admissionNo         String        @map("admission_no")
+  admissionDate       DateTime      @map("admission_date") @db.Date
   /// As in official records; no forced first / last name split.
-  fullName       String        @map("full_name")
-  surname        String?
-  dateOfBirth    DateTime      @map("date_of_birth") @db.Date
-  gender         Gender
-  bloodGroup     String?       @map("blood_group")
-  phone          String?
-  email          String?
-  address        String?
-  /// The batch the student joined with (Academic module), e.g. "2026-28 batch".
-  batchId        String?       @map("batch_id") @db.Uuid
-  status         StudentStatus @default(ACTIVE)
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  fullName            String        @map("full_name")
+  surname             String?
+  dateOfBirth         DateTime      @map("date_of_birth") @db.Date
+  gender              Gender
+  bloodGroup          String?       @map("blood_group")
+  phone               String?
+  email               String?
+  address             String?
+  /// Lateral entry (e.g. joined straight in Senior): where the student studied before.
+  previousInstitution String?       @map("previous_institution")
+  /// e.g. "SSC 9.2 GPA" or "1st year 845/1000".
+  previousMarks       String?       @map("previous_marks")
+  status              StudentStatus @default(ACTIVE)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz
 
   organization  Organization          @relation(fields: [organizationId], references: [id])
-  institution   Institution           @relation(fields: [institutionId], references: [id])
-  campus        Campus                @relation(fields: [campusId], references: [id])
-  batch         Batch?                @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  branch        Branch                @relation(fields: [branchId], references: [id])
   statusChanges StudentStatusChange[]
   guardians     StudentGuardian[]
   enrolments    Enrolment[]
   login         User?
   documents     StudentDocument[]
 
-  @@unique([institutionId, admissionNo])
-  @@index([organizationId])
-  @@index([campusId])
-  @@index([batchId])
+  @@unique([organizationId, admissionNo])
+  @@index([branchId])
   @@map("students")
 }
 
@@ -600,6 +531,8 @@ model StudentStatusChange {
   toStatus       StudentStatus  @map("to_status")
   effectiveOn    DateTime       @map("effective_on") @db.Date
   reason         String?
+  /// For a student who left: where they went, e.g. "Narayana Junior College".
+  destination    String?
   changedBy      String         @map("changed_by") @db.Uuid
   changedAt      DateTime       @default(now()) @map("changed_at") @db.Timestamptz
 
@@ -659,71 +592,72 @@ model StudentGuardian {
 }
 
 enum EnrolmentStatus {
-  ACTIVE
-  PROMOTED
-  COMPLETED
-  LEFT
+  ACTIVE // where the student is now
+  MOVED // ended by a section or branch change (endedOn)
+  PROMOTED // the year ended and the student moved on to the next year
+  COMPLETED // the student finished (the final year)
+  LEFT // the student left the organization (endedOn)
 }
 
-/// Which SECTION (a class of the last level) a student is in, in one academic year.
-/// One enrolment per student per academic year.
+/// A PLACEMENT PERIOD (ADR-0030): a student in one SECTION of one branch, in one academic year,
+/// from enrolledOn until endedOn (empty = still there, or until the year's end). Changing section
+/// or branch ends the enrolment and starts a new one, so the history is never overwritten.
+/// At most one ACTIVE enrolment per student (a partial unique index in the migration).
 model Enrolment {
   id             String          @id @default(uuid(7)) @db.Uuid
   organizationId String          @map("organization_id") @db.Uuid
   studentId      String          @map("student_id") @db.Uuid
   academicYearId String          @map("academic_year_id") @db.Uuid
-  institutionId  String          @map("institution_id") @db.Uuid
-  campusId       String          @map("campus_id") @db.Uuid
+  branchId       String          @map("branch_id") @db.Uuid
   classId        String          @map("class_id") @db.Uuid
   rollNo         String?         @map("roll_no")
   status         EnrolmentStatus @default(ACTIVE)
   enrolledOn     DateTime        @map("enrolled_on") @db.Date
+  /// The last day in this section (moved / left on the next day); empty = not ended early.
+  endedOn        DateTime?       @map("ended_on") @db.Date
+  /// Why it started, e.g. "Cleared entrance test" for a section change.
+  reason         String?
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id])
   student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  institution  Institution  @relation(fields: [institutionId], references: [id])
-  campus       Campus       @relation(fields: [campusId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id])
   class        Class        @relation(fields: [classId], references: [id], onDelete: Restrict)
 
-  @@unique([studentId, academicYearId])
   @@index([organizationId])
+  @@index([studentId])
   @@index([classId, academicYearId])
   @@map("enrolments")
 }
 
-/// The next number of an institution's admission-number pattern, per period: "2026" when the
-/// pattern restarts every year ({YY} / {YYYY}), "" when it never restarts.
+/// The next running number of the organization's admission-number pattern, per scope (a branch
+/// id when the pattern has {BRANCH}, otherwise "") and period ("2026" when it restarts every year,
+/// "" when it never restarts).
 model AdmissionSequence {
   organizationId String @map("organization_id") @db.Uuid
-  institutionId  String @map("institution_id") @db.Uuid
+  scope          String
   period         String
   nextValue      Int    @default(1) @map("next_value")
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  institution  Institution  @relation(fields: [institutionId], references: [id])
 
-  @@id([institutionId, period])
-  @@index([organizationId])
+  @@id([organizationId, scope, period])
   @@map("admission_sequences")
 }
 
-/// One applied promotion (Students module): what it changed, so it can be UNDONE.
-/// `items`: [{ studentId, oldEnrolmentId, newEnrolmentId | null (finished) }]
-/// `batchStages`: [{ batchId, stage }] the stages the batches had before.
+/// One applied promotion of a branch: what it changed, so it can be UNDONE.
+/// `items`: [{ studentId, oldEnrolmentId, newEnrolmentId | null (completed) }]
 model PromotionRun {
   id             String    @id @default(uuid(7)) @db.Uuid
   organizationId String    @map("organization_id") @db.Uuid
-  institutionId  String    @map("institution_id") @db.Uuid
-  campusId       String    @map("campus_id") @db.Uuid
+  branchId       String    @map("branch_id") @db.Uuid
   fromYearId     String    @map("from_year_id") @db.Uuid
   toYearId       String    @map("to_year_id") @db.Uuid
   promoted       Int
-  graduated      Int
+  completed      Int
   items          Json
-  batchStages    Json      @map("batch_stages")
   createdBy      String    @map("created_by") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   undoneAt       DateTime? @map("undone_at") @db.Timestamptz
@@ -732,7 +666,7 @@ model PromotionRun {
   organization Organization @relation(fields: [organizationId], references: [id])
 
   @@index([organizationId])
-  @@index([campusId, createdAt])
+  @@index([branchId, createdAt])
   @@map("promotion_runs")
 }
 
@@ -754,8 +688,7 @@ enum AttendanceStatus {
 model AttendanceRecord {
   id               String           @id @default(uuid(7)) @db.Uuid
   organizationId   String           @map("organization_id") @db.Uuid
-  institutionId    String           @map("institution_id") @db.Uuid
-  campusId         String           @map("campus_id") @db.Uuid
+  branchId         String           @map("branch_id") @db.Uuid
   /// The section the student was in that day.
   classId          String           @map("class_id") @db.Uuid
   academicYearId   String           @map("academic_year_id") @db.Uuid
@@ -777,6 +710,7 @@ model AttendanceRecord {
   @@index([organizationId])
   @@index([classId, date])
   @@index([studentId, date])
+  @@index([branchId, date])
   @@map("attendance_records")
 }
 
@@ -805,11 +739,10 @@ model StoredFile {
   @@map("stored_files")
 }
 
-/// What an institution collects from students, e.g. "Transfer certificate".
+/// What the organization collects from students, e.g. "Transfer certificate".
 model DocumentType {
   id              String   @id @default(uuid(7)) @db.Uuid
   organizationId  String   @map("organization_id") @db.Uuid
-  institutionId   String   @map("institution_id") @db.Uuid
   name            String
   /// Shown as missing on a student's page until uploaded.
   isRequired      Boolean  @default(false) @map("is_required")
@@ -820,11 +753,9 @@ model DocumentType {
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization      @relation(fields: [organizationId], references: [id])
-  institution  Institution       @relation(fields: [institutionId], references: [id])
   documents    StudentDocument[]
 
-  @@unique([institutionId, name])
-  @@index([organizationId])
+  @@unique([organizationId, name])
   @@map("document_types")
 }
 

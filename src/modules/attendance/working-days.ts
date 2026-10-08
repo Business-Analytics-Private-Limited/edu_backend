@@ -1,11 +1,11 @@
 /**
  * Dates and working days for attendance.
  *
- *   todayIn('Asia/Kolkata')                -> "2026-10-02" (the date where the institution is)
- *   workingDay(db, institution, campusId, date) -> { working: false, reason: 'Sunday (weekly off)' }
+ *   todayIn('Asia/Kolkata')                     -> "2026-10-02" (the date where the organization is)
+ *   workingDay(db, organization, branchId, date) -> { working: false, reason: 'Sunday (weekly off)' }
  *
- * A day is a working day when it is not one of the institution's weekly off days (Academic ->
- * Calendar) and not a holiday of the institution or of that campus.
+ * A day is a working day when it is not one of the organization's weekly off days (Academic ->
+ * Calendar) and not a holiday of the organization or of that branch.
  * Dates are calendar dates ("2026-10-02"), stored as midnight UTC, so their weekday is getUTCDay().
  */
 import type { Db } from '../../prisma/prisma.service';
@@ -47,18 +47,18 @@ export function isTimeZone(timeZone: string): boolean {
 
 export async function workingDay(
   db: Db,
-  institution: { id: string; weeklyOffDays: number[] },
-  campusId: string,
+  organization: { id: string; weeklyOffDays: number[] },
+  branchId: string,
   date: Date,
 ): Promise<{ working: boolean; reason?: string }> {
   const weekday = date.getUTCDay();
-  if (institution.weeklyOffDays.includes(weekday)) {
+  if (organization.weeklyOffDays.includes(weekday)) {
     return { working: false, reason: `${WEEKDAYS[weekday]} (weekly off)` };
   }
   const holiday = await db.holiday.findFirst({
     where: {
-      institutionId: institution.id,
-      OR: [{ campusId: null }, { campusId }],
+      organizationId: organization.id,
+      OR: [{ branchId: null }, { branchId }],
       startsOn: { lte: date },
       endsOn: { gte: date },
     },
@@ -70,22 +70,22 @@ export async function workingDay(
 /** How many working days there are from `from` to `to` (both included). */
 export async function countWorkingDays(
   db: Db,
-  institution: { id: string; weeklyOffDays: number[] },
-  campusId: string,
+  organization: { id: string; weeklyOffDays: number[] },
+  branchId: string,
   from: Date,
   to: Date,
 ): Promise<number> {
   const holidays = await db.holiday.findMany({
     where: {
-      institutionId: institution.id,
-      OR: [{ campusId: null }, { campusId }],
+      organizationId: organization.id,
+      OR: [{ branchId: null }, { branchId }],
       startsOn: { lte: to },
       endsOn: { gte: from },
     },
   });
   let count = 0;
   for (const d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
-    if (institution.weeklyOffDays.includes(d.getUTCDay())) continue;
+    if (organization.weeklyOffDays.includes(d.getUTCDay())) continue;
     if (holidays.some((h) => h.startsOn <= d && h.endsOn >= d)) continue;
     count++;
   }

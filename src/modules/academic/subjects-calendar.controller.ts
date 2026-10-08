@@ -1,18 +1,18 @@
 /**
  * THE ACADEMIC MODULE, part 2: subjects and the calendar. Works only when the Academic module is
- * switched on. Where each action applies is checked in the services (institution or campus).
+ * switched on. Where each action applies is checked in the services (organization or branch).
  *
- *   GET    /api/v1/subjects?institutionId=              academic.subject.view
- *   POST   /api/v1/subjects                             academic.subject.create   (institution)
- *   PATCH  /api/v1/subjects/:id                         academic.subject.update   (institution)
- *   DELETE /api/v1/subjects/:id                         academic.subject.delete   (institution)
- *   GET    /api/v1/classes/:id/subjects                 academic.structure.view   (campus)
- *   PUT    /api/v1/classes/:id/subjects                 academic.structure.update (campus)
+ *   GET    /api/v1/subjects                             academic.subject.view
+ *   POST   /api/v1/subjects                             academic.subject.create   (organization)
+ *   PATCH  /api/v1/subjects/:id                         academic.subject.update   (organization)
+ *   DELETE /api/v1/subjects/:id                         academic.subject.delete   (organization)
+ *   GET    /api/v1/classes/:id/subjects                 academic.structure.view
+ *   PUT    /api/v1/classes/:id/subjects                 academic.structure.update (class's place)
  *
- *   GET    /api/v1/calendar?institutionId=&from=&to=    academic.calendar.view
- *   PUT    /api/v1/institutions/:id/weekly-off          academic.calendar.update  (institution)
- *   POST   /api/v1/holidays                             academic.calendar.create  (institution or campus)
- *   DELETE /api/v1/holidays/:id                         academic.calendar.delete  (institution or campus)
+ *   GET    /api/v1/calendar?from=&to=                   academic.calendar.view
+ *   PUT    /api/v1/calendar/weekly-off                  academic.calendar.update  (organization)
+ *   POST   /api/v1/holidays                             academic.calendar.create  (organization or branch)
+ *   DELETE /api/v1/holidays/:id                         academic.calendar.delete  (organization or branch)
  */
 import {
   Body,
@@ -35,7 +35,6 @@ import {
   CreateHolidayDto,
   CreateSubjectDto,
   HolidayQuery,
-  InstitutionFilterQuery,
   SetClassSubjectsDto,
   SetWeeklyOffDto,
   UpdateSubjectDto,
@@ -55,12 +54,8 @@ export class SubjectsCalendarController {
 
   @Get('subjects')
   @RequirePermission('academic.subject.view')
-  listSubjects(
-    @OrganizationId() organizationId: string,
-    @Query() query: InstitutionFilterQuery,
-    @CurrentUser() user: CurrentUserType,
-  ) {
-    return this.subjects.list(organizationId, user, query.institutionId);
+  listSubjects(@OrganizationId() organizationId: string, @CurrentUser() user: CurrentUserType) {
+    return this.subjects.list(organizationId, user);
   }
 
   @Post('subjects')
@@ -127,15 +122,14 @@ export class SubjectsCalendarController {
     return this.calendar.list(organizationId, user, query);
   }
 
-  @Put('institutions/:id/weekly-off')
+  @Put('calendar/weekly-off')
   @RequirePermission('academic.calendar.update')
   setWeeklyOff(
     @OrganizationId() organizationId: string,
-    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: SetWeeklyOffDto,
     @CurrentUser() user: CurrentUserType,
   ) {
-    return this.calendar.setWeeklyOff(organizationId, id, body, user);
+    return this.calendar.setWeeklyOff(organizationId, body, user);
   }
 
   @Post('holidays')
