@@ -6,10 +6,21 @@
  *   GET    /api/v1/roles                access.role.view
  *   POST   /api/v1/roles                access.role.create
  *   GET    /api/v1/roles/:id            access.role.view
- *   PATCH  /api/v1/roles/:id            access.role.update   own roles only
+ *   PATCH  /api/v1/roles/:id            access.role.update   own roles; predefined: permissions only
+ *   POST   /api/v1/roles/:id/reset      access.role.update   predefined: back to EduPlatform's version
  *   DELETE /api/v1/roles/:id            access.role.delete   own roles only
  */
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { CurrentUser as CurrentUserType } from '../../common/current-user';
 import { RequirePermission } from '../../common/decorators/access.decorators';
@@ -70,5 +81,17 @@ export class RolesController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.roles.delete(organizationId, id, user);
+  }
+
+  /** A customized predefined role goes back to EduPlatform's version (ADR-0029). */
+  @Post('roles/:id/reset')
+  @HttpCode(200)
+  @RequirePermission('access.role.update')
+  reset(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.roles.resetToDefault(organizationId, id, user);
   }
 }

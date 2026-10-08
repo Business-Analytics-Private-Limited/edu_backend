@@ -143,16 +143,40 @@ describe('Organization area', () => {
     expect(parent.assignable).toBe(false);
   });
 
-  it('an organization admin can add roles but not change or delete predefined ones', async () => {
+  it("an organization admin can change predefined roles' permissions, not delete them", async () => {
     const director = await roleId('Director');
-    await api()
+    // Permissions can change (ADR-0029); the role is then "customized".
+    const changed = await api()
       .patch(`/api/v1/roles/${director}`)
       .set(as(adminA))
       .send({ permissions: ['audit.log.view'] })
-      .expect(403);
+      .expect(200);
+    expect(changed.body).toMatchObject({ permissions: ['audit.log.view'], customized: true });
+    // The name stays.
+    await api()
+      .patch(`/api/v1/roles/${director}`)
+      .set(as(adminA))
+      .send({ name: 'Boss' })
+      .expect(400);
+    // Back to EduPlatform's version.
+    const reset = await api().post(`/api/v1/roles/${director}/reset`).set(as(adminA)).expect(200);
+    expect(reset.body.customized).toBe(false);
+    expect(reset.body.permissions).toEqual(reset.body.defaultPermissions);
+
+    // Never deleted; the Organization admin, Parent and Student roles can't change at all.
     await api().delete(`/api/v1/roles/${director}`).set(as(adminA)).expect(403);
     const adminRole = await roleId('Organization admin');
     await api().delete(`/api/v1/roles/${adminRole}`).set(as(adminA)).expect(403);
+    await api()
+      .patch(`/api/v1/roles/${adminRole}`)
+      .set(as(adminA))
+      .send({ permissions: [] })
+      .expect(403);
+    await api()
+      .patch(`/api/v1/roles/${await roleId('Parent')}`)
+      .set(as(adminA))
+      .send({ permissions: ['audit.log.view'] })
+      .expect(403);
     await api()
       .post('/api/v1/roles')
       .set(as(adminA))

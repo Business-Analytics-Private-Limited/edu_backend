@@ -22,7 +22,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0014](0014-local-keycloak-and-in-memory-cache.md) | Keycloak installed locally; in-memory cache | Superseded by ADR-0015 |
 | [0015](0015-simplified-backend.md) | A simple, conventional backend | Accepted (package manager: see ADR-0016) |
 | [0016](0016-npm-instead-of-pnpm.md) | npm instead of pnpm, in both repositories | Accepted |
-| [0017](0017-predefined-roles-and-multiple-roles.md) | Predefined roles managed by the super admin, several roles per user | Accepted |
+| [0017](0017-predefined-roles-and-multiple-roles.md) | Predefined roles managed by the super admin, several roles per user | Accepted (organizations may now change predefined roles' permissions: ADR-0029) |
 | [0018](0018-roles-at-places.md) | Roles apply at a place: organization, institution or campus | Accepted |
 | [0019](0019-academic-structure.md) | Academic structure: configurable class levels, classes per campus, batches | Accepted (default levels by type: replaced by ADR-0025) |
 | [0020](0020-students.md) | Students: admission at a campus, shared guardians, one section per year | Accepted |
@@ -34,6 +34,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0026](0026-deactivate-campuses-and-institutions.md) | Campuses and institutions are deactivated, not deleted | Accepted |
 | [0027](0027-mandatory-add-only-audit-log.md) | The audit log is mandatory and add-only, and covers logins and document access | Accepted |
 | [0028](0028-login-security.md) | Login security: real visitor addresses, lockout, sessions, forced password change, two-step login | Accepted |
+| [0029](0029-organizations-customize-predefined-roles.md) | Organizations may change the permissions of predefined roles | Accepted |
 
 Template for new ADRs:
 

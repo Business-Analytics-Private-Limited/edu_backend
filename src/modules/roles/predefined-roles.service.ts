@@ -5,9 +5,12 @@
  *   - role_templates holds ONE row per predefined role, with its permissions. Only the super
  *     admin changes them (updateTemplate).
  *   - every organization has its own COPY of each (a row in roles with templateKey set), because
- *     users are linked to roles of their own organization. Copies always follow the template:
- *     a change by the super admin is written to every organization's copy at once.
- *   - organization admins can assign the copies to users, but can't change or delete them.
+ *     users are linked to roles of their own organization. A change by the super admin is
+ *     written to every organization's copy at once, EXCEPT copies the organization customized
+ *     (changed its permissions itself, ADR-0029): those keep the organization's choice until it
+ *     resets them (roles.service.ts).
+ *   - organization admins assign the copies to users, may change their permissions (not the
+ *     Organization admin's, Parent's or Student's), and can't delete them.
  *
  * When the app starts (onApplicationBootstrap), this service makes sure every template exists,
  * the Organization admin has every permission (also ones added in a new version), and every
@@ -41,14 +44,25 @@ export class PredefinedRolesService implements OnApplicationBootstrap {
     this.logger.log(`Predefined roles are up to date in ${organizations.length} organization(s)`);
   }
 
-  /** The predefined roles, in display order (super admin console). */
+  /**
+   * The predefined roles, in display order (super admin console), each with the number of
+   * organizations that customized it (their copy keeps its own permissions).
+   */
   listTemplates() {
-    return this.prisma.forAllOrganizations((db) =>
-      db.roleTemplate.findMany({ orderBy: { sortOrder: 'asc' } }),
-    );
+    return this.prisma.forAllOrganizations(async (db) => {
+      const [templates, customized] = await Promise.all([
+        db.roleTemplate.findMany({ orderBy: { sortOrder: 'asc' } }),
+        db.role.groupBy({ by: ['templateKey'], where: { customized: true }, _count: true }),
+      ]);
+      const countOf = new Map(customized.map((c) => [c.templateKey, c._count]));
+      return templates.map((t) => ({ ...t, customizedIn: countOf.get(t.key) ?? 0 }));
+    });
   }
 
-  /** The super admin changes a predefined role's permissions, for every organization at once. */
+  /**
+   * The super admin changes a predefined role's permissions, for every organization at once,
+   * except organizations that customized their copy (ADR-0029).
+   */
   updateTemplate(key: string, permissions: string[], actor: CurrentUser) {
     if (key === ORG_ADMIN) {
       throw new BadRequestException('The Organization admin always has every permission');
@@ -63,17 +77,23 @@ export class PredefinedRolesService implements OnApplicationBootstrap {
 
       const template = await db.roleTemplate.update({ where: { key }, data: { permissions } });
       const copies = await db.role.updateMany({
-        where: { templateKey: key },
+        where: { templateKey: key, customized: false },
         data: { permissions },
       });
+      const customizedIn = await db.role.count({ where: { templateKey: key, customized: true } });
       await this.audit.log(db, actor, {
         action: 'update',
         entity: 'predefined_role',
         entityId: key,
         organizationId: null,
-        details: { before: before.permissions, after: permissions, organizations: copies.count },
+        details: {
+          before: before.permissions,
+          after: permissions,
+          organizations: copies.count,
+          keptCustomized: customizedIn,
+        },
       });
-      return template;
+      return { ...template, customizedIn };
     });
   }
 
@@ -105,7 +125,11 @@ export class PredefinedRolesService implements OnApplicationBootstrap {
         where: { organizationId, templateKey: template.key },
       });
       if (copy) {
-        await db.role.update({ where: { id: copy.id }, data });
+        // A customized copy keeps the organization's permissions (ADR-0029).
+        await db.role.update({
+          where: { id: copy.id },
+          data: copy.customized ? { name: data.name, description: data.description } : data,
+        });
         copies[template.key] = copy.id;
         continue;
       }

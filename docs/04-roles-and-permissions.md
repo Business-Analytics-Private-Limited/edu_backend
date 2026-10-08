@@ -54,7 +54,7 @@ Platform users are in a separate Keycloak realm and never appear in tenant user 
 
 ## 4.5 Predefined roles (ADR-0017)
 
-Every organization has these roles. Each is given to a user **at a place** (whole organization, one institution, or one campus); see ADR-0018. **Only the super admin changes their permissions** (super admin console, *Predefined roles*), and a change applies to that role in every organization at once. Organization admins can **assign** them to users but can't change or delete them; for anything else they **create their own roles**.
+Every organization has these roles. Each is given to a user **at a place** (whole organization, one institution, or one campus); see ADR-0018. The **super admin sets their default permissions** (super admin console, *Predefined roles*); a change applies to that role in every organization at once. Organization admins **assign** them to users and may **change their permissions for their own organization** (ADR-0029): that copy is then *customized* and keeps the organization's choice when the super admin changes the role, until the organization resets it. Names can't change and predefined roles can't be deleted. Organization admin (always everything), Parent and Student stay locked. For anything else organizations **create their own roles**.
 
 | Role | Given by | Typical scope (planned) | Starting permissions |
 |---|---|---|---|

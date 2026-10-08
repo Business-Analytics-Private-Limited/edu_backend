@@ -235,6 +235,9 @@ model Role {
   /// Set for a predefined role (copy of a RoleTemplate): only the super admin can change it.
   /// Empty for the organization's own roles.
   templateKey    String?  @map("template_key")
+  /// The organization changed this predefined role's permissions (ADR-0029): the super admin's
+  /// changes no longer overwrite them, until it is reset to EduPlatform's version.
+  customized     Boolean  @default(false)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
 

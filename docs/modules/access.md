@@ -38,11 +38,11 @@ Every request reloads the user, so deactivating a user or suspending an organiza
 
 ## Roles
 
-**Predefined roles** (every organization has them; only the super admin changes their permissions, for all organizations at once):
+**Predefined roles** (every organization has them). The super admin sets their default permissions for all organizations at once. An organization may change a role's permissions for itself (`PATCH /roles/:id` with `{ permissions }`); its copy is then **customized** and the super admin's later changes skip it until `POST /roles/:id/reset` (ADR-0029). Locked: Organization admin, Parent, Student.
 
 | Role | Usually given at | |
 |---|---|---|
-| Organization admin | whole organization (always) | everything, can't be changed |
+| Organization admin | whole organization (always) | everything, can't be changed (not even by the organization) |
 | Director | whole organization | sees everything, manages institutions and campuses |
 | Principal | an institution | runs the institution; everything a Campus admin can do, in all its campuses |
 | Campus admin | a campus | runs the campus: staff, students, documents, attendance |
