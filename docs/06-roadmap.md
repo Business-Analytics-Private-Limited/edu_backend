@@ -8,9 +8,9 @@ Each phase ends with something that runs and is tested. No phase starts until th
 |---|---|
 | 0. Design | Done |
 | 1. Foundation | Done, simplified (ADR-0015, ADR-0016): one NestJS app, Prisma, JWT login, local PostgreSQL, npm; no Docker / Redis / Keycloak yet |
-| 2. Platform core | **Done.** Super admin console and web app; organizations, modules, institutions, campuses; users with several roles at places (organization / institution / campus); predefined roles managed by the super admin; audit log with names and places (ADR-0017, ADR-0018) |
-| 3. Academic | **Done.** Academic years, configurable class levels, classes per campus, batches, subjects (inherited down the class tree), calendar (ADR-0019) |
-| 4. Students | **Done**, including documents with file storage (ADR-0023). Done so far: admission, profile, status history, guardians (shared by siblings), sections per year, promotion and shuffle, campus transfer, automatic admission numbers, CSV import, undo of a promotion (ADR-0020). |
+| 2. Platform core | **Done.** Super admin console and web app; organizations (with a type and code) and their branches; modules; users with several roles at places (organization / branch); predefined roles managed by the super admin; audit log with names and places (ADR-0017, ADR-0018) |
+| 3. Academic | **Done.** Academic years for the organization; one structure engine shaped by the organization's type (School / Intermediate / Degree / Engineering), sections per branch, progression; subjects (inherited down the tree), calendar (ADR-0030, replacing ADR-0019) |
+| 4. Students | **Done**, including documents with file storage (ADR-0023). Done so far: admission (with lateral entry), profile, status history, guardians (shared by siblings), placements as periods with a timeline, change section / branch from the profile, outgoing students and re-admission, promotion along the progression with undo, CSV import into a chosen section, automatic or typed admission numbers (ADR-0020, ADR-0030). |
 | 5. Attendance | **In progress.** Part 1 done: daily marking per section, corrections with reasons, correction window, overview, reports (ADR-0021). Next: period-wise marking, biometric devices |
 | 6. Portal | **In progress.** Part 1 done: parent and student logins linked to records, details and attendance (ADR-0022). Next: phone login, consent, notices |
 

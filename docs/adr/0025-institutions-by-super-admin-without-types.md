@@ -1,6 +1,9 @@
 # ADR-0025: Institutions are added by the super admin, and have no type
 
-Status: Accepted
+Status: Superseded
+
+> Superseded by ADR-0030: institutions and campuses became branches, and organizations have a type.
+
 Date: 2026-10-05
 
 Changes part of ADR-0019 (default class levels by institution type). The rest of ADR-0019 still applies.

@@ -63,13 +63,13 @@ subjects/
   subjects.module.ts        @Module({ controllers: [...], providers: [...] })
 ```
 
-The service always works inside the organization, checks the permission **at the record's place** (if the record belongs to an institution or campus), and writes the audit log with that place:
+The service always works inside the organization, checks the permission **at the record's place** (if the record belongs to a branch), and writes the audit log with that place:
 
 ```ts
 create(organizationId: string, dto: CreateSubjectDto, actor: CurrentUser) {
-  const place = { institutionId: dto.institutionId };
+  const place = { branchId: dto.branchId };
   if (!can(actor, 'academic.subject.create', place)) {       // src/common/scope.ts
-    throw new ForbiddenException('Your roles don\'t allow this for this institution');
+    throw new ForbiddenException('Your roles don\'t allow this at this branch');
   }
   return this.prisma.forOrganization(organizationId, async (db) => {
     const subject = await db.subject.create({ data: { ...dto, organizationId } });
@@ -100,7 +100,7 @@ Add `SubjectsModule` to `imports`.
 
 ## 6. Test it: `test/subjects.e2e-spec.ts`
 
-At least: the happy path, a user without the permission gets 403, **organization B can't see organization A's subjects** (404 / empty list), and **a campus / institution admin can't touch another campus / institution**. Copy the patterns from `test/organization.e2e-spec.ts` and `test/places.e2e-spec.ts`.
+At least: the happy path, a user without the permission gets 403, **organization B can't see organization A's subjects** (404 / empty list), and **a branch admin can't touch another branch**. Copy the patterns from `test/organization.e2e-spec.ts` and `test/places.e2e-spec.ts`.
 
 ## 7. Check
 

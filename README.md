@@ -1,6 +1,6 @@
 # EduPlatform backend (working name)
 
-A multi-tenant management platform for educational institutions: many organizations (school groups, college societies) use one system, and each sees only its own data.
+A multi-tenant management platform for schools and colleges: many organizations (school groups, college societies, each with its branches) use one system, and each sees only its own data.
 
 This repository is the **backend API**. The web app and the super admin console are in the separate **eduplatform-frontend** repository.
 
@@ -10,14 +10,14 @@ This repository is the **backend API**. The web app and the super admin console 
 |---|---|---|
 | **Login** | Everyone | Super admins log in at `/auth/super-admin/login`, organization users at `/auth/login`. `/auth/me` says who you are and what you may do. |
 | **Super admin area** | EduPlatform staff | Dashboard; create organizations (with their first admin); edit, suspend and activate them; switch modules on and off (Academic, Students, Attendance, Portal, Import). |
-| **Predefined roles** | EduPlatform staff | Organization admin, Director, Principal, Campus admin, Senior / Junior faculty, DTP operator, Parent, Student. The super admin sets their permissions for all organizations at once. |
-| **Organization area** | An organization's users | Dashboard; the organization's details; institutions and campuses; staff users; own roles (View / Create / Edit / Delete grid); audit log. |
-| **Roles at places** | Built in | A user has one or more roles, each for the whole organization, one institution or one campus. A Campus admin sees and manages only their campus. Nobody can hand out more than they have. |
+| **Predefined roles** | EduPlatform staff | Organization admin, Director, Principal, Branch admin, Senior / Junior faculty, DTP operator, Parent, Student. The super admin sets their default permissions and can create more; each organization may customize its copies. |
+| **Organization area** | An organization's users | Dashboard; the organization's details and type; branches; staff users; own roles (View / Create / Edit / Delete grid); audit log. |
+| **Roles at places** | Built in | A user has one or more roles, each for the whole organization or one branch. A Branch admin sees and manages only their branch. Nobody can hand out more than they have. |
 | **Multi-tenancy** | Built in | Every query is limited to the user's organization, and PostgreSQL row security blocks mistakes. |
-| **Students** (module) | Organizations with the Students module | Admission at a campus (optionally with batch, section and parent in one go); profile; status with history; parents / guardians shared by siblings; one section per academic year with roll numbers; promotion to the next year (preview, adjust, apply) and moving students between sections; campus transfer; automatic admission numbers; import from CSV; undo of a promotion; documents (types, upload, verify / reject, download). |
-| **Attendance** (module) | Organizations with the Attendance module | A section's register per day (present / absent / late / half day / leave); same-day changes; corrections of past days with reasons, kept as versions; only working days; correction window; time zone per institution; campus overview; section and student reports with percentages. |
+| **Students** (module) | Organizations with the Students module | Admission at a branch (optionally with section and parent in one go; lateral entry); profile with a timeline; section and branch changes from a date, keeping history; outgoing students (transferred, discontinued, completed) and re-admission; promotion along each year's progression, with undo; automatic or manual admission numbers; import into one chosen section; documents (types, upload, verify / reject, download). |
+| **Attendance** (module) | Organizations with the Attendance module | A section's register per day (present / absent / late / half day / leave); same-day changes; corrections of past days with reasons, kept as versions; only working days; correction window; time zone per organization; branch overview; section and student reports with percentages. |
 | **Portal** (module) | Parents and students | Logins given by staff from a student's page; a parent's login covers all their children; they see details and attendance, and nothing of the staff side. |
-| **Academic** (module) | Organizations with the Academic module | Academic years (one active per institution); class levels each institution names itself (e.g. Year → Group → Section, or Type → Group → Stream → Section); classes per campus as a tree; batches with a stage; subjects (attached to a class, inherited below); calendar with weekly off days and holidays. |
+| **Academic** (module) | Organizations with the Academic module | Academic years for the whole organization; a structure shaped by the organization's type (School: Class → Section; Intermediate: Junior / Senior / Long Term → Group → Stream → Section; Degree / Engineering: Course → Specialization → Year → Section); sections per branch; subjects (attached to a class, inherited below); calendar with weekly off days and holidays. |
 
 Coming next: period-wise and biometric attendance, phone login for the portal, preparing a pilot, then attendance, parent portal, data import (see `docs/06-roadmap.md`). Module by module: [docs/modules/README.md](docs/modules/README.md).
 
@@ -42,7 +42,7 @@ npm run dev             # starts the API on http://localhost:3000, restarts on s
 
 ```
 Browser / frontend
-   │  GET /api/v1/institutions   (header: Authorization: Bearer <token>)
+   │  GET /api/v1/branches   (header: Authorization: Bearer <token>)
    ▼
 RequestLoggerMiddleware      logs the request                        src/common/middleware
 ThrottlerGuard               too many requests? → 429
@@ -74,7 +74,7 @@ src/
   modules/
     auth/                    login, me, change password
     super-admin/             dashboard, organizations, modules
-    organization/            the tenant's dashboard, organization, institutions, campuses
+    organization/            the tenant's dashboard, organization, branches
     users/                   the tenant's staff users
     roles/                   roles, and permissions.ts (the list of every permission)
     audit/                   the audit log

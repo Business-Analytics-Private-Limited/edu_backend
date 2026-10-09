@@ -11,7 +11,7 @@
 
 ## Purpose
 
-Brings data from files (CSV / Excel, or exports of an institution's previous system) into the platform through each module's public facade, with validation, a dry-run preview and a per-row error report (ADR-0007).
+Brings data from files (CSV / Excel, or exports of an organization's previous system) into the platform through each module's public facade, with validation, a dry-run preview and a per-row error report (ADR-0007).
 
 ## Responsibilities
 
@@ -38,7 +38,7 @@ Not this module: business rules for the data. Every row goes through the owning 
 
 ```
 imports.jobs                                                                                 [std]
-  id, tenant_id, institution_id
+  id, tenant_id, branch_id
   kind            text check (students | guardians | enrolments | device_mappings)
   template_version text not null
   file_id         uuid not null
@@ -106,4 +106,4 @@ None.
 
 ## Open questions
 
-- The mapping from the first institution's current system is written when that onboarding is planned (ADR-0007).
+- The mapping from the first organization's current system is written when that onboarding is planned (ADR-0007).

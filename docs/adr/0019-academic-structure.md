@@ -1,6 +1,9 @@
 # ADR-0019: Academic structure — configurable class levels, classes per campus, batches
 
-Status: Accepted
+Status: Superseded
+
+> Superseded by ADR-0030: the levels come from the organization's type, sections belong to a branch, batches are gone.
+
 Date: 2026-09-30
 
 Refines doc 3 §3.3 (academic structure engine) and docs/modules/academic.md.

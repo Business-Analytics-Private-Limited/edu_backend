@@ -10,7 +10,7 @@ Two developers: the project owner and Claude, with interns and freshers joining.
 ## Project context (decided with the owner, 2026-09-28)
 
 - This is a **greenfield** build. The owner's earlier single-institute MySQL application is only a requirements reference. Don't port its code or schema (ADR-0007).
-- A tenant is an **organization that can own several institutions** (organization → institution → campus).
+- A tenant is an **organization of one type** (School, Intermediate, Degree, Engineering) with one or more **branches** (organization → branch, ADR-0030). The type shapes its academic structure.
 - Institution priority: (1) junior / intermediate colleges (11th–12th, MPC/BiPC/CEC groups; the owner calls these "K12"), (2) degree and engineering colleges, (3) schools.
 - Only the **platform super admin** switches modules on for organizations. Organizations choose among what was granted.
 - Parent and student logins are in v1.
@@ -21,7 +21,7 @@ Two developers: the project owner and Claude, with interns and freshers joining.
 
 - Phase 0 (design) and Phase 1 (foundation) done.
 - **2026-09-29: backend rebuilt as one simple NestJS app** (ADR-0015): login (super admin and organization users), super admin area (organizations, modules), tenant admin area (organization, institutions, campuses, users, roles, audit log). Tests pass.
-- Next: rebuild the frontend login screens and dashboards on top of this API.
+- **2026-10-09: organization → branches and one academic engine by organization type** (ADR-0030): branches replace institutions / campuses; structure presets per type; placements as periods; outgoing students; import into a section; automatic / manual admission numbers; promotion along progression links. 120 e2e tests pass.
 - Update this section at the end of every working session.
 
 ## Keep it simple
@@ -37,11 +37,11 @@ The code must be easy for a fresher to read and change:
 1. **Every table that belongs to an organization has `organization_id`** and a row-security policy in its migration (copy the pattern from the first migration). Services filter by `organizationId` and run queries inside `prisma.forOrganization(...)`; `prisma.forAllOrganizations(...)` is only for super admin screens and login.
 2. **Every endpoint declares who may call it:** `@Public`, `@LoggedIn`, `@SuperAdminOnly`, `@OrganizationUser` or `@RequirePermission('module.resource.action')`. The AccessGuard refuses endpoints without one.
 3. **Every feature ships with an isolation test**: data created in organization A is invisible from organization B.
-4. **IDs are UUIDv7. Timestamps are `timestamptz` in UTC.** Time zone, currency and locale come from organization or institution settings.
+4. **IDs are UUIDv7. Timestamps are `timestamptz` in UTC.** Time zone, currency and locale come from organization settings.
 5. **Schema changes only through Prisma migrations** (`npm run db:migration -- <name>`, then `npm run db:migrate`). Never edit a production database by hand.
 6. **Every create, update and delete of business data is written to the audit log** (`AuditService.log`, in the same transaction).
 7. **Request bodies are DTO classes with class-validator rules**, so they are checked and documented in Swagger automatically.
-8. **Records that belong to an institution or campus store `institution_id` / `campus_id`, and services check permissions at that place** (`can`, `reachOf` in `src/common/scope.ts`, ADR-0018). The isolation test also proves a campus admin can't see or change another campus's records.
+8. **Records that belong to a branch store `branch_id`, and services check permissions at that place** (`can`, `reachOf` in `src/common/scope.ts`, ADR-0030). Things above sections (years, structure, subjects, settings) belong to the whole organization. The isolation tests also prove a branch admin can't see or change another branch's records.
 9. Don't reuse the previous single-institute product's name anywhere in this repository. "EduPlatform" is a working name until the product is named.
 
 ## Naming

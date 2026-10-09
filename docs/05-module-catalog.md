@@ -1,5 +1,7 @@
 # 5. Module catalog
 
+> **Note (2026-10-09):** since [ADR-0030](adr/0030-organization-branches-and-academic-engine.md) an organization has ONE type (School, Intermediate, Degree, Engineering) and several **branches**; there are no institutions or campuses any more. Where this document says *institution* or *campus*, read *organization* or *branch*. The rest is the original design.
+
 ## 5.1 The three control layers
 
 ```

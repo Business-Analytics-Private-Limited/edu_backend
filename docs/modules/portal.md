@@ -10,7 +10,7 @@
 ## In plain words
 
 - Staff give a **student** or a **parent** a login from the student's page (email + temporary password). A parent's login belongs to the guardian record, so it covers **all their children**.
-- Parents and students log in on the same login page and land in the **portal**: their children (or themselves) with school, campus, section, batch, and **attendance** (this month and the last 30 days, with the days absent and remarks).
+- Parents and students log in on the same login page and land in the **portal**: their children (or themselves) with school, branch, section (e.g. *Junior › MPC › JEE Mains › JEE-A*), and **attendance** (this month and the last 30 days, with the days absent and remarks).
 - Portal logins have **no staff access at all**; staff pages send them to the portal.
 
 ## Endpoints (`/api/v1`)
@@ -21,7 +21,7 @@
 | GET | `/portal/students/:id` | portal logins — only a linked student (else 404) |
 | GET | `/portal/students/:id/attendance?from=&to=` | portal logins, with the Attendance module |
 | GET | `/portal/students/:id/documents`, `.../documents/:docId/file` | portal logins — only document types visible in the portal |
-| POST | `/students/:id/portal-access` | staff, `students.student.update` at the student's campus — `{ for: STUDENT \| GUARDIAN, guardianId?, email, password }` |
+| POST | `/students/:id/portal-access` | staff, `students.student.update` at the student's branch; refused for outgoing students — `{ for: STUDENT \| GUARDIAN, guardianId?, email, password }` |
 | DELETE | `/students/:id/portal-access/:userId` | same |
 
 ## Rules (tested in `test/portal.e2e-spec.ts`)

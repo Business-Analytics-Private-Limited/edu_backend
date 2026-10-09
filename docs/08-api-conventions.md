@@ -1,5 +1,7 @@
 # 8. API conventions
 
+> **Note (2026-10-09):** since [ADR-0030](adr/0030-organization-branches-and-academic-engine.md) an organization has ONE type (School, Intermediate, Degree, Engineering) and several **branches**; there are no institutions or campuses any more. Where this document says *institution* or *campus*, read *organization* or *branch*. The rest is the original design.
+
 > **Note (2026-09-29):** the backend was simplified ([ADR-0015](adr/0015-simplified-backend.md)). This document still describes the product's data and rules, but where it mentions one schema per module, the outbox, Keycloak, OpenAPI files in packages/contracts or service packages, today's code differs: one Prisma schema (`prisma/schema.prisma`), JWT login, Swagger generated from the controllers, and feature folders in `src/modules/`.
 
 Every endpoint follows these rules. They are checked by the contract test and the architecture test ([ADR-0010](adr/0010-api-documentation.md)).

@@ -1,5 +1,7 @@
 # 1. Product requirements
 
+> **Note (2026-10-09):** since [ADR-0030](adr/0030-organization-branches-and-academic-engine.md) an organization has ONE type (School, Intermediate, Degree, Engineering) and several **branches**; there are no institutions or campuses any more. Where this document says *institution* or *campus*, read *organization* or *branch*. The rest is the original design.
+
 ## 1.1 Problem
 
 Institutions run on disconnected spreadsheets or single-institute software that can't adapt to how each one works. For example, one institute takes attendance by hand and another uses biometric devices. Groups that run several institutions (a junior college, a degree college and a school under one society or trust) end up with separate systems and separate logins.

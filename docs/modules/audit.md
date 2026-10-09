@@ -16,16 +16,16 @@ Also recorded: every **login** and **failed login** (with the reason), every **p
 | Column | Example |
 |---|---|
 | `actor_type`, `actor_id`, `actor_name` | `user`, …, `Ravi Kumar` (or `super_admin`; `unknown` with no id for a failed login with an unknown email) |
-| `action`, `entity`, `entity_id` | `update`, `campus`, … |
+| `action`, `entity`, `entity_id` | `update`, `branch`, … |
 | `organization_id` | the organization (empty for super admin actions on the platform itself) |
-| `institution_id`, `campus_id` | where it happened, if in one institution / campus |
-| `details` | what changed, e.g. `{ "name": "Kukatpally Campus" }` — never passwords |
+| `branch_id` | where it happened, if at one branch |
+| `details` | what changed, e.g. `{ "name": "KPHB Colony" }` — never passwords |
 | `created_at` | when |
 
 ```ts
 await this.audit.log(db, user, {
-  action: 'update', entity: 'campus', entityId: id,
-  institutionId, campusId,                 // the place, so local admins see it
+  action: 'update', entity: 'branch', entityId: id,
+  branchId,                                // the place, so branch admins see it
   details: { ...dto },
 });
 ```
@@ -34,7 +34,7 @@ await this.audit.log(db, user, {
 
 `GET /api/v1/audit-logs?page=&pageSize=` with `audit.log.view`:
 - with the permission for the whole organization: every entry of the organization;
-- a Principal / Campus admin: only entries of their institution / campus.
+- a Principal / Branch admin: only entries of their branch.
 
 The web app's **Audit log** page shows who (by name), where, what and when.
 

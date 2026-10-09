@@ -4,11 +4,11 @@ One document per module of EduPlatform: what it is for, its screens / endpoints 
 
 | Module | In plain words | Status | Document | Code |
 |---|---|---|---|---|
-| platform | Organizations, institutions, campuses; which modules each organization has | **Built** | [platform.md](platform.md) | `src/modules/super-admin`, `src/modules/organization` |
-| access | Login, users, roles and permissions, roles at places | **Built** | [access.md](access.md) | `src/modules/auth`, `users`, `roles`, `src/common/scope.ts` |
+| platform | Organizations (with their type), branches; which modules each organization has | **Built** | [platform.md](platform.md) | `src/modules/super-admin`, `src/modules/organization` |
+| access | Login, users, roles and permissions, roles at the organization or a branch | **Built** | [access.md](access.md) | `src/modules/auth`, `users`, `roles`, `src/common/scope.ts` |
 | audit | Who changed what, where, when | **Built** | [audit.md](audit.md) | `src/modules/audit` |
-| academic | Academic years, class levels and classes, batches, subjects, calendar | **Built** | [academic.md](academic.md) | `src/modules/academic` |
-| students | Admission, profiles, status, guardians, sections per year (promotion, documents next) | **Built (part 1)** | [students.md](students.md) | `src/modules/students` |
+| academic | Academic years, the structure shaped by the organization's type, sections per branch, subjects, calendar | **Built** | [academic.md](academic.md) | `src/modules/academic` |
+| students | Admission, profiles, placements and their history, outgoing students, promotion, import, documents | **Built** | [students.md](students.md) | `src/modules/students` |
 | attendance | Daily attendance per section, corrections, reports (period-wise and biometric next) | **Built (part 1)** | [attendance.md](attendance.md) | `src/modules/attendance` |
 | portal | Parents and students see their children's / own details and attendance | **Built (part 1)** | [portal.md](portal.md) | `src/modules/portal` |
 | imports | Import students and other data from Excel / CSV | Design | [imports.md](imports.md) | — |

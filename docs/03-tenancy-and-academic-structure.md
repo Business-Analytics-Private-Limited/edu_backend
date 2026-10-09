@@ -1,6 +1,8 @@
 # 3. Tenancy and academic structure
 
-> **Note (2026-10-05):** institutions no longer have a type, and only the super admin adds them ([ADR-0025](adr/0025-institutions-by-super-admin-without-types.md)). Where this document mentions institution types or templates per type, every institution now starts with Class → Section and sets up its own levels.
+> **Note (2026-10-09): replaced by [ADR-0030](adr/0030-organization-branches-and-academic-engine.md).** Today an organization has ONE type and several **branches** (no institutions or campuses); levels come from the type; sections belong to a branch. The rest of this document is the original design.
+>
+> **Earlier note (2026-10-05):** institutions no longer have a type, and only the super admin adds them ([ADR-0025](adr/0025-institutions-by-super-admin-without-types.md)). Where this document mentions institution types or templates per type, every institution now starts with Class → Section and sets up its own levels.
 
 ## 3.1 Tenant hierarchy
 

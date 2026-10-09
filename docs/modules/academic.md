@@ -1,73 +1,79 @@
-# Module: academic (academic years, class structure, batches, subjects, calendar)
+# Module: academic (academic years, the academic structure, sections, subjects, calendar)
 
 | | |
 |---|---|
-| Status | **Built:** academic years, class levels, classes, batches, subjects, calendar (weekly off days, holidays) |
-| Code | `src/modules/academic/` |
-| Tables | `academic_years`, `class_levels`, `classes`, `batches`, `subjects`, `class_subjects`, `holidays`; `institutions.weekly_off_days` |
-| Decisions | ADR-0019 (and ADR-0018 for places) |
+| Status | **Built** |
+| Code | `src/modules/academic/` (`presets.ts` = what each type gets, `structure.service.ts` = the engine, `class-tree.ts` = labels and lookups) |
+| Tables | `academic_years`, `classes`, `subjects`, `class_subjects`, `holidays`; `organizations.level_names`, `organizations.weekly_off_days` |
+| Decisions | ADR-0030 (one engine shaped by the organization's type; replaces ADR-0019) |
 | Switched on by | the super admin, per organization (module key `academic`) |
 
 ## In plain words
 
-- **Academic years:** each institution's years, e.g. "2026-27" from 1 June 2026 to 31 March 2027. One is **active** (the current one).
-- **Class levels:** how an institution divides its classes, top to bottom. Institutions have no type (ADR-0025): every one starts with **Class → Section** and sets up its own, for example:
+- **Academic years:** one set for the whole organization, shared by every branch, e.g. "2026-27" from 1 June 2026 to 31 March 2027. One is **current** (active).
+- **The academic structure:** one tree of classes per organization, shaped by its **type**:
 
-  | Institution | Levels |
-  |---|---|
-  | Junior college | Year → Group → Section |
-  | Degree college | Year → Course → Section |
-  | Engineering college | Year → Branch → Section |
-  | School | Class → Section (the starting levels) |
-  | A coaching-style institution | Type → Group → Stream → Section |
+  | Type | Levels (top → section) | Built in | The organization chooses |
+  |---|---|---|---|
+  | School | Class → Section | Nursery, LKG, UKG, Class 1–10 | which classes it runs |
+  | Intermediate | Year → Group → Stream → Section | Junior → Senior, Long Term; MPC, BiPC, CEC, HEC; "Regular (IPE)" in every group | which groups; its own streams (IIT, JEE Mains, NEET, NEET Long Term…) |
+  | Degree, Engineering | Course → Specialization → Year → Section | 1st Year … Nth Year | courses (B.Tech) and specializations (CSE) with their number of years |
 
-- **Classes:** each campus builds a tree that follows the levels, e.g. *1st year → MPC → Section A*. The last level ("section") is where students will be placed.
-- **Batches:** students who joined together and move on together, e.g. "2026-28 batch", with a **stage** in the institution's own words (Junior, Senior, Long term, Passed out…).
-- **Subjects:** each institution's subject list. A subject is attached to a class at **any level** and the classes below **inherit** it: Mathematics on "MPC" = Mathematics in every MPC section.
-- **Calendar:** weekly off days per institution (e.g. Sunday) and holidays (one day or a range) for the whole institution or one campus. Attendance will use it for working days.
+  Level names can be renamed; their number is fixed by the type.
+- **Sections** belong to a **branch** and sit under a class of the level just above them, e.g. KPHB: *Junior → MPC → JEE Mains → JEE-A*. Students are placed in sections. Everything above sections belongs to the whole organization, so a Director can filter "Junior › MPC › JEE Mains" across all branches.
+- **Long Term** (Intermediate) is for students who already finished Intermediate (e.g. NEET repeaters): one year, long-term streams only, no promotion.
+- **Progression:** each year-level class has a **next** class, e.g. Class 9 → Class 10, Junior → Senior, 1st Year → 2nd Year. Empty means students **complete** after that year (Class 10, Senior, Long Term, the final year). Promotion (Students module) follows it.
+- **Subjects:** the organization's list. A subject is attached to a class at **any level**, and the classes below **inherit** it: Mathematics on "MPC" means Mathematics in every MPC section of every branch.
+- **Calendar:** weekly off days for the organization (e.g. Sunday), and holidays (one day or a range) for every branch or one branch. Attendance uses it for working days.
 
 ## Endpoints (`/api/v1`)
 
 | Method | Path | Permission | Where it's checked |
 |---|---|---|---|
-| GET | `/academic-years?institutionId=` | `academic.year.view` | lists years of institutions you work in |
-| POST | `/academic-years` | `academic.year.create` | the institution |
-| PATCH | `/academic-years/:id` | `academic.year.update` | the institution |
-| POST | `/academic-years/:id/activate` | `academic.year.update` | the institution; closes the previous active year |
-| DELETE | `/academic-years/:id` | `academic.year.delete` | the institution; planned years only |
-| GET | `/institutions/:id/class-levels` | `academic.structure.view` | anyone working in the institution |
-| PUT | `/institutions/:id/class-levels` | `academic.structure.update` | the institution; `{ names: [...] }` top to bottom |
-| GET | `/campuses/:id/classes` | `academic.structure.view` | the campus; returns `{ campus, levels, classes }` |
-| POST | `/campuses/:id/classes` | `academic.structure.create` | the campus; `{ parentId?, name, code }` |
-| PATCH | `/classes/:id` | `academic.structure.update` | the campus |
-| DELETE | `/classes/:id` | `academic.structure.delete` | the campus; only without classes under it |
-| GET | `/batches?institutionId=` | `academic.batch.view` | anyone working in the institution |
-| POST / PATCH / DELETE | `/batches`, `/batches/:id` | `academic.batch.create` / `update` / `delete` | the institution |
-| GET | `/subjects?institutionId=` | `academic.subject.view` | anyone working in the institution |
-| POST / PATCH / DELETE | `/subjects`, `/subjects/:id` | `academic.subject.create` / `update` / `delete` | the institution; delete only when no class uses it |
-| GET | `/classes/:id/subjects` | `academic.structure.view` | the campus; `{ own, inherited, available, path }` |
-| PUT | `/classes/:id/subjects` | `academic.structure.update` | the campus; `{ subjectIds }` = the class's own subjects |
-| GET | `/calendar?institutionId=&from=&to=` | `academic.calendar.view` | weekly off days and holidays you may see |
-| PUT | `/institutions/:id/weekly-off` | `academic.calendar.update` | the institution; `{ days: [0..6] }`, 0 = Sunday |
-| POST | `/holidays` | `academic.calendar.create` | the institution, or the campus for a campus holiday |
-| DELETE | `/holidays/:id` | `academic.calendar.delete` | same as above |
+| GET | `/academic-years` | `academic.year.view` | anyone who has it somewhere |
+| POST / PATCH | `/academic-years`, `/academic-years/:id` | `academic.year.create` / `update` | whole organization; dates never overlap |
+| POST | `/academic-years/:id/activate` | `academic.year.update` | whole organization; closes the previous current year |
+| DELETE | `/academic-years/:id` | `academic.year.delete` | whole organization; planned years without students only |
+| GET | `/academic-structure` | `academic.structure.view` | `{ type, levels, yearLevel, sectionLevel, classes (above sections), builtIn }` |
+| PUT | `/academic-structure/level-names` | `academic.structure.update` | whole organization; `{ names }` (same number) |
+| PUT | `/academic-structure/school-classes` | `academic.structure.update` | School; `{ codes: ["C8","C9",...] }`, each class's next = the next ticked one |
+| PUT | `/academic-structure/groups` | `academic.structure.update` | Intermediate; `{ codes: ["MPC","BIPC"] }` |
+| POST | `/academic-structure/streams` | `academic.structure.create` | Intermediate; `{ groupCode, name, code, longTerm? }` |
+| PATCH / DELETE | `/academic-structure/streams/:group/:code` | `academic.structure.update` / `delete` | Intermediate; rename everywhere / delete without sections |
+| POST | `/academic-structure/courses` | `academic.structure.create` | Degree, Engineering; `{ name, code }` |
+| POST | `/academic-structure/courses/:id/specializations` | `academic.structure.create` | `{ name, code, years }`: also creates 1st Year … Nth Year with their next |
+| PATCH | `/classes/:id` | `academic.structure.update` | its place (organization, or the section's branch); `{ name, code, sortOrder, isActive, nextClassId }` |
+| DELETE | `/classes/:id` | `academic.structure.delete` | its place; not built-in, nothing under it, no student ever placed there |
+| GET | `/branches/:id/sections` | `academic.structure.view` | the branch; each section with its `path` |
+| POST | `/branches/:id/sections` | `academic.structure.create` | the branch; `{ parentId, name, code }` |
+| GET / POST / PATCH / DELETE | `/subjects`, `/subjects/:id` | `academic.subject.*` | whole organization; delete only when no class uses it |
+| GET / PUT | `/classes/:id/subjects` | `academic.structure.view` / `update` | `{ own, inherited, available, path }` / `{ subjectIds }` |
+| GET | `/calendar?from=&to=` | `academic.calendar.view` | weekly off days and the holidays you may see |
+| PUT | `/calendar/weekly-off` | `academic.calendar.update` | whole organization; `{ days: [0..6] }`, 0 = Sunday |
+| POST / DELETE | `/holidays`, `/holidays/:id` | `academic.calendar.create` / `delete` | whole organization, or the branch for a branch holiday |
 
 ## Rules (tested in `test/academic.e2e-spec.ts`)
 
 1. Nothing works unless the organization has the Academic module.
-2. Levels: 1 to 6; rename any time; add or remove only while the institution has no classes.
-3. A class is one level below its parent, on the same campus; nothing below the last level; codes unique among siblings.
-4. Academic years of one institution never overlap; at most one is active; a closed year can't change; only planned years can be deleted.
-5. A Campus admin builds classes only on their campus and sees (not changes) their institution's years, levels and batches. A Principal manages all of their institution.
-6. Another organization sees none of it.
-7. Subjects: the list belongs to the institution; attaching them to classes is done at the class's campus; a subject used by classes can't be deleted (mark it "not in use").
-8. Calendar: a Campus admin adds and removes holidays of their own campus; weekly off days and institution-wide holidays need the institution.
-9. Every change goes to the audit log with its institution / campus.
+2. **The structure follows the type:**
+   - structure routes for another type are refused
+   - built-in classes keep their code and are switched off rather than deleted
+   - a class with classes or students under it can't be deleted
+3. **Above sections is the organization's:** changing it needs the permission for the whole organization.
+4. **Sections are the branch's:** a Branch admin builds their own branch's sections. A section sits under a class of the level just above it, and section codes are unique per parent per branch.
+5. **Same code, same place:** use the same section code next year (e.g. "A" under Junior and under Senior), and promotion finds the matching section by itself.
+6. Academic years never overlap; at most one is current; a closed year can't change.
+7. Another organization sees none of it.
+8. Every change goes to the audit log, with the branch for branch-level changes.
 
 ## Screens (web app → Academic)
 
-Academic years · Classes (pick a campus, see and grow the tree; "Edit levels"; Subjects per class) · Batches · Subjects · Calendar.
-
-## Later
-
-Batch sections if a customer needs groupings different from class sections, copying a campus's structure to another campus, promotion of batches (with the Students module), timetables (v2).
+- **Academic years**
+- **Structure:**
+  - the builder for the organization's type (school classes / groups and streams / courses and specializations)
+  - "After each year" (progression)
+  - level names
+  - the whole tree, with subject links
+- **Sections:** choose a branch, see and add its sections
+- **Subjects**
+- **Calendar**

@@ -1,6 +1,9 @@
 # ADR-0018: Roles apply at a place (organization, institution or campus)
 
-Status: Accepted
+Status: Superseded
+
+> Superseded by ADR-0030: roles now apply at the whole organization or one branch.
+
 Date: 2026-09-30
 
 Builds on ADR-0017. Implements the organization / institution / campus part of the scopes in docs/04-roles-and-permissions.md §4.3 (class-level and guardian / self scopes come with the Academic and Students modules).

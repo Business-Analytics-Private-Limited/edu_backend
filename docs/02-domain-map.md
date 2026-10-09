@@ -1,5 +1,7 @@
 # 2. Domain map
 
+> **Note (2026-10-09):** since [ADR-0030](adr/0030-organization-branches-and-academic-engine.md) an organization has ONE type (School, Intermediate, Degree, Engineering) and several **branches**; there are no institutions or campuses any more. Where this document says *institution* or *campus*, read *organization* or *branch*. The rest is the original design.
+
 The API is a **modular monolith** ([ADR-0001](adr/0001-modular-monolith.md)). Each box below is a module: its own folder, its own Postgres schema, its own public interface and events. Any module can later be extracted into a separate service because none of them share tables.
 
 ## 2.1 Modules

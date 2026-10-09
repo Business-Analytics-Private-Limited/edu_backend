@@ -10,7 +10,7 @@
 
 ## In one paragraph
 
-People log in with email and password and get a token (JWT, 8 hours). **Super admins** (EduPlatform staff) use the super admin console. **Users** belong to one organization and are **staff** (roles and permissions, below) or **portal logins** of parents and students (no roles; see [portal.md](portal.md) and ADR-0022). A user has one or more **roles**, each **at a place**: the whole organization, one institution, or one campus. A role is a list of **permissions** such as `platform.institution.update`. A user may do what their roles allow, in each role's place.
+People log in with email and password and get a token (JWT, 8 hours). **Super admins** (EduPlatform staff) use the super admin console. **Users** belong to one organization and are **staff** (roles and permissions, below) or **portal logins** of parents and students (no roles; see [portal.md](portal.md) and ADR-0022). A user has one or more **roles**, each **at a place**: the whole organization, or one branch (ADR-0030). A role is a list of **permissions** such as `students.student.update`. A user may do what their roles allow, in each role's place.
 
 ## Login
 
@@ -43,11 +43,11 @@ Every request reloads the user, so deactivating a user or suspending an organiza
 | Role | Usually given at | |
 |---|---|---|
 | Organization admin | whole organization (always) | everything, can't be changed (not even by the organization) |
-| Director | whole organization | sees everything, manages institutions and campuses |
-| Principal | an institution | runs the institution; everything a Campus admin can do, in all its campuses |
-| Campus admin | a campus | runs the campus: staff, students, documents, attendance |
-| Senior faculty / Junior faculty | a campus | teaching, attendance (Junior: fewer rights) |
-| DTP operator | a campus | data entry, no delete |
+| Director | whole organization | sees everything in every branch, with filters by branch / class / group / stream / section |
+| Principal | a branch | runs the branch: everything a Branch admin can do, plus promotion and attendance rules |
+| Branch admin | a branch | runs the branch: staff, sections, students, documents, attendance |
+| Senior faculty / Junior faculty | a branch | teaching, attendance (Junior: fewer rights) |
+| DTP operator | a branch | data entry, no delete |
 | Parent / Student | from a student's record | not given from the Users page |
 
 Starting permissions: `src/modules/roles/predefined-roles.ts`; afterwards the database (`role_templates`) is the source of truth.
@@ -67,19 +67,19 @@ Starting permissions: `src/modules/roles/predefined-roles.ts`; afterwards the da
 | Method | Path | Permission |
 |---|---|---|
 | GET | `/users?search=&status=` | `access.user.view` — only users with a role in your reach |
-| POST | `/users` | `access.user.create` — `{ name, email, password, roles: [{ roleId, institutionId?, campusId? }] }` |
+| POST | `/users` | `access.user.create` — `{ name, email, password, roles: [{ roleId, branchId? }] }` |
 | GET | `/users/:id` | `access.user.view` |
 | PATCH | `/users/:id` | `access.user.update` — name |
 | POST | `/users/:id/deactivate` / `activate` | `access.user.update` |
-| POST | `/users/:id/roles` | `access.user.update` — `{ roleId, institutionId?, campusId? }` |
+| POST | `/users/:id/roles` | `access.user.update` — `{ roleId, branchId? }` |
 | DELETE | `/users/:id/roles/:assignmentId` | `access.user.update` |
 
-Place: neither id = whole organization; `institutionId` = that institution and its campuses; `campusId` = that campus.
+Place: no `branchId` = whole organization; `branchId` = that branch only. One person may hold several roles, e.g. Principal AND Branch admin of KPHB.
 
 ## Rules (all tested in `test/organization.e2e-spec.ts` and `test/places.e2e-spec.ts`)
 
 1. **Nobody hands out more than they have.** A role you create, and a role you give at a place, must be within your own permissions (at that place). You can't change a role or a user that has more than you.
-2. **Places.** You see and manage users only in your places. Renaming or deactivating a user needs all their places to be yours (a teacher at two campuses is managed by the principal, or each campus admin removes only their own campus's role).
+2. **Places.** You see and manage users only in your places. Renaming or deactivating a user needs all their places to be yours (a teacher at two branches: each branch admin removes only their own branch's role).
 3. The Organization admin role always applies to the whole organization, and every organization keeps at least one active Organization admin.
 4. A user keeps at least one role; to block someone, deactivate them.
 5. Predefined roles can't be changed or deleted by organizations; Parent / Student can't be given from the Users page.
@@ -90,7 +90,7 @@ Place: neither id = whole organization; `institutionId` = that institution and i
 ```ts
 @RequirePermission('students.student.update')          // on the endpoint: has it SOMEWHERE?
 ...
-if (!can(user, 'students.student.update', { institutionId, campusId }))  // in the service: at the record's place?
+if (!can(user, 'students.student.update', { branchId }))  // in the service: at the record's place?
   throw new ForbiddenException(...);
 const reach = reachOf(user, 'students.student.view');  // to filter a list
 ```

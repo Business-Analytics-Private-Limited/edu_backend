@@ -1,6 +1,9 @@
 # ADR-0026: Campuses and institutions are deactivated, not deleted
 
 Status: Accepted
+
+> Still applies, now to branches (ADR-0030); only the super admin closes and reopens them.
+
 Date: 2026-10-06
 
 ## Context

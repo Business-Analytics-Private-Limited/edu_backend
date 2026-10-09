@@ -1,5 +1,7 @@
 # 7. Database design (v1)
 
+> **Note (2026-10-09):** since [ADR-0030](adr/0030-organization-branches-and-academic-engine.md) an organization has ONE type (School, Intermediate, Degree, Engineering) and several **branches**; there are no institutions or campuses any more. Where this document says *institution* or *campus*, read *organization* or *branch*. The rest is the original design.
+
 > **Note (2026-09-29):** the backend was simplified ([ADR-0015](adr/0015-simplified-backend.md)). This document still describes the product's data and rules, but where it mentions one schema per module, the outbox, Keycloak, OpenAPI files in packages/contracts or service packages, today's code differs: one Prisma schema (`prisma/schema.prisma`), JWT login, Swagger generated from the controllers, and feature folders in `src/modules/`.
 
 Status: **Accepted** (2026-09-29). This document turns docs 2–5 and ADR-0002 / 0005 / 0006 into concrete tables. Per-module detail (every column, index and policy) lives in each module's document under [`modules/`](modules/). Migrations are written from these documents phase by phase; when a migration and a document disagree, fix one of them in the same change.
