@@ -28,6 +28,7 @@
  *   POST   /api/v1/promotions/:id/undo                         students.enrolment.promote
  *
  *   POST   /api/v1/students/import                             students.student.import (dryRun to check)
+ *   GET    /api/v1/students/imports[/:id]                      students.student.import (import records)
  *   PUT    /api/v1/organization/admission-numbering            students.settings.update (organization)
  */
 import {
@@ -56,6 +57,7 @@ import {
   EnrolmentDto,
   GuardianDto,
   GuardianSearchQuery,
+  ImportRunsQuery,
   ImportStudentsDto,
   LeaveDto,
   ListStudentsQuery,
@@ -116,6 +118,28 @@ export class StudentsController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.importer.importStudents(organizationId, body, user);
+  }
+
+  /** Import records (IMP-0001 ...), newest first; only where the user may import. */
+  @Get('students/imports')
+  @RequirePermission('students.student.import')
+  listImports(
+    @OrganizationId() organizationId: string,
+    @Query() query: ImportRunsQuery,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.importer.listRuns(organizationId, query, user);
+  }
+
+  /** One import: counts, excluded rows with reasons, the students it admitted. */
+  @Get('students/imports/:id')
+  @RequirePermission('students.student.import')
+  getImport(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.importer.getRun(organizationId, id, user);
   }
 
   @Get('students/:id')

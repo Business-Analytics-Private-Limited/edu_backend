@@ -51,6 +51,7 @@ const BRANCH_ADMIN_PERMISSIONS = [
   'students.student.update',
   'students.student.import',
   'students.student.export',
+  'students.sensitive.view',
   'students.enrolment.transfer',
   'students.document.view',
   'students.document.create',

@@ -3,7 +3,17 @@
  * re-admission, section and branch changes, guardians, promotion, import, admission numbers and
  * documents (ADR-0020, ADR-0030).
  */
-import { AdmissionNumbering, Gender, GuardianRelation, StudentStatus } from '@prisma/client';
+import { OmitType, PartialType } from '@nestjs/swagger';
+import {
+  AdmissionNumbering,
+  Gender,
+  GuardianRelation,
+  LearnerLevel,
+  PreviousBoard,
+  ReservationCategory,
+  Residence,
+  StudentStatus,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -16,13 +26,28 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  IsNumber,
   IsUUID,
   Length,
   Matches,
+  Max,
+  Min,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQuery } from '../../../common/pagination';
+import {
+  BLOOD_GROUPS,
+  CleanAadhaar,
+  CleanPhone,
+  CODE,
+  CODE_MESSAGE,
+  IsAadhaar,
+  NAME,
+  NAME_MESSAGE,
+  PHONE,
+  PHONE_MESSAGE,
+} from '../student-rules';
 
 const ADMISSION_NO = /^[A-Za-z0-9/_-]+$/;
 const ADMISSION_NO_MESSAGE = 'admissionNo may only contain letters, digits, /, _ and -';
@@ -38,25 +63,26 @@ export class GuardianDto {
   /** Needed for a new guardian. @example Ramesh Kumar */
   @IsOptional()
   @IsString()
-  @Length(2, 100)
+  @Length(2, 100, { message: 'the parent / guardian name must be 2 to 100 characters' })
+  @Matches(NAME, { message: NAME_MESSAGE('the parent / guardian name') })
   fullName?: string;
 
   @IsEnum(GuardianRelation)
   relation: GuardianRelation;
 
-  /** @example 9876543210 */
+  /** 10-digit mobile. @example 9876543210 */
   @IsOptional()
-  @IsString()
-  @Length(6, 20)
+  @CleanPhone()
+  @Matches(PHONE, { message: PHONE_MESSAGE("the parent / guardian's phone") })
   phone?: string;
 
   @IsOptional()
-  @IsEmail()
+  @IsEmail({}, { message: 'email must be a valid email address' })
   email?: string;
 
   @IsOptional()
   @IsString()
-  @Length(1, 100)
+  @Length(2, 50, { message: 'occupation must be 2 to 50 characters' })
   occupation?: string;
 
   /** The main contact for this student. */
@@ -68,7 +94,8 @@ export class GuardianDto {
 export class UpdateGuardianDto {
   @IsOptional()
   @IsString()
-  @Length(2, 100)
+  @Length(2, 100, { message: 'the parent / guardian name must be 2 to 100 characters' })
+  @Matches(NAME, { message: NAME_MESSAGE('the parent / guardian name') })
   fullName?: string;
 
   @IsOptional()
@@ -76,17 +103,17 @@ export class UpdateGuardianDto {
   relation?: GuardianRelation;
 
   @IsOptional()
-  @IsString()
-  @Length(6, 20)
+  @CleanPhone()
+  @Matches(PHONE, { message: PHONE_MESSAGE("the parent / guardian's phone") })
   phone?: string;
 
   @IsOptional()
-  @IsEmail()
+  @IsEmail({}, { message: 'email must be a valid email address' })
   email?: string;
 
   @IsOptional()
   @IsString()
-  @Length(1, 100)
+  @Length(2, 50, { message: 'occupation must be 2 to 50 characters' })
   occupation?: string;
 
   @IsOptional()
@@ -121,57 +148,191 @@ export class UpdateEnrolmentDto {
 
 // --- Students ------------------------------------------------------------------------------------
 
-export class StudentProfileDto {
-  /** As in official records. @example Ravi Teja */
+/**
+ * A student's own details (ADR-0031): every rule of every field. Admission extends it, editing
+ * makes everything optional, and the import checks each sheet row with it. Only fullName,
+ * dateOfBirth and gender are required. Fields marked SENSITIVE are shown only with
+ * "students.sensitive.view".
+ */
+export class StudentDetailsDto {
+  /** As in official records. @example K. Ravi Teja */
   @IsString()
-  @Length(2, 150)
+  @Length(2, 100, { message: 'fullName must be 2 to 100 characters' })
+  @Matches(NAME, { message: NAME_MESSAGE('fullName') })
   fullName: string;
 
   @IsOptional()
   @IsString()
-  @Length(1, 100)
-  surname?: string;
+  @Length(1, 50, { message: 'surname must be at most 50 characters' })
+  @Matches(NAME, { message: NAME_MESSAGE('surname') })
+  surname?: string | null;
 
   /** @example 2010-05-14 */
-  @IsDateString({ strict: true })
+  @IsDateString({ strict: true }, { message: 'dateOfBirth must be a date (YYYY-MM-DD)' })
   dateOfBirth: string;
 
-  @IsEnum(Gender)
+  @IsEnum(Gender, { message: 'gender must be MALE, FEMALE, OTHER or UNDISCLOSED' })
   gender: Gender;
 
   @IsOptional()
-  @IsString()
-  @Length(1, 5)
-  bloodGroup?: string;
+  @IsIn(BLOOD_GROUPS, { message: `bloodGroup must be one of ${BLOOD_GROUPS.join(', ')}` })
+  bloodGroup?: string | null;
+
+  // Contact
+
+  /** 10-digit mobile; "+91 98765-43210" is accepted and cleaned. @example 9876543210 */
+  @IsOptional()
+  @CleanPhone()
+  @Matches(PHONE, { message: PHONE_MESSAGE('phone') })
+  phone?: string | null;
+
+  @IsOptional()
+  @CleanPhone()
+  @Matches(PHONE, { message: PHONE_MESSAGE('alternatePhone') })
+  alternatePhone?: string | null;
+
+  @IsOptional()
+  @IsEmail({}, { message: 'email must be a valid email address' })
+  @Length(3, 100, { message: 'email must be at most 100 characters' })
+  email?: string | null;
 
   @IsOptional()
   @IsString()
-  @Length(6, 20)
-  phone?: string;
-
-  @IsOptional()
-  @IsEmail()
-  email?: string;
+  @Length(3, 300, { message: 'address must be 3 to 300 characters' })
+  address?: string | null;
 
   @IsOptional()
   @IsString()
-  @Length(1, 500)
-  address?: string;
+  @Length(3, 300, { message: 'permanentAddress must be 3 to 300 characters' })
+  permanentAddress?: string | null;
 
-  /** Lateral entry: where the student studied before. @example Narayana Junior College */
+  /** @example Gajuwaka */
   @IsOptional()
   @IsString()
-  @Length(1, 200)
-  previousInstitution?: string;
+  @Length(2, 50, { message: 'area must be 2 to 50 characters' })
+  area?: string | null;
 
-  /** @example 1st year: 845/1000 */
+  // Identity and category (SENSITIVE)
+
+  /** SENSITIVE. 12 digits with a valid check digit; spaces are removed. @example 234567890124 */
+  @IsOptional()
+  @CleanAadhaar()
+  @IsAadhaar()
+  aadhaar?: string | null;
+
+  /** SENSITIVE. */
+  @IsOptional()
+  @IsEnum(ReservationCategory, {
+    message: 'category must be OC, BC_A … BC_E, SC, ST, EWS or OTHER',
+  })
+  category?: ReservationCategory | null;
+
+  /** SENSITIVE. */
   @IsOptional()
   @IsString()
-  @Length(1, 200)
-  previousMarks?: string;
+  @Length(2, 50, { message: 'subCaste must be 2 to 50 characters' })
+  subCaste?: string | null;
+
+  // Stay and transport
+
+  @IsOptional()
+  @IsEnum(Residence, { message: 'residence must be DAY_SCHOLAR or HOSTELLER' })
+  residence?: Residence | null;
+
+  @IsOptional()
+  @IsBoolean({ message: 'busFacility must be yes or no' })
+  busFacility?: boolean;
+
+  /** Required when busFacility is true. @example Gajuwaka bus stop */
+  @IsOptional()
+  @IsString()
+  @Length(2, 100, { message: 'pickupPoint must be 2 to 100 characters' })
+  pickupPoint?: string | null;
+
+  // Previous education
+
+  /** @example Narayana Junior College */
+  @IsOptional()
+  @IsString()
+  @Length(2, 150, { message: 'previousInstitution must be 2 to 150 characters' })
+  previousInstitution?: string | null;
+
+  @IsOptional()
+  @IsEnum(PreviousBoard, {
+    message: 'previousBoard must be SSC, CBSE, ICSE, INTERMEDIATE, IB or OTHER',
+  })
+  previousBoard?: PreviousBoard | null;
+
+  @IsOptional()
+  @IsString()
+  @Length(4, 20, { message: 'hallTicketNo must be 4 to 20 characters' })
+  @Matches(CODE, { message: CODE_MESSAGE('hallTicketNo') })
+  hallTicketNo?: string | null;
+
+  /** 0 to 100, at most 2 decimals. @example 92.5 */
+  @IsOptional()
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'previousPercentage must be a number (2 decimals at most)' },
+  )
+  @Min(0, { message: 'previousPercentage must be 0 to 100' })
+  @Max(100, { message: 'previousPercentage must be 0 to 100' })
+  previousPercentage?: number | null;
+
+  /** GPA or grade. @example 9.2 */
+  @IsOptional()
+  @IsString()
+  @Length(1, 10, { message: 'previousGrade must be at most 10 characters' })
+  @Matches(/^[A-Za-z0-9.+-]+$/, {
+    message: 'previousGrade may only contain letters, digits, . + and -',
+  })
+  previousGrade?: string | null;
+
+  // Admission / scholarship test
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 30, { message: 'admissionTestNo must be at most 30 characters' })
+  @Matches(CODE, { message: CODE_MESSAGE('admissionTestNo') })
+  admissionTestNo?: string | null;
+
+  @IsOptional()
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'admissionTestMarks must be a number (2 decimals at most)' },
+  )
+  @Min(0, { message: 'admissionTestMarks must be 0 to 1000' })
+  @Max(1000, { message: 'admissionTestMarks must be 0 to 1000' })
+  admissionTestMarks?: number | null;
+
+  // Health and notes
+
+  /** SENSITIVE. */
+  @IsOptional()
+  @IsString()
+  @Length(2, 500, { message: 'medicalCondition must be 2 to 500 characters' })
+  medicalCondition?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Length(2, 500, { message: 'remarks must be 2 to 500 characters' })
+  remarks?: string | null;
+
+  // Top rankers
+
+  @IsOptional()
+  @IsBoolean({ message: 'topRanker must be yes or no' })
+  topRanker?: boolean;
+
+  @IsOptional()
+  @IsEnum(LearnerLevel, { message: 'learnerLevel must be EXPERT, MEDIUM or SLOW' })
+  learnerLevel?: LearnerLevel | null;
 }
 
-export class AdmitStudentDto extends StudentProfileDto {
+/** The fields that only users with "students.sensitive.view" may see. */
+export const SENSITIVE_FIELDS = ['aadhaar', 'category', 'subCaste', 'medicalCondition'] as const;
+
+export class AdmitStudentDto extends StudentDetailsDto {
   /** The branch the student will study at. */
   @IsUUID()
   branchId: string;
@@ -186,7 +347,7 @@ export class AdmitStudentDto extends StudentProfileDto {
   admissionNo?: string;
 
   /** @example 2026-06-01 */
-  @IsDateString({ strict: true })
+  @IsDateString({ strict: true }, { message: 'admissionDate must be a date (YYYY-MM-DD)' })
   admissionDate: string;
 
   /** Place the student in a section of the branch right away (optional). */
@@ -195,7 +356,7 @@ export class AdmitStudentDto extends StudentProfileDto {
   @Type(() => EnrolmentDto)
   enrolment?: EnrolmentDto;
 
-  /** Parents / guardians (optional, more can be added later). */
+  /** Father, mother, guardian (optional, more can be added later). */
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -203,54 +364,26 @@ export class AdmitStudentDto extends StudentProfileDto {
   guardians?: GuardianDto[];
 }
 
-/** Every profile field optional, for editing. */
-export class UpdateStudentDto {
-  @IsOptional()
+/**
+ * Editing: every field optional; null clears an optional field. fullName, dateOfBirth and
+ * gender can be changed but not cleared.
+ */
+export class UpdateStudentDto extends PartialType(
+  OmitType(StudentDetailsDto, ['fullName', 'dateOfBirth', 'gender'] as const),
+) {
+  @ValidateIf((_, value) => value !== undefined)
   @IsString()
-  @Length(2, 150)
+  @Length(2, 100, { message: 'fullName must be 2 to 100 characters' })
+  @Matches(NAME, { message: NAME_MESSAGE('fullName') })
   fullName?: string;
 
-  @IsOptional()
-  @IsString()
-  @Length(1, 100)
-  surname?: string;
-
-  @IsOptional()
-  @IsDateString({ strict: true })
+  @ValidateIf((_, value) => value !== undefined)
+  @IsDateString({ strict: true }, { message: 'dateOfBirth must be a date (YYYY-MM-DD)' })
   dateOfBirth?: string;
 
-  @IsOptional()
-  @IsEnum(Gender)
+  @ValidateIf((_, value) => value !== undefined)
+  @IsEnum(Gender, { message: 'gender must be MALE, FEMALE, OTHER or UNDISCLOSED' })
   gender?: Gender;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, 5)
-  bloodGroup?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(6, 20)
-  phone?: string;
-
-  @IsOptional()
-  @IsEmail()
-  email?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, 500)
-  address?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, 200)
-  previousInstitution?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, 200)
-  previousMarks?: string;
 
   /** To correct a mistake. Unique in the organization. */
   @IsOptional()
@@ -349,6 +482,15 @@ export class ListStudentsQuery extends PaginationQuery {
   @IsOptional()
   @IsEnum(StudentStatus)
   status?: StudentStatus;
+
+  /** "true" = only top rankers (the Top rankers page). */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  topRanker?: 'true' | 'false';
+
+  @IsOptional()
+  @IsEnum(LearnerLevel)
+  learnerLevel?: LearnerLevel;
 }
 
 export class GuardianSearchQuery {
@@ -419,29 +561,98 @@ export class SetNumberingDto {
 }
 
 /**
- * One row of an import, as text exactly as in the file. The service checks every field and
- * reports problems by row number, so one bad row doesn't hide the others. Where the students go
- * (branch, year, section) is chosen on the screen, not in the file (ADR-0030).
+ * One row of an import, as text exactly as in the file (ADR-0031). The service turns the words
+ * into values (e.g. "BC-A" -> BC_A, "yes" -> true), then checks the row with the same rules as
+ * the admission form (StudentDetailsDto), and reports problems by row number. Where the students
+ * go (branch, year, section) is chosen on the screen, not in the file (ADR-0030).
  */
 export class ImportRowDto {
-  /** Only with MANUAL admission numbers (ignored with AUTOMATIC). */
+  /** Only with MANUAL admission numbers (not in the template with AUTOMATIC). */
   @IsOptional() @IsString() admissionNo?: string;
   @IsOptional() @IsString() admissionDate?: string;
   @IsOptional() @IsString() fullName?: string;
   @IsOptional() @IsString() surname?: string;
   @IsOptional() @IsString() dateOfBirth?: string;
   @IsOptional() @IsString() gender?: string;
+  @IsOptional() @IsString() bloodGroup?: string;
   @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() alternatePhone?: string;
   @IsOptional() @IsString() email?: string;
   @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() permanentAddress?: string;
+  @IsOptional() @IsString() area?: string;
+  @IsOptional() @IsString() aadhaar?: string;
+  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsString() subCaste?: string;
+  @IsOptional() @IsString() residence?: string;
+  @IsOptional() @IsString() busFacility?: string;
+  @IsOptional() @IsString() pickupPoint?: string;
   @IsOptional() @IsString() previousInstitution?: string;
-  @IsOptional() @IsString() previousMarks?: string;
+  @IsOptional() @IsString() previousBoard?: string;
+  @IsOptional() @IsString() hallTicketNo?: string;
+  @IsOptional() @IsString() previousPercentage?: string;
+  @IsOptional() @IsString() previousGrade?: string;
+  @IsOptional() @IsString() admissionTestNo?: string;
+  @IsOptional() @IsString() admissionTestMarks?: string;
+  @IsOptional() @IsString() medicalCondition?: string;
+  @IsOptional() @IsString() remarks?: string;
+  @IsOptional() @IsString() topRanker?: string;
+  @IsOptional() @IsString() learnerLevel?: string;
   @IsOptional() @IsString() rollNo?: string;
+  @IsOptional() @IsString() fatherName?: string;
+  @IsOptional() @IsString() fatherPhone?: string;
+  @IsOptional() @IsString() fatherOccupation?: string;
+  @IsOptional() @IsString() motherName?: string;
+  @IsOptional() @IsString() motherPhone?: string;
+  @IsOptional() @IsString() motherOccupation?: string;
   @IsOptional() @IsString() guardianName?: string;
-  /** father, mother, guardian or other. */
-  @IsOptional() @IsString() guardianRelation?: string;
   @IsOptional() @IsString() guardianPhone?: string;
+  @IsOptional() @IsString() guardianOccupation?: string;
 }
+
+/** Every column an import sheet may have, in the template's order. */
+export const IMPORT_COLUMNS = [
+  'admissionNo',
+  'admissionDate',
+  'fullName',
+  'surname',
+  'dateOfBirth',
+  'gender',
+  'bloodGroup',
+  'phone',
+  'alternatePhone',
+  'email',
+  'address',
+  'permanentAddress',
+  'area',
+  'aadhaar',
+  'category',
+  'subCaste',
+  'residence',
+  'busFacility',
+  'pickupPoint',
+  'previousInstitution',
+  'previousBoard',
+  'hallTicketNo',
+  'previousPercentage',
+  'previousGrade',
+  'admissionTestNo',
+  'admissionTestMarks',
+  'medicalCondition',
+  'remarks',
+  'topRanker',
+  'learnerLevel',
+  'rollNo',
+  'fatherName',
+  'fatherPhone',
+  'fatherOccupation',
+  'motherName',
+  'motherPhone',
+  'motherOccupation',
+  'guardianName',
+  'guardianPhone',
+  'guardianOccupation',
+] as const satisfies readonly (keyof ImportRowDto)[];
 
 export class ImportStudentsDto {
   /** The academic year the students are placed in (not closed). */
@@ -452,10 +663,19 @@ export class ImportStudentsDto {
   @IsUUID()
   sectionId: string;
 
-  /** true = only check the rows and report problems; nothing is saved. */
+  /**
+   * true = only check: report which rows would be imported and which excluded, save nothing.
+   * false = import the valid rows; the invalid ones are excluded and listed (ADR-0031).
+   */
   @IsOptional()
   @IsBoolean()
   dryRun?: boolean;
+
+  /** The sheet's file name, kept on the import record. @example junior-mpc-jee-a.csv */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  fileName?: string;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -463,6 +683,12 @@ export class ImportStudentsDto {
   @ValidateNested({ each: true })
   @Type(() => ImportRowDto)
   rows: ImportRowDto[];
+}
+
+export class ImportRunsQuery extends PaginationQuery {
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }
 
 // --- Documents -----------------------------------------------------------------------------------

@@ -112,6 +112,15 @@ export const RESOURCES: ResourceInfo[] = [
     actions: [...CRUD, 'import', 'export'],
   },
   {
+    // Aadhaar, reservation category and sub-caste, medical condition (ADR-0031). Without it they
+    // are hidden (Aadhaar masked) on screens and in import records.
+    key: 'students.sensitive',
+    module: 'students',
+    group: 'Students',
+    label: 'Sensitive student details (Aadhaar, category, health)',
+    actions: ['view'],
+  },
+  {
     key: 'students.enrolment',
     module: 'students',
     group: 'Students',

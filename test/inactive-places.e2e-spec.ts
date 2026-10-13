@@ -19,17 +19,14 @@ describe('Closed branches', () => {
   const as = (token: string) => ({ Authorization: `Bearer ${token}` });
   const base = () => `/api/v1/super-admin/organizations/${orgId}/branches`;
   const admit = (branch: string, admissionNo: string) =>
-    api()
-      .post('/api/v1/students')
-      .set(as(admin))
-      .send({
-        branchId: branch,
-        admissionNo,
-        admissionDate: '2026-06-01',
-        fullName: `Student ${admissionNo}`,
-        dateOfBirth: '2010-01-01',
-        gender: 'MALE',
-      });
+    api().post('/api/v1/students').set(as(admin)).send({
+      branchId: branch,
+      admissionNo,
+      admissionDate: '2026-06-01',
+      fullName: 'Test Student',
+      dateOfBirth: '2010-01-01',
+      gender: 'MALE',
+    });
 
   beforeAll(async () => {
     app = await createTestApp();

@@ -25,7 +25,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0017](0017-predefined-roles-and-multiple-roles.md) | Predefined roles managed by the super admin, several roles per user | Accepted (organizations may now change predefined roles' permissions: ADR-0029) |
 | [0018](0018-roles-at-places.md) | Roles apply at a place: organization, institution or campus | Superseded by ADR-0030 (organization or branch) |
 | [0019](0019-academic-structure.md) | Academic structure: configurable class levels, classes per campus, batches | Superseded by ADR-0030 (levels by organization type, sections per branch, no batches) |
-| [0020](0020-students.md) | Students: admission at a campus, shared guardians, one section per year | Accepted (places, placements as periods, outgoing students, import: ADR-0030) |
+| [0020](0020-students.md) | Students: admission at a campus, shared guardians, one section per year | Accepted (places, placements as periods, outgoing students, import: ADR-0030; details, import records: ADR-0031) |
 | [0021](0021-attendance.md) | Attendance: daily records per section, versions instead of overwrites, a correction window | Accepted |
 | [0022](0022-portal.md) | Parent and student portal: logins linked to records, no roles | Accepted |
 | [0023](0023-files-and-documents.md) | Files on the server's disk behind the API; student documents with types and review | Accepted |
@@ -36,6 +36,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0028](0028-login-security.md) | Login security: real visitor addresses, lockout, sessions, forced password change, two-step login | Accepted |
 | [0029](0029-organizations-customize-predefined-roles.md) | Organizations may change the permissions of predefined roles | Accepted |
 | [0030](0030-organization-branches-and-academic-engine.md) | Organization → Branches, and one academic engine shaped by the organization's type | Accepted |
+| [0031](0031-student-details-and-import-records.md) | More student details with strict rules, sensitive details, import records (valid rows only), top rankers | Accepted |
 
 Template for new ADRs:
 

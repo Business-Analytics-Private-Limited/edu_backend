@@ -155,6 +155,7 @@ model Organization {
   students           Student[]
   studentStatuses    StudentStatusChange[]
   promotionRuns      PromotionRun[]
+  importRuns         ImportRun[]
   attendanceRecords  AttendanceRecord[]
   storedFiles        StoredFile[]
   documentTypes      DocumentType[]
@@ -484,33 +485,74 @@ enum StudentStatus {
 
 /// A student of the organization, studying at one of its BRANCHES.
 model Student {
-  id                  String        @id @default(uuid(7)) @db.Uuid
-  organizationId      String        @map("organization_id") @db.Uuid
+  id               String   @id @default(uuid(7)) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
   /// The branch the student studies at (or last studied at); it decides who may see and change
   /// the student.
-  branchId            String        @map("branch_id") @db.Uuid
+  branchId         String   @map("branch_id") @db.Uuid
   /// Unique in the organization, e.g. "SVJC260001".
-  admissionNo         String        @map("admission_no")
-  admissionDate       DateTime      @map("admission_date") @db.Date
+  admissionNo      String   @map("admission_no")
+  admissionDate    DateTime @map("admission_date") @db.Date
   /// As in official records; no forced first / last name split.
-  fullName            String        @map("full_name")
-  surname             String?
-  dateOfBirth         DateTime      @map("date_of_birth") @db.Date
-  gender              Gender
-  bloodGroup          String?       @map("blood_group")
-  phone               String?
-  email               String?
-  address             String?
-  /// Lateral entry (e.g. joined straight in Senior): where the student studied before.
-  previousInstitution String?       @map("previous_institution")
-  /// e.g. "SSC 9.2 GPA" or "1st year 845/1000".
-  previousMarks       String?       @map("previous_marks")
-  status              StudentStatus @default(ACTIVE)
-  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  fullName         String   @map("full_name")
+  surname          String?
+  dateOfBirth      DateTime @map("date_of_birth") @db.Date
+  gender           Gender
+  bloodGroup       String?  @map("blood_group")
+  /// A 10-digit mobile number (ADR-0031).
+  phone            String?
+  alternatePhone   String?  @map("alternate_phone")
+  email            String?
+  /// Where the student lives now.
+  address          String?
+  permanentAddress String?  @map("permanent_address")
+  /// Locality, e.g. "Gajuwaka".
+  area             String?
+
+  /// SENSITIVE (ADR-0031): 12 digits, checked with the Aadhaar check digit; unique in the
+  /// organization. Shown masked without "students.sensitive.view".
+  aadhaar  String?
+  /// SENSITIVE: reservation category and sub-caste.
+  category ReservationCategory?
+  subCaste String?              @map("sub_caste")
+
+  residence   Residence?
+  busFacility Boolean    @default(false) @map("bus_facility")
+  /// Required when busFacility is true.
+  pickupPoint String?    @map("pickup_point")
+
+  /// Previous education (lateral entry, or the board exam before joining).
+  previousInstitution String?        @map("previous_institution")
+  previousBoard       PreviousBoard? @map("previous_board")
+  hallTicketNo        String?        @map("hall_ticket_no")
+  /// 0 to 100.
+  previousPercentage  Decimal?       @map("previous_percentage") @db.Decimal(5, 2)
+  /// e.g. "9.2" (GPA) or "A1".
+  previousGrade       String?        @map("previous_grade")
+
+  /// Admission / scholarship test.
+  admissionTestNo    String?  @map("admission_test_no")
+  admissionTestMarks Decimal? @map("admission_test_marks") @db.Decimal(6, 2)
+
+  /// SENSITIVE: health notes (allergies, conditions).
+  medicalCondition String? @map("medical_condition")
+  remarks          String?
+
+  /// Top rankers (ADR-0031): marked by staff, listed on their own page with the learner level.
+  topRanker    Boolean       @default(false) @map("top_ranker")
+  learnerLevel LearnerLevel? @map("learner_level")
+
+  /// The import that admitted this student, and the row in its sheet (ADR-0031).
+  importRunId String? @map("import_run_id") @db.Uuid
+  importRow   Int?    @map("import_row")
+
+  status    StudentStatus @default(ACTIVE)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz
 
   organization  Organization          @relation(fields: [organizationId], references: [id])
   branch        Branch                @relation(fields: [branchId], references: [id])
+  importRun     ImportRun?            @relation(fields: [importRunId], references: [id])
   statusChanges StudentStatusChange[]
   guardians     StudentGuardian[]
   enrolments    Enrolment[]
@@ -519,7 +561,68 @@ model Student {
 
   @@unique([organizationId, admissionNo])
   @@index([branchId])
+  @@index([organizationId, topRanker])
   @@map("students")
+}
+
+enum ReservationCategory {
+  OC
+  BC_A
+  BC_B
+  BC_C
+  BC_D
+  BC_E
+  SC
+  ST
+  EWS
+  OTHER
+}
+
+enum Residence {
+  DAY_SCHOLAR
+  HOSTELLER
+}
+
+enum PreviousBoard {
+  SSC // State board, class 10
+  CBSE
+  ICSE
+  INTERMEDIATE // State board, class 12
+  IB
+  OTHER
+}
+
+enum LearnerLevel {
+  EXPERT
+  MEDIUM
+  SLOW
+}
+
+/// One import of a sheet (ADR-0031): where it went, who did it, how many rows were imported and
+/// which were excluded and why. The file itself is not kept.
+model ImportRun {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// 1, 2, 3 ... per organization; shown as IMP-0001.
+  number         Int
+  branchId       String   @map("branch_id") @db.Uuid
+  academicYearId String   @map("academic_year_id") @db.Uuid
+  sectionId      String   @map("section_id") @db.Uuid
+  fileName       String?  @map("file_name")
+  totalRows      Int      @map("total_rows")
+  importedCount  Int      @map("imported_count")
+  excludedCount  Int      @map("excluded_count")
+  /// [{ row, admissionNo, fullName, reasons[], values }] for the excluded rows only.
+  excludedRows   Json     @map("excluded_rows")
+  importedBy     String   @map("imported_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  students     Student[]
+
+  @@unique([organizationId, number])
+  @@index([branchId, createdAt])
+  @@map("import_runs")
 }
 
 /// Every status change of a student, with the date it takes effect and why.

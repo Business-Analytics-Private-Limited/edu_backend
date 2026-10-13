@@ -15,13 +15,17 @@
  *   - a placement (enrolment) is never overwritten: a section or branch change ends it the day
  *     before the change and starts a new one, so the timeline and attendance stay right;
  *   - section and branch changes are made for one student, from the profile
- *     ("students.enrolment.transfer"; for a branch change at BOTH branches).
+ *     ("students.enrolment.transfer"; for a branch change at BOTH branches);
+ *   - every detail follows the rules in student-rules.ts (also used by the import); Aadhaar is
+ *     unique in the organization;
+ *   - SENSITIVE details (Aadhaar, category, sub-caste, medical condition) are only shown with
+ *     "students.sensitive.view"; others see the Aadhaar masked and the rest empty (ADR-0031).
  */
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { paginated, toSkipTake } from '../../common/pagination';
-import { assertCan } from '../../common/scope';
+import { assertCan, can } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { ClassTree } from '../academic/class-tree';
 import { AuditService } from '../audit/audit.service';
@@ -35,6 +39,7 @@ import {
   LeaveDto,
   ListStudentsQuery,
   ReadmitDto,
+  SENSITIVE_FIELDS,
   UpdateStudentDto,
 } from './dto/student.dto';
 import { GuardiansService } from './guardians.service';
@@ -47,6 +52,7 @@ import {
   placeOf,
   visibleStudentsWhere,
 } from './placement';
+import { checkStudentRules, maskAadhaar } from './student-rules';
 
 /** What the list shows of each student (the placement label is added from the class tree). */
 const LIST_FIELDS = {
@@ -57,6 +63,8 @@ const LIST_FIELDS = {
   gender: true,
   phone: true,
   status: true,
+  topRanker: true,
+  learnerLevel: true,
   branch: { select: { id: true, name: true } },
   enrolments: {
     orderBy: [{ enrolledOn: 'desc' }, { createdAt: 'desc' }],
@@ -107,6 +115,8 @@ export class StudentsService {
         ...visibleStudentsWhere(organizationId, actor),
         ...statusFilter,
         ...(query.branchId && { branchId: query.branchId }),
+        ...(query.topRanker && { topRanker: query.topRanker === 'true' }),
+        ...(query.learnerLevel && { learnerLevel: query.learnerLevel }),
         ...(placement && { enrolments: { some: placement } }),
         ...(query.search && {
           OR: [
@@ -147,7 +157,7 @@ export class StudentsService {
   get(organizationId: string, id: string, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
       await findVisibleStudent(db, organizationId, id, actor);
-      return this.profile(db, organizationId, id);
+      return this.profile(db, organizationId, id, actor);
     });
   }
 
@@ -159,6 +169,9 @@ export class StudentsService {
       assertCan(actor, 'students.student.create', place);
       await assertBranchInUse(db, branch.id);
       if (dto.enrolment) await checkPlacement(db, organizationId, branch.id, dto.enrolment);
+      const problems = checkStudentRules(dto);
+      if (problems.length) throw new BadRequestException(problems);
+      if (dto.aadhaar) await this.checkAadhaarFree(db, organizationId, dto.aadhaar);
 
       // With AUTOMATIC numbering, a typed number is ignored.
       const { enrolment, guardians, branchId, admissionNo: typed, ...profile } = dto;
@@ -215,7 +228,7 @@ export class StudentsService {
         ...place,
         details: { admissionNo: student.admissionNo, fullName: student.fullName },
       });
-      return this.profile(db, organizationId, student.id);
+      return this.profile(db, organizationId, student.id, actor);
     });
   }
 
@@ -227,6 +240,17 @@ export class StudentsService {
       if (dto.admissionNo && dto.admissionNo !== existing.admissionNo) {
         await this.checkAdmissionNoFree(db, organizationId, dto.admissionNo);
       }
+      // The rules across fields, on the student as it will be after the change.
+      const problems = checkStudentRules({
+        dateOfBirth: dto.dateOfBirth ?? existing.dateOfBirth,
+        admissionDate: existing.admissionDate,
+        busFacility: dto.busFacility ?? existing.busFacility,
+        pickupPoint: dto.pickupPoint !== undefined ? dto.pickupPoint : existing.pickupPoint,
+      });
+      if (problems.length) throw new BadRequestException(problems);
+      if (dto.aadhaar && dto.aadhaar !== existing.aadhaar) {
+        await this.checkAadhaarFree(db, organizationId, dto.aadhaar);
+      }
       await db.student.update({
         where: { id },
         data: {
@@ -234,14 +258,19 @@ export class StudentsService {
           ...(dto.dateOfBirth && { dateOfBirth: new Date(dto.dateOfBirth) }),
         },
       });
+      // Sensitive values never go into the audit log: only that they changed.
+      const details: Record<string, Prisma.InputJsonValue | null> = { ...dto };
+      for (const field of SENSITIVE_FIELDS) {
+        if (field in details) details[field] = '(changed)';
+      }
       await this.audit.log(db, actor, {
         action: 'update',
         entity: 'student',
         entityId: id,
         ...place,
-        details: { ...dto },
+        details,
       });
-      return this.profile(db, organizationId, id);
+      return this.profile(db, organizationId, id, actor);
     });
   }
 
@@ -298,7 +327,7 @@ export class StudentsService {
           portalLoginsClosed: logins,
         },
       });
-      return this.profile(db, organizationId, id);
+      return this.profile(db, organizationId, id, actor);
     });
   }
 
@@ -331,7 +360,7 @@ export class StudentsService {
         ...place,
         details: { from: existing.status, effectiveOn: dto.effectiveOn, reason: dto.reason },
       });
-      return this.profile(db, organizationId, id);
+      return this.profile(db, organizationId, id, actor);
     });
   }
 
@@ -358,7 +387,7 @@ export class StudentsService {
         ...place,
         details: { from, to: current.label, effectiveOn: dto.effectiveOn, reason: dto.reason },
       });
-      return this.profile(db, organizationId, id);
+      return this.profile(db, organizationId, id, actor);
     });
   }
 
@@ -396,7 +425,7 @@ export class StudentsService {
           },
         });
       }
-      return this.profile(db, organizationId, id);
+      return this.profile(db, organizationId, id, actor);
     });
   }
 
@@ -504,11 +533,21 @@ export class StudentsService {
     }
   }
 
+  private async checkAadhaarFree(db: Db, organizationId: string, aadhaar: string) {
+    const owner = await db.student.findFirst({ where: { organizationId, aadhaar } });
+    if (owner) {
+      throw new ConflictException(
+        `This Aadhaar number is already used by student ${owner.admissionNo}`,
+      );
+    }
+  }
+
   /**
    * The full profile: details, branch, guardians, logins, every placement (with its place in the
-   * structure, oldest last) and the status history; the screen draws the timeline from them.
+   * structure, oldest last), the status history, and the import it came from; the screen draws
+   * the timeline from them. Sensitive details only with "students.sensitive.view".
    */
-  private async profile(db: Db, organizationId: string, id: string) {
+  private async profile(db: Db, organizationId: string, id: string, actor: CurrentUser) {
     const [student, tree] = await Promise.all([
       db.student.findUniqueOrThrow({
         where: { id },
@@ -532,12 +571,29 @@ export class StudentsService {
             },
           },
           statusChanges: { orderBy: [{ effectiveOn: 'desc' }, { changedAt: 'desc' }] },
+          importRun: { select: { id: true, number: true } },
         },
       }),
       ClassTree.load(db, organizationId),
     ]);
+    const sensitiveVisible = can(actor, 'students.sensitive.view', placeOf(student));
+    const { importRun, ...rest } = student;
     return {
-      ...student,
+      ...rest,
+      ...(!sensitiveVisible && {
+        aadhaar: maskAadhaar(student.aadhaar),
+        category: null,
+        subCaste: null,
+        medicalCondition: null,
+      }),
+      sensitiveVisible,
+      importedFrom: importRun
+        ? {
+            id: importRun.id,
+            code: `IMP-${String(importRun.number).padStart(4, '0')}`,
+            row: student.importRow,
+          }
+        : null,
       enrolments: student.enrolments.map((e) => ({
         ...e,
         section: tree.label(e.classId),

@@ -67,6 +67,8 @@ Every organization has these roles. Each is given to a user **at a place** (the 
 | Parent | student record | guardian | View their children's profile, documents, attendance |
 | Student | student record | self | View their own profile, documents, attendance |
 
+> **Sensitive student details** (ADR-0031): `students.sensitive.view` shows Aadhaar, reservation category, sub-caste and medical condition. Branch admin and Principal have it, the Director too (every view); faculty and DTP operators don't. Without it the Aadhaar is masked and the rest hidden. In a database made before this permission existed, the super admin uses **Reset to EduPlatform defaults** on those roles.
+
 > **Branches:** only the super admin adds, closes, reopens and deletes branches (ADR-0030). The organization can rename them (`platform.branch.update`).
 
 > **One person, several roles:** a person who is both Principal and Branch admin of KPHB simply holds both roles there; their permissions add up.

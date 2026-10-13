@@ -30,6 +30,7 @@ describe('Students', () => {
   let admin: string;
   let ravi: string;
   let divya: string;
+  let teacher: string;
   const ids: Record<string, string> = {};
   const api = () => request(app.getHttpServer());
   const as = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -95,6 +96,7 @@ describe('Students', () => {
     for (const [email, roleName, place] of [
       ['ravi@stu.test', 'Branch admin', { branchId: ids.KPHB }],
       ['divya@stu.test', 'Director', {}],
+      ['teacher@stu.test', 'Senior faculty', { branchId: ids.KPHB }],
     ] as const) {
       await api()
         .post('/api/v1/users')
@@ -109,6 +111,7 @@ describe('Students', () => {
     }
     ravi = await loginUser(app, 'ravi@stu.test', 'Password@123');
     divya = await loginUser(app, 'divya@stu.test', 'Password@123');
+    teacher = await loginUser(app, 'teacher@stu.test', 'Password@123');
   });
 
   afterAll(async () => {
@@ -156,10 +159,16 @@ describe('Students', () => {
     const res = await admit({
       fullName: 'Kiran',
       previousInstitution: 'Narayana Junior College',
-      previousMarks: '1st year: 845/1000',
+      previousBoard: 'INTERMEDIATE',
+      previousPercentage: 84.5,
+      previousGrade: 'A',
       ...placedIn(ids.KPHB_SRJEEA),
     }).expect(201);
-    expect(res.body).toMatchObject({ previousInstitution: 'Narayana Junior College' });
+    expect(res.body).toMatchObject({
+      previousInstitution: 'Narayana Junior College',
+      previousBoard: 'INTERMEDIATE',
+      previousPercentage: '84.5',
+    });
     expect(res.body.enrolments[0].section).toBe('Senior (2nd Year) › MPC › JEE Mains › JEE-A');
   });
 
@@ -379,19 +388,131 @@ describe('Students', () => {
     expect(sibling.body.guardians[0].guardian.id).toBe(guardianId);
   });
 
-  it('import: choose the section on the screen; every row is checked; all or nothing', async () => {
+  it('details follow strict rules (the same ones the import uses)', async () => {
+    const problems = async (overrides: object) =>
+      (await admit(overrides).expect(400)).body.message as string[];
+    expect(await problems({ phone: '12345' })).toContain(
+      'phone must be a 10-digit mobile number starting with 6, 7, 8 or 9',
+    );
+    expect(await problems({ aadhaar: '234567890120' })).toContain(
+      'aadhaar must be a valid 12-digit Aadhaar number (check the digits)',
+    );
+    expect(await problems({ fullName: 'R2D2' })).toContain(
+      'fullName may only contain letters, spaces, dots, apostrophes and hyphens',
+    );
+    expect(await problems({ previousPercentage: 101 })).toContain(
+      'previousPercentage must be 0 to 100',
+    );
+    expect(await problems({ busFacility: true })).toContain(
+      'pickupPoint is required when the student uses the bus',
+    );
+    expect(await problems({ dateOfBirth: '2025-01-01' })).toContain(
+      'the student must be 3 to 30 years old at admission (is 1)',
+    );
+    expect(await problems({ dateOfBirth: '2027-01-01' })).toContain(
+      'dateOfBirth must be before the admission date',
+    );
+    // Phones are cleaned; a valid Aadhaar is unique in the organization.
+    const ok = await admit({
+      fullName: 'K. Sai Charan',
+      phone: '+91 98765-43211',
+      aadhaar: '2345 6789 0124',
+      category: 'BC_D',
+      busFacility: true,
+      pickupPoint: 'Gajuwaka',
+      medicalCondition: 'Asthma',
+    }).expect(201);
+    expect(ok.body).toMatchObject({ phone: '9876543211', aadhaar: '234567890124' });
+    ids.SAI = ok.body.id;
+    const again = await admit({ branchId: ids.AMP, aadhaar: '234567890124' }).expect(409);
+    expect(again.body.message).toBe(
+      `This Aadhaar number is already used by student ${ok.body.admissionNo}`,
+    );
+    // Editing: the same rules; required details can't be cleared.
+    await api()
+      .patch(`/api/v1/students/${ids.SAI}`)
+      .set(as(admin))
+      .send({ pickupPoint: null })
+      .expect(400);
+    await api()
+      .patch(`/api/v1/students/${ids.SAI}`)
+      .set(as(admin))
+      .send({ fullName: null })
+      .expect(400);
+    await api()
+      .patch(`/api/v1/students/${ids.SAI}`)
+      .set(as(admin))
+      .send({ busFacility: false, pickupPoint: null, area: 'Gajuwaka' })
+      .expect(200);
+  });
+
+  it('sensitive details are hidden without "students.sensitive.view"', async () => {
+    const full = await profile(ids.SAI); // the Organization admin
+    expect(full).toMatchObject({
+      aadhaar: '234567890124',
+      category: 'BC_D',
+      medicalCondition: 'Asthma',
+      sensitiveVisible: true,
+    });
+    const hidden = await profile(ids.SAI, teacher); // Senior faculty
+    expect(hidden).toMatchObject({
+      aadhaar: 'XXXX-XXXX-0124',
+      category: null,
+      medicalCondition: null,
+      sensitiveVisible: false,
+    });
+    // The audit log never holds the values, only that they changed.
+    await api()
+      .patch(`/api/v1/students/${ids.SAI}`)
+      .set(as(admin))
+      .send({ aadhaar: '345678901238' })
+      .expect(200);
+    const log = await api().get('/api/v1/audit-logs?pageSize=100').set(as(admin)).expect(200);
+    expect(JSON.stringify(log.body)).not.toContain('345678901238');
+  });
+
+  it('top rankers: marked on the student, filtered by learner level', async () => {
+    await api()
+      .patch(`/api/v1/students/${ids.SAI}`)
+      .set(as(admin))
+      .send({ topRanker: true, learnerLevel: 'EXPERT' })
+      .expect(200);
+    const experts = await api()
+      .get(`/api/v1/students?topRanker=true&learnerLevel=EXPERT&branchId=${ids.KPHB}`)
+      .set(as(divya))
+      .expect(200);
+    expect(experts.body.items.map((s: { id: string }) => s.id)).toEqual([ids.SAI]);
+    expect(experts.body.items[0]).toMatchObject({ topRanker: true, learnerLevel: 'EXPERT' });
+    const slow = await api()
+      .get('/api/v1/students?topRanker=true&learnerLevel=SLOW')
+      .set(as(divya))
+      .expect(200);
+    expect(slow.body.items).toEqual([]);
+  });
+
+  it('import: valid rows are imported, invalid ones excluded with reasons, and recorded', async () => {
+    const anjali = {
+      fullName: 'Anjali',
+      admissionNo: 'IMP001',
+      admissionDate: '2026-06-10',
+      dateOfBirth: '01/02/2010',
+      gender: 'F',
+      rollNo: '21',
+      category: 'bc-a',
+      residence: 'Hostel',
+      busFacility: 'no',
+      aadhaar: '4567 8901 2341',
+      previousBoard: 'CBSE',
+      previousPercentage: '91.5%',
+      topRanker: 'active',
+      learnerLevel: 'Medium Learner',
+      fatherName: 'Suresh',
+      fatherPhone: '+91 90000 00001',
+      motherName: 'Lakshmi',
+      motherOccupation: 'Teacher',
+    };
     const rows = [
-      {
-        fullName: 'Anjali',
-        admissionNo: 'IMP001',
-        admissionDate: '2026-06-10',
-        dateOfBirth: '01/02/2010',
-        gender: 'F',
-        rollNo: '21',
-        guardianName: 'Lakshmi',
-        guardianRelation: 'mother',
-        guardianPhone: '9000000001',
-      },
+      anjali,
       {
         fullName: 'Bad Row',
         admissionNo: '',
@@ -399,41 +520,117 @@ describe('Students', () => {
         dateOfBirth: '2010-01-01',
         gender: 'x',
         rollNo: '21',
+        phone: '12345',
+        category: 'Rich',
       },
+      // The same girl again (name, date of birth, father's phone): a duplicate.
+      { ...anjali, admissionNo: 'IMP002', rollNo: '22', aadhaar: '' },
     ];
-    const body = { academicYearId: ids.YEAR, sectionId: ids.KPHB_JEEB, rows };
+    const body = {
+      academicYearId: ids.YEAR,
+      sectionId: ids.KPHB_JEEB,
+      fileName: 'jeeb.csv',
+      rows,
+    };
     const checked = await api()
       .post('/api/v1/students/import')
       .set(as(ravi))
-      .send(body)
+      .send({ ...body, dryRun: true })
       .expect(200);
-    expect(checked.body.ok).toBe(false);
-    expect(checked.body.imported).toBe(0);
-    expect(checked.body.errors).toEqual(
+    expect(checked.body).toMatchObject({
+      dryRun: true,
+      total: 3,
+      importable: 1,
+      excludedCount: 2,
+      imported: 0,
+      run: null,
+    });
+    const reasonsOf = (row: number) =>
+      checked.body.excluded.find((e: { row: number }) => e.row === row).reasons;
+    expect(reasonsOf(3)).toEqual(
       expect.arrayContaining([
-        { row: 3, message: 'admissionNo is empty (this organization types admission numbers)' },
-        { row: 3, message: 'admissionDate is missing or not a date (2026-06-01 or 01/06/2026)' },
-        { row: 3, message: 'gender must be male, female or other' },
-        { row: 3, message: 'roll number 21 is already used in this section' },
+        'admissionNo is empty (this organization types admission numbers)',
+        'admissionDate "31/02/2026" is not a date (2026-06-01 or 01/06/2026)',
+        'gender "x" is not one of: male, female, other (or M / F)',
+        'category "Rich" is not one of: OC, BC-A … BC-E, SC, ST, EWS, Other',
+        'phone must be a 10-digit mobile number starting with 6, 7, 8 or 9',
+        'roll number 21 is also in row 2',
       ]),
     );
+    expect(reasonsOf(4)).toContain('the same student (name, date of birth, phone) as row 2');
+    const none = await api().get('/api/v1/students?search=Anjali').set(as(ravi)).expect(200);
+    expect(none.body.total).toBe(0);
 
-    const done = await api()
-      .post('/api/v1/students/import')
-      .set(as(ravi))
-      .send({ ...body, rows: [rows[0]] })
-      .expect(200);
-    expect(done.body).toMatchObject({ ok: true, imported: 1 });
-    const anjali = await api().get('/api/v1/students?search=Anjali').set(as(ravi)).expect(200);
-    expect(anjali.body.items[0].placement.section).toBe(
+    const done = await api().post('/api/v1/students/import').set(as(ravi)).send(body).expect(200);
+    expect(done.body).toMatchObject({ imported: 1, excludedCount: 2, run: { code: 'IMP-0001' } });
+    const list = await api().get('/api/v1/students?search=Anjali').set(as(ravi)).expect(200);
+    expect(list.body.items[0].placement.section).toBe(
       'Junior (1st Year) › MPC › JEE Mains › JEE-B',
     );
-    // Ravi can't import into another branch's section.
+    const student = await profile(list.body.items[0].id);
+    expect(student).toMatchObject({
+      category: 'BC_A',
+      residence: 'HOSTELLER',
+      previousBoard: 'CBSE',
+      previousPercentage: '91.5',
+      topRanker: true,
+      learnerLevel: 'MEDIUM',
+      importedFrom: { code: 'IMP-0001', row: 2 },
+    });
+    type Link = { relation: string; isPrimary: boolean; guardian: { phone: string | null } };
+    expect(student.guardians.map((g: Link) => [g.relation, g.isPrimary, g.guardian.phone])).toEqual(
+      [
+        ['FATHER', true, '9000000001'],
+        ['MOTHER', false, null],
+      ],
+    );
+
+    // The import record: who, where, counts, excluded rows with reasons, missing details.
+    const runs = await api().get('/api/v1/students/imports').set(as(ravi)).expect(200);
+    expect(runs.body.items[0]).toMatchObject({
+      code: 'IMP-0001',
+      fileName: 'jeeb.csv',
+      totalRows: 3,
+      importedCount: 1,
+      excludedCount: 2,
+      branchName: 'KPHB',
+      section: 'Junior (1st Year) › MPC › JEE Mains › JEE-B',
+    });
+    const run = await api()
+      .get(`/api/v1/students/imports/${done.body.run.id}`)
+      .set(as(ravi))
+      .expect(200);
+    expect(run.body.students).toEqual([
+      expect.objectContaining({
+        fullName: 'Anjali',
+        importRow: 2,
+        missing: ['phone', 'email', 'address'],
+      }),
+    ]);
+    expect(run.body.excludedRows.map((e: { row: number }) => e.row)).toEqual([3, 4]);
+    expect(run.body.excludedRows[0].values).toMatchObject({ fullName: 'Bad Row' });
+
+    // The same sheet again: nothing new is imported.
+    const again = await api()
+      .post('/api/v1/students/import')
+      .set(as(ravi))
+      .send({ ...body, rows: [anjali] })
+      .expect(200);
+    expect(again.body).toMatchObject({ imported: 0, run: null });
+    expect(again.body.excluded[0].reasons).toEqual(
+      expect.arrayContaining([
+        'admission number IMP001 is already used',
+        'this Aadhaar number is already used by student IMP001',
+        'the same student (name, date of birth, phone) as student IMP001',
+      ]),
+    );
+    // Ravi can't import into another branch's section; a teacher can't see import records.
     await api()
       .post('/api/v1/students/import')
       .set(as(ravi))
-      .send({ ...body, sectionId: ids.AMP_JEEA, rows: [{ ...rows[0], admissionNo: 'IMP002' }] })
+      .send({ ...body, sectionId: ids.AMP_JEEA, rows: [{ ...anjali, admissionNo: 'IMP009' }] })
       .expect(403);
+    await api().get(`/api/v1/students/imports/${done.body.run.id}`).set(as(teacher)).expect(403);
   });
 
   it('deleting is only for mistakes', async () => {
