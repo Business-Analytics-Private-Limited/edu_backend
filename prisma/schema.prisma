@@ -156,6 +156,7 @@ model Organization {
   studentStatuses    StudentStatusChange[]
   promotionRuns      PromotionRun[]
   importRuns         ImportRun[]
+  branchGroups       BranchGroup[]
   attendanceRecords  AttendanceRecord[]
   storedFiles        StoredFile[]
   documentTypes      DocumentType[]
@@ -201,15 +202,34 @@ model Branch {
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
   userRoles    UserRole[]
   classes      Class[]
   holidays     Holiday[]
   students     Student[]
   enrolments   Enrolment[]
+  groups       BranchGroup[]
 
   @@unique([organizationId, code])
   @@map("branches")
+}
+
+/// Intermediate: the groups (MPC, BiPC, CEC, HEC) a branch runs, out of the organization's
+/// (ADR-0032). Sections at the branch can only be made under these groups.
+model BranchGroup {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  /// The group's code, e.g. "MPC" (the same group exists under Junior, Senior and Long Term).
+  groupCode      String   @map("group_code")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, groupCode])
+  @@index([organizationId])
+  @@map("branch_groups")
 }
 
 /// A set of permissions, e.g. "Organization admin" or "Teacher". Each organization has its own.

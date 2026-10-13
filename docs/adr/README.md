@@ -37,6 +37,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0029](0029-organizations-customize-predefined-roles.md) | Organizations may change the permissions of predefined roles | Accepted |
 | [0030](0030-organization-branches-and-academic-engine.md) | Organization → Branches, and one academic engine shaped by the organization's type | Accepted |
 | [0031](0031-student-details-and-import-records.md) | More student details with strict rules, sensitive details, import records (valid rows only), top rankers | Accepted |
+| [0032](0032-groups-per-branch.md) | Each branch runs some of the organization's groups (Intermediate) | Accepted |
 
 Template for new ADRs:
 

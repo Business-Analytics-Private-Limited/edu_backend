@@ -13,6 +13,7 @@ import type { CurrentUser } from '../../common/current-user';
 import { paginated, toSkipTake } from '../../common/pagination';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { PRESETS } from '../academic/presets';
+import { giveBranchAllGroups } from '../academic/branch-groups';
 import { ensurePresets } from '../academic/structure.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateBranchDto } from '../organization/dto/organization.dto';
@@ -320,6 +321,12 @@ export class OrganizationsService {
     const branch = await db.branch.create({
       data: { organizationId, name: dto.name, code: dto.code },
     });
+    // Intermediate: a new branch runs every group the organization has (ADR-0032).
+    const organization = await db.organization.findUniqueOrThrow({
+      where: { id: organizationId },
+      select: { id: true, type: true },
+    });
+    await giveBranchAllGroups(db, organization, branch.id);
     await this.audit.log(db, actor, {
       action: 'create',
       entity: 'branch',

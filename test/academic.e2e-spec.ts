@@ -189,6 +189,83 @@ describe('Academic module', () => {
     await api().get(`/api/v1/branches/${ids.AMP}/sections`).set(as(ravi)).expect(404);
   });
 
+  it('each branch runs some of the groups; its sections only go under those', async () => {
+    const groupsOf = async (branch: string) =>
+      (
+        (await api().get('/api/v1/academic-structure').set(as(admin)).expect(200)).body
+          .branchGroups[branch] as string[]
+      ).sort();
+    // At first every branch runs every group the organization switched on.
+    expect(await groupsOf(ids.KPHB)).toEqual(['BIPC', 'MPC']);
+    expect(await groupsOf(ids.AMP)).toEqual(['BIPC', 'MPC']);
+
+    // Ravi (Branch admin of KPHB) sets his own branch only.
+    await api()
+      .put(`/api/v1/branches/${ids.KPHB}/groups`)
+      .set(as(ravi))
+      .send({ codes: ['MPC'] })
+      .expect(200);
+    await api()
+      .put(`/api/v1/branches/${ids.AMP}/groups`)
+      .set(as(ravi))
+      .send({ codes: ['MPC'] })
+      .expect(403);
+    expect(await groupsOf(ids.KPHB)).toEqual(['MPC']);
+    // Not while the branch has sections under it; only groups the organization has.
+    const busy = await api()
+      .put(`/api/v1/branches/${ids.KPHB}/groups`)
+      .set(as(ravi))
+      .send({ codes: [] })
+      .expect(400);
+    expect(busy.body.message).toMatch(/^KPHB still has sections under MPC/);
+    await api()
+      .put(`/api/v1/branches/${ids.KPHB}/groups`)
+      .set(as(admin))
+      .send({ codes: ['MPC', 'CEC'] })
+      .expect(400);
+
+    // Sections only under a group the branch runs.
+    const bipcRegular = await classId(app, admin, ['JR', 'BIPC', 'REG']);
+    const refused = await api()
+      .post(`/api/v1/branches/${ids.KPHB}/sections`)
+      .set(as(admin))
+      .send({ parentId: bipcRegular, name: 'BiPC-A', code: 'BA' })
+      .expect(400);
+    expect(refused.body.message).toBe(
+      "KPHB doesn't run BiPC: tick it for the branch under Structure → Groups at each branch",
+    );
+    await api()
+      .post(`/api/v1/branches/${ids.AMP}/sections`)
+      .set(as(admin))
+      .send({ parentId: bipcRegular, name: 'BiPC-A', code: 'BA' })
+      .expect(201);
+
+    // Saving the organization's groups again keeps each branch's choice; a NEW group goes to
+    // every branch, and a group switched off goes from every branch.
+    await api()
+      .put('/api/v1/academic-structure/groups')
+      .set(as(admin))
+      .send({ codes: ['MPC', 'BIPC', 'CEC'] })
+      .expect(200);
+    expect(await groupsOf(ids.KPHB)).toEqual(['CEC', 'MPC']);
+    expect(await groupsOf(ids.AMP)).toEqual(['BIPC', 'CEC', 'MPC']);
+    await api()
+      .put('/api/v1/academic-structure/groups')
+      .set(as(admin))
+      .send({ codes: ['MPC', 'BIPC'] })
+      .expect(200);
+    expect(await groupsOf(ids.KPHB)).toEqual(['MPC']);
+
+    // A new branch runs every group.
+    await api()
+      .post(`/api/v1/super-admin/organizations/${orgId}/branches`)
+      .set(as(superAdmin))
+      .send({ name: 'Vizag', code: 'VZG' })
+      .expect(201);
+    const vizag = await branchId(app, superAdmin, orgId, 'VZG');
+    expect(await groupsOf(vizag)).toEqual(['BIPC', 'MPC']);
+  });
+
   it("a stream or group with sections can't go, and built-in classes are switched off instead", async () => {
     const stream = await api()
       .delete('/api/v1/academic-structure/streams/MPC/JEEM')

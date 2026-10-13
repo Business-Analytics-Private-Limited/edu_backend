@@ -41,6 +41,7 @@ import { assertCan, can, canSomewhere } from '../../common/scope';
 import { Db, PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { assertBranchInUse, findBranch, findOrganization } from '../organization/places-in-use';
+import { GROUP_LEVEL, groupCodeOf, organizationGroupCodes } from './branch-groups';
 import { byOrder, ClassTree } from './class-tree';
 import {
   AddCourseDto,
@@ -130,6 +131,13 @@ export class StructureService implements OnApplicationBootstrap {
       const preset = PRESETS[organization.type];
       const topCodes = new Set(classes.filter((c) => c.level === 1).map((c) => c.code));
       const groupCodes = new Set(classes.filter((c) => c.level === 2).map((c) => c.code));
+      // Intermediate: the groups each branch runs (ADR-0032), { branchId: ["MPC", ...] }.
+      const branchGroups: Record<string, string[]> = {};
+      if (organization.type === 'INTERMEDIATE') {
+        for (const row of await db.branchGroup.findMany({ where: { organizationId } })) {
+          (branchGroups[row.branchId] ??= []).push(row.groupCode);
+        }
+      }
       return {
         type: organization.type,
         levels: organization.levelNames,
@@ -142,6 +150,7 @@ export class StructureService implements OnApplicationBootstrap {
             : organization.type === 'INTERMEDIATE'
               ? INTERMEDIATE_GROUPS.map((g) => ({ ...g, enabled: groupCodes.has(g.code) }))
               : [],
+        branchGroups,
       };
     });
   }
@@ -251,6 +260,7 @@ export class StructureService implements OnApplicationBootstrap {
       if (unknown.length > 0)
         throw new BadRequestException(`Unknown groups: ${unknown.join(', ')}`);
       const { junior, senior } = await this.intermediateYears(db, organizationId);
+      const previously = new Set(await organizationGroupCodes(db, organizationId));
 
       // Switched off: the group under every year, with its streams, if nothing is under them.
       const offGroups = await db.class.findMany({
@@ -275,6 +285,23 @@ export class StructureService implements OnApplicationBootstrap {
         }
       }
       // Long Term gets a group only with a long-term stream (addStream).
+
+      // Branches (ADR-0032): a NEWLY switched-on group is run by every branch (each can untick
+      // it; groups a branch unticked stay unticked); a group switched off is run by none.
+      const added = codes.filter((code) => !previously.has(code));
+      await db.branchGroup.deleteMany({ where: { organizationId, groupCode: { notIn: codes } } });
+      if (added.length > 0) {
+        const branches = await db.branch.findMany({
+          where: { organizationId },
+          select: { id: true },
+        });
+        await db.branchGroup.createMany({
+          data: branches.flatMap((b) =>
+            added.map((groupCode) => ({ organizationId, branchId: b.id, groupCode })),
+          ),
+          skipDuplicates: true,
+        });
+      }
       await this.audit.log(db, actor, {
         action: 'set groups',
         entity: 'academic_structure',
@@ -463,7 +490,7 @@ export class StructureService implements OnApplicationBootstrap {
     actor: CurrentUser,
   ) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      await findBranch(db, organizationId, branchId);
+      const branch = await findBranch(db, organizationId, branchId);
       const place = { branchId };
       assertCan(actor, 'academic.structure.create', place);
       await assertBranchInUse(db, branchId);
@@ -476,6 +503,22 @@ export class StructureService implements OnApplicationBootstrap {
         );
       }
       if (!parent.isActive) throw new BadRequestException(`${parent.name} is not in use`);
+      if (organization.type === 'INTERMEDIATE') {
+        // Only under a group this branch runs (ADR-0032).
+        const tree = await ClassTree.load(db, organizationId);
+        const groupCode = groupCodeOf(tree, parent.id);
+        const runs =
+          groupCode &&
+          (await db.branchGroup.findUnique({
+            where: { branchId_groupCode: { branchId, groupCode } },
+          }));
+        if (!runs) {
+          const group = tree.atLevel(parent.id, GROUP_LEVEL)?.name ?? 'this group';
+          throw new BadRequestException(
+            `${branch.name} doesn't run ${group}: tick it for the branch under Structure → Groups at each branch`,
+          );
+        }
+      }
       await this.checkCodeFree(db, parent.id, branchId, dto.code);
       const section = await db.class.create({
         data: {
@@ -496,6 +539,57 @@ export class StructureService implements OnApplicationBootstrap {
         details: { name: section.name, code: section.code, under: parent.name },
       });
       return section;
+    });
+  }
+
+  /**
+   * Intermediate: the groups a branch runs, out of the organization's (ADR-0032). A group can't
+   * be taken off while the branch has sections under it.
+   */
+  setBranchGroups(organizationId: string, branchId: string, codes: string[], actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      const branch = await findBranch(db, organizationId, branchId);
+      const place = { branchId };
+      assertCan(actor, 'academic.structure.update', place);
+      await this.requireType(db, organizationId, 'INTERMEDIATE');
+      await assertBranchInUse(db, branchId);
+      const available = await organizationGroupCodes(db, organizationId);
+      const unknown = codes.filter((code) => !available.includes(code));
+      if (unknown.length > 0) {
+        throw new BadRequestException(
+          `Not switched on for the organization: ${unknown.join(', ')} (Structure → Groups)`,
+        );
+      }
+      const current = (
+        await db.branchGroup.findMany({ where: { branchId }, select: { groupCode: true } })
+      ).map((r) => r.groupCode);
+      const removed = current.filter((code) => !codes.includes(code));
+      if (removed.length > 0) {
+        const tree = await ClassTree.load(db, organizationId);
+        const blocking = tree.classes.filter(
+          (c) => c.branchId === branchId && removed.includes(groupCodeOf(tree, c.id) ?? ''),
+        );
+        if (blocking.length > 0) {
+          throw new BadRequestException(
+            `${branch.name} still has sections under ${[...new Set(blocking.map((c) => tree.atLevel(c.id, GROUP_LEVEL)!.name))].join(', ')} (e.g. ${tree.label(blocking[0].id)}); delete them first`,
+          );
+        }
+      }
+      await db.branchGroup.deleteMany({ where: { branchId, groupCode: { in: removed } } });
+      await db.branchGroup.createMany({
+        data: codes
+          .filter((code) => !current.includes(code))
+          .map((groupCode) => ({ organizationId, branchId, groupCode })),
+        skipDuplicates: true,
+      });
+      await this.audit.log(db, actor, {
+        action: 'set branch groups',
+        entity: 'branch',
+        entityId: branchId,
+        ...place,
+        details: { branch: branch.name, before: current, after: codes },
+      });
+      return { branchId, groups: codes };
     });
   }
 

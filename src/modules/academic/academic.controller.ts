@@ -24,6 +24,7 @@
  *
  *   GET    /api/v1/branches/:id/sections                   academic.structure.view    (branch)
  *   POST   /api/v1/branches/:id/sections                   academic.structure.create  (branch)
+ *   PUT    /api/v1/branches/:id/groups                     academic.structure.update  (branch) Intermediate
  */
 import {
   Body,
@@ -249,5 +250,17 @@ export class AcademicController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.structure.createSection(organizationId, id, body, user);
+  }
+
+  /** Intermediate: the groups this branch runs, out of the organization's (ADR-0032). */
+  @Put('branches/:id/groups')
+  @RequirePermission('academic.structure.update')
+  setBranchGroups(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: SetCodesDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.setBranchGroups(organizationId, id, body.codes, user);
   }
 }
