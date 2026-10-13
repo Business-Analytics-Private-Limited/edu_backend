@@ -235,6 +235,13 @@ describe('Super admin', () => {
       expect(junior).toMatchObject({ predefined: true, permissions });
     }
     expect(otherOrg).toBeDefined();
+
+    // Put it back: every test suite shares this database, and other suites (e.g. attendance)
+    // rely on Junior faculty's starting permissions.
+    await api()
+      .post('/api/v1/super-admin/predefined-roles/junior_faculty/reset')
+      .set(auth())
+      .expect(200);
   });
 
   it('puts a predefined role back to its starting permissions', async () => {

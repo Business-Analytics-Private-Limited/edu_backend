@@ -38,6 +38,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0030](0030-organization-branches-and-academic-engine.md) | Organization → Branches, and one academic engine shaped by the organization's type | Accepted |
 | [0031](0031-student-details-and-import-records.md) | More student details with strict rules, sensitive details, import records (valid rows only), top rankers | Accepted |
 | [0032](0032-groups-per-branch.md) | Each branch runs some of the organization's groups (Intermediate) | Accepted |
+| [0033](0033-courses-without-specializations.md) | Courses without specializations (a hidden "whole course" level); editing and deleting courses | Accepted |
 
 Template for new ADRs:
 

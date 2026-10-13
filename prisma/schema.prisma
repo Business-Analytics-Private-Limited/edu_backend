@@ -406,6 +406,9 @@ model Class {
   builtIn        Boolean  @default(false) @map("built_in")
   /// Intermediate: the Long Term year, and streams for long-term students (e.g. NEET Long Term).
   longTerm       Boolean  @default(false) @map("long_term")
+  /// Degree / Engineering (ADR-0033): the hidden "whole course" level of a course without
+  /// specializations (B.Com -> 1st Year ...). Never shown in names ("B.Com › 1st Year › A").
+  placeholder    Boolean  @default(false)
   /// For year-level classes: where students go at promotion (Class 9 -> Class 10, Junior ->
   /// Senior). Empty = they complete after this year.
   nextClassId    String?  @map("next_class_id") @db.Uuid

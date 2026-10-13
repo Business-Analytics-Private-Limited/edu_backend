@@ -25,6 +25,7 @@ interface Node {
   nextClassId: string | null;
   longTerm: boolean;
   builtIn: boolean;
+  sortOrder: number;
 }
 
 describe('Academic module', () => {
@@ -382,6 +383,95 @@ describe('Academic module', () => {
       .set(as(engg))
       .send({ parentId: years[0].id, name: 'Section A', code: 'A' })
       .expect(201);
+  });
+
+  it('a course without specializations has its own years; courses can be edited and deleted', async () => {
+    const degId = await createOrganization(app, superAdmin, 'deg', 'admin@deg.test', {
+      type: 'DEGREE',
+      modules: ['academic'],
+    });
+    const deg = await loginUser(app, 'admin@deg.test', 'Admin@12345');
+    const branch = await branchId(app, superAdmin, degId, 'MAIN');
+    const post = (path: string, body: object) =>
+      api().post(`/api/v1/academic-structure${path}`).set(as(deg)).send(body);
+    const patch = (id: string, body: object) =>
+      api().patch(`/api/v1/academic-structure/programmes/${id}`).set(as(deg)).send(body);
+    const remove = (id: string) =>
+      api().delete(`/api/v1/academic-structure/programmes/${id}`).set(as(deg));
+    const yearsUnder = async (courseId: string) => {
+      const s = await structure(deg);
+      const under = (id: string): Node[] => s.classes.filter((c) => c.parentId === id);
+      return under(courseId)
+        .flatMap((spec) => under(spec.id))
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+    };
+
+    // B.Com: no specializations, 3 years of its own (under a hidden "whole course" level).
+    const bcom = (await post('/courses', { name: 'B.Com', code: 'BCOM', years: 3 }).expect(201))
+      .body.id;
+    let years = await yearsUnder(bcom);
+    expect(years.map((y) => y.name)).toEqual(['1st Year', '2nd Year', '3rd Year']);
+    expect(years[0].nextClassId).toBe(years[1].id);
+    for (const [index, year] of years.slice(0, 2).entries()) {
+      await api()
+        .post(`/api/v1/branches/${branch}/sections`)
+        .set(as(deg))
+        .send({ parentId: year.id, name: `Section ${index + 1}`, code: 'A' })
+        .expect(201);
+    }
+    const sections = await api().get(`/api/v1/branches/${branch}/sections`).set(as(deg));
+    expect(sections.body.sections.map((s: { path: string }) => s.path)).toEqual([
+      'B.Com › 1st Year',
+      'B.Com › 2nd Year',
+    ]);
+
+    // Years: more are added at the end; fewer only while the removed ones are empty.
+    await patch(bcom, { years: 4 }).expect(200);
+    years = await yearsUnder(bcom);
+    expect(years.map((y) => y.name)).toEqual(['1st Year', '2nd Year', '3rd Year', '4th Year']);
+    expect(years[2].nextClassId).toBe(years[3].id);
+    await patch(bcom, { years: 2 }).expect(200);
+    years = await yearsUnder(bcom);
+    expect(years.map((y) => y.name)).toEqual(['1st Year', '2nd Year']);
+    expect(years[1].nextClassId).toBeNull();
+    const shrink = await patch(bcom, { years: 1 }).expect(400);
+    expect(shrink.body.message).toBe(
+      'B.Com › 2nd Year has sections; delete them first to have 1 year(s)',
+    );
+    await patch(bcom, { name: 'B.Com General', code: 'BCOMG' }).expect(200);
+    const busy = await remove(bcom).expect(400);
+    expect(busy.body.message).toMatch(/^B.Com General has 2 section\(s\)/);
+
+    // A specialization added later: the course's own years stay while they have sections.
+    await post(`/courses/${bcom}/specializations`, {
+      name: 'Computer Applications',
+      code: 'CA',
+      years: 3,
+    }).expect(201);
+    expect((await yearsUnder(bcom)).length).toBe(5);
+    await patch(bcom, { years: 3 }).expect(400); // each specialization has its own years
+
+    // BBA had its own years but no sections: its first specialization replaces them.
+    const bba = (await post('/courses', { name: 'BBA', code: 'BBA', years: 3 }).expect(201)).body
+      .id;
+    await post(`/courses/${bba}/specializations`, {
+      name: 'Finance',
+      code: 'FIN',
+      years: 2,
+    }).expect(201);
+    expect((await yearsUnder(bba)).map((y) => y.name)).toEqual(['1st Year', '2nd Year']);
+
+    // B.Sc with a specialization: edit it, delete it, delete the course.
+    const bsc = (await post('/courses', { name: 'B.Sc', code: 'BSC' }).expect(201)).body.id;
+    expect(await yearsUnder(bsc)).toEqual([]);
+    const physics = (
+      await post(`/courses/${bsc}/specializations`, { name: 'Physics', code: 'PHY', years: 3 })
+    ).body.id;
+    await patch(physics, { name: 'Physics (Hons)', years: 4 }).expect(200);
+    expect((await yearsUnder(bsc)).length).toBe(4);
+    await remove(physics).expect(200);
+    await remove(bsc).expect(200);
+    expect((await structure(deg)).classes.find((c) => c.id === bsc)).toBeUndefined();
   });
 
   it('academic years belong to the whole organization; at most one is active', async () => {

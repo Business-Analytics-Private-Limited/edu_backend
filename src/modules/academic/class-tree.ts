@@ -3,7 +3,8 @@
  * modules need (students, attendance, promotion, import, portal):
  *
  *   const tree = await ClassTree.load(db, organizationId);
- *   tree.label(sectionId)          "Junior (1st Year) › MPC › JEE Mains › JEE-A"
+ *   tree.label(sectionId)          "Junior (1st Year) › MPC › JEE Mains › JEE-A" (B.Com › 1st Year
+ *                                  › A for a course without specializations, ADR-0033)
  *   tree.path(sectionId)           [Junior, MPC, JEE Mains, JEE-A]
  *   tree.below(classId)            the class and every class under it, in every branch
  *
@@ -39,8 +40,10 @@ export class ClassTree {
     return c ? [...(c.parentId ? this.path(c.parentId) : []), c] : [];
   }
 
+  /** The class's name with the names above it; the hidden "whole course" level is left out. */
   label(id: string): string {
     return this.path(id)
+      .filter((c) => !c.placeholder)
       .map((c) => c.name)
       .join(' › ');
   }

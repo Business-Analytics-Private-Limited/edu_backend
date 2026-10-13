@@ -18,7 +18,11 @@
  *     the organization's own streams to a group (addStream): under Junior and Senior, or, for a
  *     long-term stream, under Long Term.
  *   - Degree / Engineering: add courses (addCourse) and their specializations with the number
- *     of years (addSpecialization): 1st Year -> 2nd Year -> ... -> the final year.
+ *     of years (addSpecialization): 1st Year -> 2nd Year -> ... -> the final year. A course
+ *     WITHOUT specializations gives its own years and gets a hidden "whole course" level
+ *     (ADR-0033: B.Com › 1st Year). Courses and specializations can be edited (name, code,
+ *     years) and deleted while nothing has sections under them (updateProgramme,
+ *     deleteProgramme).
  *
  * PROGRESSION: year-level classes have a `next` class (promotion moves students there); empty =
  * students complete after that year. The builders set it; updateClass can change it.
@@ -46,6 +50,7 @@ import { byOrder, ClassTree } from './class-tree';
 import {
   AddCourseDto,
   AddSpecializationDto,
+  UpdateProgrammeDto,
   AddStreamDto,
   CreateSectionDto,
   UpdateClassDto,
@@ -131,6 +136,12 @@ export class StructureService implements OnApplicationBootstrap {
       const preset = PRESETS[organization.type];
       const topCodes = new Set(classes.filter((c) => c.level === 1).map((c) => c.code));
       const groupCodes = new Set(classes.filter((c) => c.level === 2).map((c) => c.code));
+      // How many sections (in every branch) are under each class, for the screens' tables.
+      const tree = await ClassTree.load(db, organizationId);
+      const sectionCounts: Record<string, number> = {};
+      for (const c of classes) {
+        sectionCounts[c.id] = tree.below(c.id).filter((id) => tree.get(id)?.branchId).length;
+      }
       // Intermediate: the groups each branch runs (ADR-0032), { branchId: ["MPC", ...] }.
       const branchGroups: Record<string, string[]> = {};
       if (organization.type === 'INTERMEDIATE') {
@@ -151,6 +162,7 @@ export class StructureService implements OnApplicationBootstrap {
               ? INTERMEDIATE_GROUPS.map((g) => ({ ...g, enabled: groupCodes.has(g.code) }))
               : [],
         branchGroups,
+        sectionCounts,
       };
     });
   }
@@ -414,6 +426,11 @@ export class StructureService implements OnApplicationBootstrap {
 
   // --- Degree / Engineering --------------------------------------------------------------------
 
+  /**
+   * A course (ADR-0033). With `years` it has no specializations: it gets a hidden "whole course"
+   * level and its own 1st Year ... Nth Year (B.Com › 1st Year). Without, its specializations
+   * (CSE, ECE ...) are added next, each with its own years.
+   */
   addCourse(organizationId: string, dto: AddCourseDto, actor: CurrentUser) {
     assertCan(actor, 'academic.structure.create', WHOLE_ORGANIZATION);
     return this.prisma.forOrganization(organizationId, async (db) => {
@@ -422,17 +439,25 @@ export class StructureService implements OnApplicationBootstrap {
       const course = await db.class.create({
         data: { organizationId, level: 1, name: dto.name.trim(), code: dto.code },
       });
+      if (dto.years) {
+        const whole = await this.createWholeCourse(db, organizationId, course);
+        await this.setYears(db, organizationId, whole, dto.years);
+      }
       await this.audit.log(db, actor, {
         action: 'create',
         entity: 'course',
         entityId: course.id,
-        details: { name: course.name, code: course.code },
+        details: { name: course.name, code: course.code, years: dto.years ?? null },
       });
       return course;
     });
   }
 
-  /** A specialization of a course, with its years of study (1st Year -> ... -> the final year). */
+  /**
+   * A specialization of a course, with its years of study (1st Year -> ... -> the final year).
+   * A course that had its own years (no specializations) loses them here, while they have no
+   * sections; with sections they stay, shown as "Whole course" next to the specializations.
+   */
   addSpecialization(
     organizationId: string,
     courseId: string,
@@ -445,6 +470,9 @@ export class StructureService implements OnApplicationBootstrap {
       const course = await this.findClass(db, organizationId, courseId);
       if (course.level !== 1) throw new BadRequestException('Choose a course');
       await this.checkCodeFree(db, course.id, null, dto.code);
+      const tree = await ClassTree.load(db, organizationId);
+      const whole = tree.children(course.id).find((c) => c.placeholder);
+      if (whole && !this.hasSections(tree, whole.id)) await this.removeSubtree(db, tree, whole.id);
       const specialization = await db.class.create({
         data: {
           organizationId,
@@ -454,23 +482,7 @@ export class StructureService implements OnApplicationBootstrap {
           code: dto.code,
         },
       });
-      let previous: Class | null = null;
-      for (let n = 1; n <= dto.years; n++) {
-        const year: Class = await db.class.create({
-          data: {
-            organizationId,
-            parentId: specialization.id,
-            level: 3,
-            ...yearOfStudy(n),
-            sortOrder: n,
-            builtIn: true,
-          },
-        });
-        if (previous) {
-          await db.class.update({ where: { id: previous.id }, data: { nextClassId: year.id } });
-        }
-        previous = year;
-      }
+      await this.setYears(db, organizationId, specialization, dto.years);
       await this.audit.log(db, actor, {
         action: 'create',
         entity: 'specialization',
@@ -479,6 +491,158 @@ export class StructureService implements OnApplicationBootstrap {
       });
       return specialization;
     });
+  }
+
+  /**
+   * Edits a course or a specialization: name, code, and the number of years. A course's years
+   * only while it has no specializations (each specialization has its own). More years are
+   * added at the end; fewer remove the last years, only while they have no sections.
+   */
+  updateProgramme(organizationId: string, id: string, dto: UpdateProgrammeDto, actor: CurrentUser) {
+    assertCan(actor, 'academic.structure.update', WHOLE_ORGANIZATION);
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      await this.requireType(db, organizationId, 'DEGREE', 'ENGINEERING');
+      const existing = await this.findProgramme(db, organizationId, id);
+      if (dto.code !== undefined && dto.code !== existing.code) {
+        await this.checkCodeFree(db, existing.parentId, null, dto.code, organizationId);
+      }
+      const updated = await db.class.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name.trim() }),
+          ...(dto.code !== undefined && { code: dto.code }),
+        },
+      });
+      if (dto.years !== undefined) {
+        let target: Class = existing;
+        if (existing.level === 1) {
+          const tree = await ClassTree.load(db, organizationId);
+          const children = tree.children(existing.id);
+          if (children.some((c) => !c.placeholder)) {
+            throw new BadRequestException(
+              `${existing.name} has specializations: change the years of each specialization`,
+            );
+          }
+          target =
+            children.find((c) => c.placeholder) ??
+            (await this.createWholeCourse(db, organizationId, existing));
+        }
+        await this.setYears(db, organizationId, target, dto.years);
+      }
+      await this.audit.log(db, actor, {
+        action: 'update',
+        entity: existing.level === 1 ? 'course' : 'specialization',
+        entityId: id,
+        details: { name: existing.name, ...dto },
+      });
+      return updated;
+    });
+  }
+
+  /** Deletes a course or a specialization with its years, while nothing has sections under it. */
+  deleteProgramme(organizationId: string, id: string, actor: CurrentUser) {
+    assertCan(actor, 'academic.structure.delete', WHOLE_ORGANIZATION);
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      await this.requireType(db, organizationId, 'DEGREE', 'ENGINEERING');
+      const existing = await this.findProgramme(db, organizationId, id);
+      const tree = await ClassTree.load(db, organizationId);
+      const sections = tree.below(id).filter((c) => tree.get(c)?.branchId);
+      if (sections.length > 0) {
+        throw new BadRequestException(
+          `${existing.name} has ${sections.length} section(s), e.g. ${tree.label(sections[0])}; delete them first`,
+        );
+      }
+      await this.removeSubtree(db, tree, id);
+      await this.audit.log(db, actor, {
+        action: 'delete',
+        entity: existing.level === 1 ? 'course' : 'specialization',
+        entityId: id,
+        details: { name: existing.name, code: existing.code },
+      });
+      return { deleted: true };
+    });
+  }
+
+  /** A course (level 1) or a real specialization (level 2) of this organization. */
+  private async findProgramme(db: Db, organizationId: string, id: string) {
+    const existing = await this.findClass(db, organizationId, id);
+    if (existing.branchId || existing.placeholder || existing.level > 2) {
+      throw new BadRequestException('Choose a course or a specialization');
+    }
+    return existing;
+  }
+
+  /** The hidden "whole course" level of a course without specializations (ADR-0033). */
+  private createWholeCourse(db: Db, organizationId: string, course: Class) {
+    return db.class.create({
+      data: {
+        organizationId,
+        parentId: course.id,
+        level: 2,
+        name: 'Whole course',
+        code: 'ALL',
+        builtIn: true,
+        placeholder: true,
+      },
+    });
+  }
+
+  /**
+   * Gives `parent` (a specialization, or a course's "whole course") exactly `count` years:
+   * 1st Year ... Nth Year, each moving on to the next and the last completing. Years are added
+   * at the end, and removed from the end only while they have no sections.
+   */
+  private async setYears(db: Db, organizationId: string, parent: Class, count: number) {
+    const tree = await ClassTree.load(db, organizationId);
+    const years = tree.children(parent.id);
+    for (const year of years.slice(count).reverse()) {
+      if (this.hasSections(tree, year.id)) {
+        throw new BadRequestException(
+          `${tree.label(year.id)} has sections; delete them first to have ${count} year(s)`,
+        );
+      }
+      await this.removeSubtree(db, tree, year.id);
+    }
+    const kept = years.slice(0, count);
+    for (let n = kept.length + 1; n <= count; n++) {
+      kept.push(
+        await db.class.create({
+          data: {
+            organizationId,
+            parentId: parent.id,
+            level: 3,
+            ...yearOfStudy(n),
+            sortOrder: n,
+            builtIn: true,
+          },
+        }),
+      );
+    }
+    for (const [index, year] of kept.entries()) {
+      await db.class.update({
+        where: { id: year.id },
+        data: { nextClassId: kept[index + 1]?.id ?? null },
+      });
+    }
+  }
+
+  private hasSections(tree: ClassTree, id: string): boolean {
+    return tree.below(id).some((c) => tree.get(c)?.branchId);
+  }
+
+  /**
+   * Deletes a class and everything under it (no sections there: checked by the caller), with
+   * their subject links, and clears any "next year" that pointed to them.
+   */
+  private async removeSubtree(db: Db, tree: ClassTree, id: string) {
+    const ids = tree.below(id);
+    await db.classSubject.deleteMany({ where: { classId: { in: ids } } });
+    await db.class.updateMany({ where: { nextClassId: { in: ids } }, data: { nextClassId: null } });
+    const deepestFirst = ids
+      .map((c) => tree.get(c)!)
+      .sort((a, b) => b.level - a.level)
+      .map((c) => c.id);
+    for (const classId of deepestFirst) await db.class.delete({ where: { id: classId } });
   }
 
   // --- Sections (per branch) -------------------------------------------------------------------

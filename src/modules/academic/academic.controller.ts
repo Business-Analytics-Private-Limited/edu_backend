@@ -19,6 +19,8 @@
  *   DELETE /api/v1/academic-structure/streams/:group/:code academic.structure.delete  Intermediate
  *   POST   /api/v1/academic-structure/courses              academic.structure.create  Degree / Eng.
  *   POST   /api/v1/academic-structure/courses/:id/specializations                     Degree / Eng.
+ *   PATCH  /api/v1/academic-structure/programmes/:id       academic.structure.update  course / specialization
+ *   DELETE /api/v1/academic-structure/programmes/:id       academic.structure.delete  (ADR-0033)
  *   PATCH  /api/v1/classes/:id                             academic.structure.update  (its place)
  *   DELETE /api/v1/classes/:id                             academic.structure.delete  (its place)
  *
@@ -46,6 +48,7 @@ import { AcademicYearsService } from './academic-years.service';
 import {
   AddCourseDto,
   AddSpecializationDto,
+  UpdateProgrammeDto,
   AddStreamDto,
   CreateAcademicYearDto,
   CreateSectionDto,
@@ -206,6 +209,28 @@ export class AcademicController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.structure.addSpecialization(organizationId, id, body, user);
+  }
+  /** A course or a specialization: name, code, years (ADR-0033). */
+  @Patch('academic-structure/programmes/:id')
+  @RequirePermission('academic.structure.update')
+  updateProgramme(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateProgrammeDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.updateProgramme(organizationId, id, body, user);
+  }
+
+  /** A course or a specialization with its years, while nothing has sections under it. */
+  @Delete('academic-structure/programmes/:id')
+  @RequirePermission('academic.structure.delete')
+  deleteProgramme(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.structure.deleteProgramme(organizationId, id, user);
   }
 
   @Patch('classes/:id')

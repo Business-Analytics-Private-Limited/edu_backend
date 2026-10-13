@@ -24,6 +24,7 @@ Two developers: the project owner and Claude, with interns and freshers joining.
 - **2026-10-09: organization → branches and one academic engine by organization type** (ADR-0030): branches replace institutions / campuses; structure presets per type; placements as periods; outgoing students; import into a section; automatic / manual admission numbers; promotion along progression links. 120 e2e tests pass.
 - **2026-10-13: student details, sensitive details, import records, top rankers** (ADR-0031): optional details with one set of strict rules (`students/student-rules.ts`) for the form, editing and import; `students.sensitive.view`; imports save the valid rows and record the excluded ones (IMP-0001 …, no file kept, no undo); top rankers with learner levels.
 - **2026-10-13: groups per branch** (ADR-0032): each branch of an Intermediate organization runs some of the organization's groups (`branch_groups`); sections only under those.
+- **2026-10-14: courses without specializations** (ADR-0033): a hidden "whole course" level (`classes.placeholder`), never shown in names; edit / delete courses and specializations (`/academic-structure/programmes/:id`).
 - Update this section at the end of every working session.
 
 ## Keep it simple

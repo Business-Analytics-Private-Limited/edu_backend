@@ -5,7 +5,7 @@
 | Status | **Built** |
 | Code | `src/modules/academic/` (`presets.ts` = what each type gets, `structure.service.ts` = the engine, `class-tree.ts` = labels and lookups) |
 | Tables | `academic_years`, `classes`, `branch_groups`, `subjects`, `class_subjects`, `holidays`; `organizations.level_names`, `organizations.weekly_off_days` |
-| Decisions | ADR-0030 (one engine shaped by the organization's type; replaces ADR-0019), ADR-0032 (groups per branch) |
+| Decisions | ADR-0030 (one engine shaped by the organization's type; replaces ADR-0019), ADR-0032 (groups per branch), ADR-0033 (courses without specializations; editing courses) |
 | Switched on by | the super admin, per organization (module key `academic`) |
 
 ## In plain words
@@ -17,11 +17,12 @@
   |---|---|---|---|
   | School | Class → Section | Nursery, LKG, UKG, Class 1–10 | which classes it runs |
   | Intermediate | Year → Group → Stream → Section | Junior → Senior, Long Term; MPC, BiPC, CEC, HEC; "Regular (IPE)" in every group | which groups; its own streams (IIT, JEE Mains, NEET, NEET Long Term…) |
-  | Degree, Engineering | Course → Specialization → Year → Section | 1st Year … Nth Year | courses (B.Tech) and specializations (CSE) with their number of years |
+  | Degree, Engineering | Course → Specialization → Year → Section | 1st Year … Nth Year | courses with their own years (B.Com), or courses with specializations (B.Tech › CSE), each with its number of years |
 
   Level names can be renamed; their number is fixed by the type.
 - **Sections** belong to a **branch** and sit under a class of the level just above them, e.g. KPHB: *Junior → MPC → JEE Mains → JEE-A*. Students are placed in sections. Everything above sections belongs to the whole organization, so a Director can filter "Junior › MPC › JEE Mains" across all branches.
 - **Groups at each branch** (Intermediate, ADR-0032): the organization switches groups on; each branch ticks which of them it runs (e.g. NAD: MPC + BiPC, Madhurawada: MPC only). Its sections can only go under those. New branches and newly switched-on groups start ticked everywhere.
+- **Courses without specializations** (Degree / Engineering, ADR-0033): B.Com gets its years directly; a hidden "whole course" level keeps the four levels and is never shown ("B.Com › 1st Year › A"). Courses and specializations can be renamed, given more or fewer years (only empty years go), and deleted while nothing has sections.
 - **Long Term** (Intermediate) is for students who already finished Intermediate (e.g. NEET repeaters): one year, long-term streams only, no promotion.
 - **Progression:** each year-level class has a **next** class, e.g. Class 9 → Class 10, Junior → Senior, 1st Year → 2nd Year. Empty means students **complete** after that year (Class 10, Senior, Long Term, the final year). Promotion (Students module) follows it.
 - **Subjects:** the organization's list. A subject is attached to a class at **any level**, and the classes below **inherit** it: Mathematics on "MPC" means Mathematics in every MPC section of every branch.
@@ -41,8 +42,9 @@
 | PUT | `/academic-structure/groups` | `academic.structure.update` | Intermediate; `{ codes: ["MPC","BIPC"] }` |
 | POST | `/academic-structure/streams` | `academic.structure.create` | Intermediate; `{ groupCode, name, code, longTerm? }` |
 | PATCH / DELETE | `/academic-structure/streams/:group/:code` | `academic.structure.update` / `delete` | Intermediate; rename everywhere / delete without sections |
-| POST | `/academic-structure/courses` | `academic.structure.create` | Degree, Engineering; `{ name, code }` |
+| POST | `/academic-structure/courses` | `academic.structure.create` | Degree, Engineering; `{ name, code, years? }` (years = no specializations) |
 | POST | `/academic-structure/courses/:id/specializations` | `academic.structure.create` | `{ name, code, years }`: also creates 1st Year … Nth Year with their next |
+| PATCH / DELETE | `/academic-structure/programmes/:id` | `academic.structure.update` / `delete` | a course or specialization: `{ name?, code?, years? }`; delete while nothing has sections |
 | PATCH | `/classes/:id` | `academic.structure.update` | its place (organization, or the section's branch); `{ name, code, sortOrder, isActive, nextClassId }` |
 | DELETE | `/classes/:id` | `academic.structure.delete` | its place; not built-in, nothing under it, no student ever placed there |
 | GET | `/branches/:id/sections` | `academic.structure.view` | the branch; each section with its `path` |
@@ -72,7 +74,7 @@
 
 - **Academic years**
 - **Structure:**
-  - the builder for the organization's type (school classes / groups and streams / courses and specializations)
+  - the builder for the organization's type (school classes / groups and streams / **courses and specializations as a table**, with Add, Edit and Delete)
   - Intermediate: **Groups at each branch** (branches × groups)
   - "After each year" (progression)
   - level names

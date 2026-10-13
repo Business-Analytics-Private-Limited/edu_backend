@@ -106,15 +106,48 @@ export class RenameDto {
 }
 
 export class AddCourseDto {
-  /** @example B.Tech */
+  /** @example B.Com */
   @IsString()
   @Length(1, 100)
   name: string;
 
-  /** @example BTECH */
+  /** @example BCOM */
   @Matches(CODE, { message: CODE_MESSAGE })
   @Length(1, 20)
   code: string;
+
+  /**
+   * A course WITHOUT specializations: its years of study (1st Year ... Nth Year), ADR-0033.
+   * Leave out for a course whose specializations (CSE, ECE ...) are added next. @example 3
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  years?: number;
+}
+
+/** Editing a course or a specialization: name, code, and (where it has its own) years. */
+export class UpdateProgrammeDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  name?: string;
+
+  @IsOptional()
+  @Matches(CODE, { message: CODE_MESSAGE })
+  @Length(1, 20)
+  code?: string;
+
+  /**
+   * More years are added at the end; fewer remove the last years, only while they are empty.
+   * A course: only when it has no specializations. @example 4
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  years?: number;
 }
 
 export class AddSpecializationDto {
@@ -131,7 +164,7 @@ export class AddSpecializationDto {
   /** How many years of study (1st Year ... Nth Year). @example 4 */
   @IsInt()
   @Min(1)
-  @Max(6)
+  @Max(8)
   years: number;
 }
 
