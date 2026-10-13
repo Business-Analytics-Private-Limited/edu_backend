@@ -558,6 +558,9 @@ describe('Students', () => {
       ]),
     );
     expect(reasonsOf(4)).toContain('the same student (name, date of birth, phone) as row 2');
+    // Each bad value is reported once (not again by its field rule).
+    expect(reasonsOf(3)).not.toContain('admissionDate must be a date');
+    expect(reasonsOf(3).filter((r: string) => r.startsWith('gender'))).toHaveLength(1);
     const none = await api().get('/api/v1/students?search=Anjali').set(as(ravi)).expect(200);
     expect(none.body.total).toBe(0);
 

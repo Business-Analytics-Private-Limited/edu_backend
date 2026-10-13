@@ -114,12 +114,17 @@ function parseDate(value: string | undefined): string | null {
   return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== iso ? null : iso;
 }
 
-/** Every message of a class-validator result, nested ones (guardians) included. */
-function messages(errors: ValidationError[]): string[] {
-  return errors.flatMap((e) => [
-    ...Object.values(e.constraints ?? {}),
-    ...messages(e.children ?? []),
-  ]);
+/**
+ * Every message of a class-validator result, nested ones (guardians) included, except for the
+ * fields in `skip` (their value was already reported as not understood, e.g. a bad date).
+ */
+function messages(errors: ValidationError[], skip: Set<string>): string[] {
+  return errors
+    .filter((e) => !skip.has(e.property))
+    .flatMap((e) => [
+      ...Object.values(e.constraints ?? {}),
+      ...messages(e.children ?? [], new Set()),
+    ]);
 }
 
 @Injectable()
@@ -452,7 +457,9 @@ export class ImportService {
       const row = index + 2; // as in the spreadsheet: row 1 is the header
       const { candidate, problems } = this.toCandidate(raw);
       const details = plainToInstance(ImportedStudentDto, candidate);
-      problems.push(...messages(validateSync(details)));
+      // A field whose word or date wasn't understood is reported once, not again by its rule.
+      const reported = new Set(problems.map((p) => p.split(/[\s"]/, 1)[0]));
+      problems.push(...messages(validateSync(details), reported));
       problems.push(...checkStudentRules(details));
 
       // Admission numbers
