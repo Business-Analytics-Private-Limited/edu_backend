@@ -2,7 +2,7 @@
  * Helpers shared by the student services: which students a user may see, and the rules for
  * placing a student in a section (an enrolment, ADR-0030).
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { CurrentUser } from '../../common/current-user';
 import { reachOf } from '../../common/scope';
@@ -116,4 +116,45 @@ export async function closePortalLogins(db: Db, studentId: string): Promise<numb
     closed++;
   }
   return closed;
+}
+
+/**
+ * Who holds a roll number among the students CURRENTLY in a section (roll numbers are unique
+ * there, ADR-0030), or null. `exceptEnrolmentId` = the placement being changed itself.
+ */
+export async function rollHolder(
+  db: Db,
+  academicYearId: string,
+  classId: string,
+  rollNo: string | null | undefined,
+  exceptEnrolmentId?: string,
+): Promise<string | null> {
+  if (!rollNo) return null;
+  const taken = await db.enrolment.findFirst({
+    where: {
+      academicYearId,
+      classId,
+      rollNo,
+      status: 'ACTIVE',
+      ...(exceptEnrolmentId && { id: { not: exceptEnrolmentId } }),
+    },
+    select: { student: { select: { fullName: true } } },
+  });
+  return taken ? taken.student.fullName : null;
+}
+
+/** Refuses a roll number that a current student of the section already has, saying who. */
+export async function assertRollFree(
+  db: Db,
+  academicYearId: string,
+  classId: string,
+  rollNo: string | null | undefined,
+  exceptEnrolmentId?: string,
+) {
+  const holder = await rollHolder(db, academicYearId, classId, rollNo, exceptEnrolmentId);
+  if (holder) {
+    throw new ConflictException(
+      `Roll number ${rollNo} is already used in this section by ${holder}`,
+    );
+  }
 }

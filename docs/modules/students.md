@@ -23,7 +23,7 @@
   - Unique in the whole organization either way.
 - **Placements (enrolments) are periods:**
   - a student is in **one section of one branch**, in an academic year, from a date until a date
-  - **changing section** (e.g. Regular → JEE Mains) or **changing branch** ends the current placement the day before and starts a new one, with the date and a reason
+  - **SHUFFLE** (one student, from the profile): another section (e.g. Regular → JEE Mains) or another branch and a section there; it ends the current placement the day before and starts a new one, with the date and a reason (the timeline shows "Shuffled")
   - nothing is overwritten: the profile shows a **timeline**, and attendance before the change stays with the old section
   - this is done **for one student, from the profile**; a change on the placement's own first day simply corrects it
 - **Current and outgoing:**
@@ -37,7 +37,8 @@
 - **Promotion (per branch, from one year to a later one):**
   - for each section, the suggested target follows the **progression** of its year (see [academic.md](academic.md)): Junior › MPC › JEE Mains › A → Senior › MPC › JEE Mains › A; Class 9 › A → Class 10 › A
   - after the final year (Class 10, Senior, Long Term) the students **complete**
-  - the user can change any choice and keep roll numbers
+  - **a whole section, or only the students ticked**: all are ticked at first; untick students to hold them back (they stay in the old year, and can be promoted later)
+  - the user can change any target and keep roll numbers (a roll number already taken in the new section is left empty)
   - every applied promotion is recorded and can be **undone** once, all or nothing, while nothing changed since
 - **Import:**
   - choose **branch → year → the structure level by level → section** on the screen
@@ -68,7 +69,7 @@
 | POST | `/students/:id/enrolments` | `students.student.update`: place a current student without a section `{ academicYearId, classId, rollNo? }` |
 | PATCH | `/students/:id/enrolments/:enrolmentId` | `students.student.update`: `{ rollNo }` |
 | GET | `/promotions/preview?branchId=&fromYearId=&toYearId=` | `students.enrolment.promote` |
-| POST | `/promotions` | `students.enrolment.promote`: `{ branchId, fromYearId, toYearId, mapping: [{ fromSectionId, toSectionId?, complete? }], keepRollNumbers? }` |
+| POST | `/promotions` | `students.enrolment.promote`: `{ branchId, fromYearId, toYearId, mapping: [{ fromSectionId, toSectionId?, complete?, studentIds? }], keepRollNumbers? }` (`studentIds`: only these students of the section) |
 | GET | `/promotions?branchId=` / POST `/promotions/:id/undo` | `students.enrolment.promote` |
 | POST | `/students/import` | `students.student.import` + `.create` at the section's branch: `{ academicYearId, sectionId, fileName?, dryRun?, rows }` → `{ total, importable, imported, excluded[], run }` |
 | GET | `/students/imports?branchId=` / `/students/imports/:id` | `students.student.import` at the branch: import records; one record with its excluded rows and the students it admitted (with missing details) |
@@ -83,7 +84,7 @@
 3. **Placements:**
    - a placement is in a section (last level, in use) of the student's branch, in a year that isn't closed
    - at most one current placement per student
-   - roll numbers are unique among the students currently in a section
+   - roll numbers are unique among the students currently in a section (a clash says who has it)
 4. A section or branch change is never earlier than the current placement; the old placement ends the day before.
 5. A Branch admin sees, admits and changes only their branch's students; a branch change needs the permission at both branches.
 6. Outgoing students can't change section or branch, aren't on registers or in promotion, and get no new portal login.
@@ -100,12 +101,12 @@
 - **Add student:** branch and section chosen step by step; every detail, grouped; father / mother / guardian
 - **Edit student** (`/students/:id/edit`): the same fields
 - **Top rankers:** tabs All / Expert / Medium learner / Slow learner, with the usual filters
-- **Promote**
+- **Promote:** branch, from year (the current one) and to year (the next); one card per section with its students to tick (all at first), the target section suggested; a sticky bar with the count; recent promotions with Undo
 - **Import students:** where, then the file; the admission-number switch; the column list. **Import history** and one import's page (excluded rows, imported students with missing details, download excluded rows)
 - **Student settings:** admission numbers, document types
 - **A student's page:**
   - profile: every detail read-only, with **Edit**; "from import IMP-0001, row 2"
-  - current section, with change section / change branch
+  - current section, with **Shuffle** (another section or branch, in a slide-in panel)
   - timeline
   - mark as left / re-admit
   - profile, guardians, documents, attendance, portal logins

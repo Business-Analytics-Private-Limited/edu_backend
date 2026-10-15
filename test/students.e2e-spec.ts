@@ -369,11 +369,18 @@ describe('Students', () => {
     // Teja had roll 7 in KPHB JEE-A, but has moved on: free again. Now taken:
     const other = await admit({ ...placedIn(ids.KPHB_JEEA) }).expect(201);
     const enrolmentId = other.body.enrolments[0].id;
-    await api()
+    const taken = await api()
       .patch(`/api/v1/students/${other.body.id}/enrolments/${enrolmentId}`)
       .set(as(admin))
       .send({ rollNo: '7' })
       .expect(409);
+    // The message says who has it.
+    expect(taken.body.message).toBe('Roll number 7 is already used in this section by Student');
+    // The same at admission: a clear message instead of a database error.
+    const atAdmission = await admit({ ...placedIn(ids.KPHB_JEEA, '7') }).expect(409);
+    expect(atAdmission.body.message).toBe(
+      'Roll number 7 is already used in this section by Student',
+    );
     expect(res.body.enrolments[0].rollNo).toBe('7');
   });
 

@@ -132,6 +132,37 @@ describe('Promotion', () => {
     });
   });
 
+  it('only the chosen students of a section are promoted; the others stay', async () => {
+    const promote = (mapping: object[]) =>
+      api()
+        .post('/api/v1/promotions')
+        .set(as(lakshmi))
+        .send({ branchId: branch, fromYearId: ids.Y26, toYearId: ids.Y27, mapping })
+        .expect(200);
+    // Nobody chosen in a section: nothing happens there.
+    const none = await promote([
+      { fromSectionId: sections.JRJEE, toSectionId: sections.SRJEE, studentIds: [] },
+    ]);
+    expect(none.body).toMatchObject({ promoted: 0, completed: 0, runId: null });
+
+    // Arun is promoted; Bala, in the same section, stays in 2026-27.
+    const some = await promote([
+      { fromSectionId: sections.JRJEE, toSectionId: sections.SRJEE, studentIds: [ids.Arun] },
+    ]);
+    expect(some.body).toMatchObject({ promoted: 1, completed: 0 });
+    const preview = await api()
+      .get(`/api/v1/promotions/preview?${query()}`)
+      .set(as(lakshmi))
+      .expect(200);
+    const jee = preview.body.rows.find(
+      (r: { from: { id: string } }) => r.from.id === sections.JRJEE,
+    );
+    expect(jee.students.map((s: { fullName: string }) => s.fullName)).toEqual(['Bala']);
+
+    // Undo it, so the next tests start from the same place.
+    await api().post(`/api/v1/promotions/${some.body.runId}/undo`).set(as(lakshmi)).expect(200);
+  });
+
   it('apply: new placements in the new year; Senior and Long Term complete', async () => {
     const res = await api()
       .post('/api/v1/promotions')

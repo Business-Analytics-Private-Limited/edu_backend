@@ -44,6 +44,7 @@ import {
 } from './dto/student.dto';
 import { GuardiansService } from './guardians.service';
 import {
+  assertRollFree,
   checkPlacement,
   closePortalLogins,
   dayBefore,
@@ -168,7 +169,15 @@ export class StudentsService {
       const place = { branchId: branch.id };
       assertCan(actor, 'students.student.create', place);
       await assertBranchInUse(db, branch.id);
-      if (dto.enrolment) await checkPlacement(db, organizationId, branch.id, dto.enrolment);
+      if (dto.enrolment) {
+        await checkPlacement(db, organizationId, branch.id, dto.enrolment);
+        await assertRollFree(
+          db,
+          dto.enrolment.academicYearId,
+          dto.enrolment.classId,
+          dto.enrolment.rollNo,
+        );
+      }
       const problems = checkStudentRules(dto);
       if (problems.length) throw new BadRequestException(problems);
       if (dto.aadhaar) await this.checkAadhaarFree(db, organizationId, dto.aadhaar);
@@ -497,6 +506,7 @@ export class StudentsService {
       academicYearId: current.academicYearId,
       classId: dto.classId,
     });
+    await assertRollFree(db, current.academicYearId, section.id, dto.rollNo, current.id);
     const day = effectiveDay(dto.effectiveOn, current.enrolledOn);
     const tree = await ClassTree.load(db, organizationId);
     const from = tree.label(current.classId);

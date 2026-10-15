@@ -18,10 +18,10 @@ import {
 } from '@nestjs/common';
 import type { CurrentUser } from '../../common/current-user';
 import { assertCan } from '../../common/scope';
-import { Db, PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { EnrolmentDto, UpdateEnrolmentDto } from './dto/student.dto';
-import { checkPlacement, findVisibleStudent, placeOf } from './placement';
+import { assertRollFree, checkPlacement, findVisibleStudent, placeOf } from './placement';
 
 @Injectable()
 export class EnrolmentsService {
@@ -44,7 +44,7 @@ export class EnrolmentsService {
         );
       }
       const { year, section } = await checkPlacement(db, organizationId, student.branchId, dto);
-      await this.checkRollFree(db, year.id, section.id, dto.rollNo);
+      await assertRollFree(db, year.id, section.id, dto.rollNo);
       // From today, but never before the year starts.
       const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
       const enrolment = await db.enrolment.create({
@@ -85,7 +85,7 @@ export class EnrolmentsService {
       if (enrolment.status !== 'ACTIVE') {
         throw new BadRequestException('Only the current placement can be changed');
       }
-      await this.checkRollFree(
+      await assertRollFree(
         db,
         enrolment.academicYearId,
         enrolment.classId,
@@ -105,25 +105,5 @@ export class EnrolmentsService {
       });
       return updated;
     });
-  }
-
-  private async checkRollFree(
-    db: Db,
-    academicYearId: string,
-    classId: string,
-    rollNo: string | null | undefined,
-    exceptId?: string,
-  ) {
-    if (!rollNo) return;
-    const taken = await db.enrolment.findFirst({
-      where: {
-        academicYearId,
-        classId,
-        rollNo,
-        status: 'ACTIVE',
-        ...(exceptId && { id: { not: exceptId } }),
-      },
-    });
-    if (taken) throw new ConflictException(`Roll number ${rollNo} is already used in that section`);
   }
 }

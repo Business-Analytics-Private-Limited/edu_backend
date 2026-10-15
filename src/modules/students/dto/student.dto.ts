@@ -528,6 +528,16 @@ export class SectionChoiceDto {
   @IsOptional()
   @IsBoolean()
   complete?: boolean;
+
+  /**
+   * Only these students of the section (the others stay where they are, e.g. held back).
+   * Leave out to promote the whole section; an empty list promotes nobody from it.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @IsUUID('all', { each: true })
+  studentIds?: string[];
 }
 
 export class ApplyPromotionDto extends PromotionQuery {

@@ -9,7 +9,8 @@
  *      i.e. the year's `next` class, then the same codes below it, then the section with the
  *      same code in the same branch. No `next` (Class 10, Senior, Long Term, the final year) =
  *      the students COMPLETE. Nothing matching = the user chooses.
- *   2. apply: with the user's choices per section (a section, "complete", or nothing = skip):
+ *   2. apply: with the user's choices per section (a section, "complete", or nothing = skip),
+ *      for the whole section or only the students chosen (`studentIds`; the others stay):
  *      the old placement becomes PROMOTED (or COMPLETED), a new placement is created in the "to"
  *      year (roll numbers kept if asked); students who complete become outgoing (COMPLETED).
  *      Students already placed in the "to" year are left alone.
@@ -30,7 +31,7 @@ import { PRESETS } from '../academic/presets';
 import { AuditService } from '../audit/audit.service';
 import { findBranch, findOrganization } from '../organization/places-in-use';
 import { ApplyPromotionDto, PromotionQuery } from './dto/student.dto';
-import { checkPlacement, closePortalLogins } from './placement';
+import { checkPlacement, closePortalLogins, rollHolder } from './placement';
 
 /** One student changed by a promotion (kept in promotion_runs.items for undo). */
 interface RunItem {
@@ -121,6 +122,7 @@ export class PromotionsService {
 
       for (const choice of dto.mapping) {
         if (!choice.toSectionId && !choice.complete) continue; // skip this section
+        if (choice.studentIds?.length === 0) continue; // nobody chosen in this section
         if (choice.toSectionId) {
           await checkPlacement(db, organizationId, branch.id, {
             academicYearId: toYear.id,
@@ -133,6 +135,8 @@ export class PromotionsService {
             branchId: branch.id,
             classId: choice.fromSectionId,
             status: 'ACTIVE',
+            // Only the chosen students, when some were chosen.
+            ...(choice.studentIds && { studentId: { in: choice.studentIds } }),
             student: { status: 'ACTIVE', enrolments: { none: { academicYearId: toYear.id } } },
           },
         });
@@ -157,6 +161,10 @@ export class PromotionsService {
             completed++;
           } else {
             await db.enrolment.update({ where: { id: e.id }, data: { status: 'PROMOTED' } });
+            // Keep the roll number only if nobody in the new section has it already.
+            const keepRoll =
+              dto.keepRollNumbers &&
+              !(await rollHolder(db, toYear.id, choice.toSectionId!, e.rollNo));
             const created = await db.enrolment.create({
               data: {
                 organizationId,
@@ -164,7 +172,7 @@ export class PromotionsService {
                 academicYearId: toYear.id,
                 branchId: branch.id,
                 classId: choice.toSectionId!,
-                rollNo: dto.keepRollNumbers ? e.rollNo : null,
+                rollNo: keepRoll ? e.rollNo : null,
                 enrolledOn: toYear.startsOn,
                 reason: `Promoted from ${fromYear.name}`,
               },
