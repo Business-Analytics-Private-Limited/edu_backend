@@ -130,6 +130,21 @@ describe('Promotion', () => {
       'Senior (2nd Year) › MPC › JEE Mains › A': { kind: 'complete' },
       'Long Term › BiPC › NEET Long Term › A': { kind: 'complete' },
     });
+    // Where a matching section would go (for "Add section"), and the targets' years.
+    const regular = res.body.rows.find(
+      (r: { from: { id: string } }) => r.from.id === sections.JRREG,
+    );
+    expect(regular).toMatchObject({
+      nextPlace: { label: 'Senior (2nd Year) › MPC › Regular (IPE)' },
+      section: { name: 'A', code: 'A' },
+    });
+    const longTerm = res.body.rows.find(
+      (r: { from: { id: string } }) => r.from.id === sections.LTA,
+    );
+    expect(longTerm.nextPlace).toBeNull(); // they complete
+    expect(res.body.sections.find((x: { id: string }) => x.id === sections.SRJEE).yearLabel).toBe(
+      'Senior (2nd Year)',
+    );
   });
 
   it('only the chosen students of a section are promoted; the others stay', async () => {
@@ -198,6 +213,8 @@ describe('Promotion', () => {
       ['2027-28', 'ACTIVE', 'Senior (2nd Year) › MPC › JEE Mains › A', '1'],
       ['2026-27', 'PROMOTED', 'Junior (1st Year) › MPC › JEE Mains › A', '1'],
     ]);
+    // The old placement ends with the old year.
+    expect(arun.body.enrolments[1].endedOn).toBe('2027-03-31T00:00:00.000Z');
     // Completed students are outgoing.
     const outgoing = await api().get('/api/v1/students?show=outgoing').set(as(admin)).expect(200);
     expect(outgoing.body.items.map((s: { fullName: string }) => s.fullName).sort()).toEqual([
@@ -219,6 +236,7 @@ describe('Promotion', () => {
     expect(deepa.body.status).toBe('ACTIVE');
     const arun = await api().get(`/api/v1/students/${ids.Arun}`).set(as(admin)).expect(200);
     expect(arun.body.enrolments.map((e: { status: string }) => e.status)).toEqual(['ACTIVE']);
+    expect(arun.body.enrolments[0].endedOn).toBeNull(); // undo clears the end
 
     // Promote again, then change one student's section: undo is refused.
     const res = await api()

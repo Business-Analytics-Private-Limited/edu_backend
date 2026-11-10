@@ -35,10 +35,11 @@ Each file records one significant decision: the context, the decision, and its c
 | [0027](0027-mandatory-add-only-audit-log.md) | The audit log is mandatory and add-only, and covers logins and document access | Accepted |
 | [0028](0028-login-security.md) | Login security: real visitor addresses, lockout, sessions, forced password change, two-step login | Accepted |
 | [0029](0029-organizations-customize-predefined-roles.md) | Organizations may change the permissions of predefined roles | Accepted |
-| [0030](0030-organization-branches-and-academic-engine.md) | Organization → Branches, and one academic engine shaped by the organization's type | Accepted |
+| [0030](0030-organization-branches-and-academic-engine.md) | Organization → Branches, and one academic engine shaped by the organization's type | Accepted (import of valid rows only: ADR-0031; promotion of chosen students: ADR-0034) |
 | [0031](0031-student-details-and-import-records.md) | More student details with strict rules, sensitive details, import records (valid rows only), top rankers | Accepted |
 | [0032](0032-groups-per-branch.md) | Each branch runs some of the organization's groups (Intermediate) | Accepted |
 | [0033](0033-courses-without-specializations.md) | Courses without specializations (a hidden "whole course" level); editing and deleting courses | Accepted |
+| [0034](0034-promote-chosen-students-and-add-next-year-sections.md) | Promote chosen students or a whole section; add a missing next-year section from the promotion page | Accepted |
 
 Template for new ADRs:
 

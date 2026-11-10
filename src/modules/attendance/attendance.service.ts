@@ -14,6 +14,10 @@
  *   - records are never overwritten: a change makes a new version pointing to the old one.
  *     Changing TODAY's attendance needs "mark"; changing a past day is a correction: it needs
  *     "attendance.record.correct" and a reason;
+ *   - one current record per student and day: a student moved to another section on a day
+ *     that was already marked in the old one keeps that mark. The new section's register shows
+ *     it ("markedIn"), and saving that register moves the record there as a new version. That
+ *     alone is no correction; changing the status is;
  *   - "today" is the date in the organization's time zone.
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
@@ -43,6 +47,7 @@ import { sectionLevel } from '../academic/presets';
 import { assertBranchInUse, findBranch, findOrganization } from '../organization/places-in-use';
 
 type Counts = Record<AttendanceStatus, number>;
+type Entry = MarkSectionDto['entries'][number];
 const emptyCounts = (): Counts => ({ PRESENT: 0, ABSENT: 0, LATE: 0, HALF_DAY: 0, ON_LEAVE: 0 });
 
 /**
@@ -76,10 +81,7 @@ export class AttendanceService {
       const students = ctx.year
         ? await this.studentsOf(db, ctx.section.id, ctx.year.id, ctx.date)
         : [];
-      const records = await db.attendanceRecord.findMany({
-        where: { classId, date: ctx.date, period: 0, isCurrent: true },
-      });
-      const byStudent = new Map(records.map((r) => [r.studentId, r]));
+      const { records, byStudent } = await this.recordsOfDay(db, ctx, students);
       const lastMarked = records.reduce<(typeof records)[number] | null>(
         (latest, r) => (!latest || r.createdAt > latest.createdAt ? r : latest),
         null,
@@ -109,6 +111,8 @@ export class AttendanceService {
             status: r?.status ?? null,
             remark: r?.remark ?? null,
             corrected: r?.correctedFromId !== null && r?.correctedFromId !== undefined,
+            // Marked that day in the section they moved from (saving this register moves it here).
+            markedIn: r && r.classId !== classId ? ctx.tree.label(r.classId) : null,
           };
         }),
       };
@@ -143,10 +147,11 @@ export class AttendanceService {
         throw new BadRequestException('A student appears twice');
       }
 
-      const current = await db.attendanceRecord.findMany({
-        where: { classId: dto.classId, date: ctx.date, period: 0, isCurrent: true },
-      });
-      const currentByStudent = new Map(current.map((r) => [r.studentId, r]));
+      const { records: current, byStudent: currentByStudent } = await this.recordsOfDay(
+        db,
+        ctx,
+        students,
+      );
       if (current.length === 0 && dto.entries.length !== students.length) {
         throw new BadRequestException(
           `Mark every student of the section (${students.length - dto.entries.length} missing)`,
@@ -154,13 +159,19 @@ export class AttendanceService {
       }
 
       const isToday = dto.date === ctx.today;
+      // A record from the section the student moved from goes along with them (a new version
+      // here); that alone is no correction. A different status or remark is.
+      const movedHere = (r: { classId: string }) => r.classId !== dto.classId;
+      const differs = (r: { status: AttendanceStatus; remark: string | null }, e: Entry) =>
+        r.status !== e.status || (r.remark ?? '') !== (e.remark ?? '');
       const changes = dto.entries.filter((e) => {
         const r = currentByStudent.get(e.studentId);
-        return r && (r.status !== e.status || (r.remark ?? '') !== (e.remark ?? ''));
+        return r && (movedHere(r) || differs(r, e));
       });
+      const corrections = changes.filter((e) => differs(currentByStudent.get(e.studentId)!, e));
       const additions = dto.entries.filter((e) => !currentByStudent.has(e.studentId));
 
-      if (changes.length > 0 && !isToday) {
+      if (corrections.length > 0 && !isToday) {
         assertCan(actor, 'attendance.record.correct', ctx.place);
         if (!dto.reason?.trim()) {
           throw new BadRequestException("Give a reason for changing a past day's attendance");
@@ -197,14 +208,18 @@ export class AttendanceService {
             status: e.status,
             remark: e.remark,
             correctedFromId: old.id,
-            correctionReason: isToday ? (dto.reason ?? 'Changed the same day') : dto.reason,
+            correctionReason: movedHere(old)
+              ? dto.reason?.trim() || `Moved here from ${ctx.tree.label(old.classId)}`
+              : isToday
+                ? (dto.reason ?? 'Changed the same day')
+                : dto.reason,
           },
         });
       }
 
       if (additions.length + changes.length > 0) {
         await this.audit.log(db, actor, {
-          action: changes.length > 0 && !isToday ? 'correct attendance' : 'mark attendance',
+          action: corrections.length > 0 && !isToday ? 'correct attendance' : 'mark attendance',
           entity: 'attendance',
           entityId: ctx.section.id,
           ...ctx.place,
@@ -429,6 +444,7 @@ export class AttendanceService {
     return {
       section,
       label: tree.label(section.id),
+      tree,
       organization,
       date,
       day,
@@ -445,6 +461,32 @@ export class AttendanceService {
     if (!ctx.year) return 'No academic year covers this day';
     if (ctx.year.status === 'CLOSED') return `The academic year ${ctx.year.name} is closed`;
     return null;
+  }
+
+  /**
+   * The current records of a register's day: `records` = those marked in this section (was the
+   * day marked here?), `byStudent` = each listed student's record wherever it was marked. A
+   * student who moved here that day may already be marked in the section they came from; there
+   * is only one current record per student and day.
+   */
+  private async recordsOfDay(
+    db: Db,
+    ctx: Awaited<ReturnType<AttendanceService['context']>>,
+    students: { studentId: string }[],
+  ) {
+    const listed = new Set(students.map((s) => s.studentId));
+    const found = await db.attendanceRecord.findMany({
+      where: {
+        date: ctx.date,
+        period: 0,
+        isCurrent: true,
+        OR: [{ classId: ctx.section.id }, { studentId: { in: [...listed] } }],
+      },
+    });
+    return {
+      records: found.filter((r) => r.classId === ctx.section.id),
+      byStudent: new Map(found.filter((r) => listed.has(r.studentId)).map((r) => [r.studentId, r])),
+    };
   }
 
   /** The students placed in a section on a day (ADR-0030), in roll number order. */

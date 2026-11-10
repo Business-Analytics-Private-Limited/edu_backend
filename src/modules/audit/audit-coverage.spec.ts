@@ -23,6 +23,13 @@ const ALLOWED: Record<string, string> = {
     'built-in years of a new organization (logged with it) or the startup sync',
   'academic/structure.service.ts :: ensureChild': 'part of set groups / add stream, which log',
   'academic/structure.service.ts :: deleteIfEmpty': 'part of the deletes that call it, which log',
+  'academic/structure.service.ts :: createWholeCourse':
+    'part of add course / change course (years without specializations), which log',
+  'academic/structure.service.ts :: setYears':
+    'part of add / change course and add specialization, which log',
+  'academic/structure.service.ts :: removeSubtree':
+    'part of delete course, fewer years and the first specialization, which log',
+  'academic/branch-groups.ts :: giveBranchAllGroups': 'part of adding a branch, which logs',
   'roles/predefined-roles.service.ts :: copyToOrganization': 'part of creating an organization',
   'roles/predefined-roles.service.ts :: ensureTemplates': 'startup sync of the code, no person',
   'students/admission-numbers.ts :: admissionNumberFor': 'part of admission / import, which log',

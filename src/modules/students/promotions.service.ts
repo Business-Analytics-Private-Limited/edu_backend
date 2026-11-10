@@ -90,6 +90,12 @@ export class PromotionsService {
         .map(([sectionId, list]) => ({
           from: { id: sectionId, label: tree.label(sectionId) },
           suggestion: suggest(tree, sectionId, yearLevel),
+          // Where a matching section would go in the next year (for "Add section"), if any.
+          nextPlace: nextPlaceOf(tree, sectionId, yearLevel),
+          // The section's year-level class and the one after it, to group the targets by year.
+          yearClassId: tree.atLevel(sectionId, yearLevel)?.id ?? null,
+          nextYearClassId: tree.atLevel(sectionId, yearLevel)?.nextClassId ?? null,
+          section: { name: tree.get(sectionId)?.name ?? '', code: tree.get(sectionId)?.code ?? '' },
           students: list
             .filter((e) => !alreadyPlaced.has(e.studentId))
             .map((e) => ({ ...e.student, rollNo: e.rollNo })),
@@ -102,10 +108,18 @@ export class PromotionsService {
         fromYear: { id: fromYear.id, name: fromYear.name },
         toYear: { id: toYear.id, name: toYear.name },
         rows,
-        // Every section of the branch in use, as choices for "to".
+        // Every section of the branch in use, as choices for "to", with its year (for grouping).
         sections: tree.classes
           .filter((c) => c.branchId === branch.id && c.isActive)
-          .map((c) => ({ id: c.id, label: tree.label(c.id) }))
+          .map((c) => {
+            const year = tree.atLevel(c.id, yearLevel);
+            return {
+              id: c.id,
+              label: tree.label(c.id),
+              yearClassId: year?.id ?? null,
+              yearLabel: year ? tree.label(year.id) : '',
+            };
+          })
           .sort((a, b) => a.label.localeCompare(b.label)),
       };
     });
@@ -142,8 +156,13 @@ export class PromotionsService {
         });
 
         for (const e of enrolments) {
+          // The old placement ends with the old year (shown in the timeline; undo clears it).
+          const endedOn = e.enrolledOn > fromYear.endsOn ? e.enrolledOn : fromYear.endsOn;
           if (choice.complete) {
-            await db.enrolment.update({ where: { id: e.id }, data: { status: 'COMPLETED' } });
+            await db.enrolment.update({
+              where: { id: e.id },
+              data: { status: 'COMPLETED', endedOn },
+            });
             await db.student.update({ where: { id: e.studentId }, data: { status: 'COMPLETED' } });
             await db.studentStatusChange.create({
               data: {
@@ -160,7 +179,10 @@ export class PromotionsService {
             items.push({ studentId: e.studentId, oldEnrolmentId: e.id, newEnrolmentId: null });
             completed++;
           } else {
-            await db.enrolment.update({ where: { id: e.id }, data: { status: 'PROMOTED' } });
+            await db.enrolment.update({
+              where: { id: e.id },
+              data: { status: 'PROMOTED', endedOn },
+            });
             // Keep the roll number only if nobody in the new section has it already.
             const keepRoll =
               dto.keepRollNumbers &&
@@ -294,7 +316,7 @@ export class PromotionsService {
         }
         await db.enrolment.update({
           where: { id: item.oldEnrolmentId },
-          data: { status: 'ACTIVE' },
+          data: { status: 'ACTIVE', endedOn: null },
         });
       }
       await db.promotionRun.update({
@@ -334,6 +356,27 @@ export class PromotionsService {
     }
     return { branch, fromYear, toYear };
   }
+}
+
+/**
+ * The class in the NEXT year under which a section like this one would sit (the year's `next`,
+ * then the same codes below it), e.g. Senior › MPC › JEE Mains for Junior › MPC › JEE Mains › A.
+ * null when there is no next year (the students complete) or that path doesn't exist there.
+ */
+function nextPlaceOf(
+  tree: ClassTree,
+  sectionId: string,
+  yearLevel: number,
+): { id: string; label: string } | null {
+  const path = tree.path(sectionId);
+  const yearIndex = path.findIndex((c) => c.level === yearLevel);
+  if (yearIndex < 0 || !path[yearIndex].nextClassId) return null;
+  let current = tree.get(path[yearIndex].nextClassId!);
+  for (const step of path.slice(yearIndex + 1, -1)) {
+    if (!current) return null;
+    current = tree.children(current.id).find((c) => c.code === step.code && c.isActive);
+  }
+  return current ? { id: current.id, label: tree.label(current.id) } : null;
 }
 
 /**

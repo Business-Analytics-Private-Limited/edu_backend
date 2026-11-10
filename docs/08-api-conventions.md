@@ -115,7 +115,7 @@ Errors use RFC 9457 `application/problem+json` with a stable `code`:
 | 403 | `permission_denied` | None of the user's roles grants the permission |
 | 404 | `not_found` | The record doesn't exist **or is outside the user's scope** (never reveal that it exists) |
 | 409 | `version_conflict` | `If-Match` version is stale |
-| 409 | `conflict` | Unique rule violated (e.g. admission number taken) |
+| 409 | `conflict` | Unique rule violated (e.g. admission number taken); the message says what is taken, e.g. "A role with this name already exists" (`common/filters/prisma-exception.filter.ts`: row security hides the column, so the message comes from the model) |
 | 422 | `validation_failed` | Body fails the schema or a business rule |
 | 429 | `rate_limited` | Too many requests |
 | 500 | `internal_error` | Unexpected; details only in logs, never in the response |

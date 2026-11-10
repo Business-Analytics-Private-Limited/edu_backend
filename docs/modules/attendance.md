@@ -15,6 +15,7 @@
 - Nothing is overwritten: each change is a new version; the old one is kept.
 - Only **working days**: not a weekly off day, not a holiday (Academic → Calendar), not in the future, inside the academic year.
 - **A section's register on a day** = the students whose placement in that section covers that day: a student who changed section on 15 July is in the old register until 14 July (ADR-0030).
+- **Moved on a day that was already marked:** the student keeps the mark from the old section. The new section's register shows it ("already marked in …"), and saving that register moves the record there as a new version. That alone is no correction; changing the status on a past day is.
 - **Today's overview** per branch shows which sections are marked; **reports** give each student's counts and percentage over any period.
 
 ## Endpoints (`/api/v1`)
@@ -34,7 +35,7 @@
 2. The first marking of a day covers every student of the section.
 3. Same-day changes: `mark`. Past days: `correct` + reason. Older than the correction window: refused (unless `attendance.policy.update`).
 4. Only working days; never the future; inside an academic year that isn't closed.
-5. One current record per student, day and period (also a database index); changes are versions.
+5. One current record per student, day and period (also a database index); changes are versions. A student moved to another section that day keeps their record: the new register shows it (`markedIn`) and takes it over when saved.
 6. Percentage = (present + late + ½ half day) ÷ (present + late + half day + absent); leave doesn't count.
 7. Teachers and branch admins work only at their own branch; another organization sees nothing.
 

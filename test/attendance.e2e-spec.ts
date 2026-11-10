@@ -326,6 +326,72 @@ describe('Attendance', () => {
     expect(await names(ids.KKP_B, day(1))).toEqual([]);
   });
 
+  it('a student moved on a day already marked keeps that mark; the new register takes it over', async () => {
+    const roster = async (classId: string, date: string) =>
+      (
+        await api()
+          .get(`/api/v1/attendance/roster?classId=${classId}&date=${date}`)
+          .set(as(jaya))
+          .expect(200)
+      ).body;
+    // Chitra was marked present in A this morning, then moved to B from today (test above).
+    const before = await roster(ids.KKP_B, day(0));
+    expect(before.marked).toBe(false); // nothing marked in B itself yet
+    expect(before.students[0]).toMatchObject({
+      fullName: 'Chitra',
+      status: 'PRESENT',
+      markedIn: expect.stringContaining('Section A'),
+    });
+    // B's first marking takes her record over: a new version in B, A's stays in the history.
+    const saved = await api()
+      .post('/api/v1/attendance/markings')
+      .set(as(jaya))
+      .send({
+        classId: ids.KKP_B,
+        date: day(0),
+        entries: [{ studentId: students[2], status: 'PRESENT' }],
+      })
+      .expect(200);
+    expect(saved.body).toEqual({ marked: 0, changed: 1 });
+    const after = await roster(ids.KKP_B, day(0));
+    expect(after.marked).toBe(true);
+    expect(after.students[0]).toMatchObject({ status: 'PRESENT', markedIn: null, corrected: true });
+    const today = await api()
+      .get(`/api/v1/students/${students[2]}/attendance?from=${day(0)}&to=${day(0)}`)
+      .set(as(ravi))
+      .expect(200);
+    expect(today.body.days).toHaveLength(1);
+    expect(today.body.days[0].correctionReason).toMatch(/^Moved here from .*Section A/);
+
+    // Moved with an earlier date: the same status goes along without a correction; a
+    // different one on a past day is a correction (permission and reason).
+    await api()
+      .post(`/api/v1/students/${students[1]}/change-section`)
+      .set(as(ravi))
+      .send({ classId: ids.KKP_B, effectiveOn: day(1), reason: 'Moved to B' })
+      .expect(200);
+    const yesterday = await roster(ids.KKP_B, day(1));
+    expect(yesterday.students).toEqual([
+      expect.objectContaining({
+        fullName: 'Bhavya',
+        status: 'PRESENT',
+        markedIn: expect.any(String),
+      }),
+    ]);
+    const absent = {
+      classId: ids.KKP_B,
+      date: day(1),
+      entries: [{ studentId: students[1], status: 'ABSENT' }],
+    };
+    await api().post('/api/v1/attendance/markings').set(as(jaya)).send(absent).expect(403);
+    await api()
+      .post('/api/v1/attendance/markings')
+      .set(as(jaya))
+      .send({ ...absent, entries: [{ studentId: students[1], status: 'PRESENT' }] })
+      .expect(200);
+    expect((await roster(ids.KKP_B, day(1))).students[0]).toMatchObject({ markedIn: null });
+  });
+
   it('another organization sees none of it', async () => {
     await api()
       .get(`/api/v1/attendance/roster?classId=${ids.KKP_A}&date=${day(0)}`)

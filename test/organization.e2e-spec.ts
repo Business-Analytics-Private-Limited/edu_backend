@@ -95,6 +95,13 @@ describe('Organization area', () => {
       .set(as(adminA))
       .send({ name: 'Teacher', permissions: ['platform.branch.view'] })
       .expect(201);
+    // The same name again: a clear message, though row security hides the column.
+    const again = await api()
+      .post('/api/v1/roles')
+      .set(as(adminA))
+      .send({ name: 'Teacher', permissions: ['platform.branch.view'] })
+      .expect(409);
+    expect(again.body.message).toBe('A role with this name already exists');
 
     await api()
       .post('/api/v1/users')

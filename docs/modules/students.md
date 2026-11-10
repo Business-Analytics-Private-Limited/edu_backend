@@ -5,7 +5,7 @@
 | Status | **Built** |
 | Code | `src/modules/students/` |
 | Tables | `students`, `student_status_changes`, `guardians`, `student_guardians`, `enrolments`, `admission_sequences`, `promotion_runs`, `import_runs`, `document_types`, `student_documents`; `organizations.admission_numbering`, `admission_no_pattern` |
-| Decisions | ADR-0020, ADR-0030 (branches, placements as periods, outgoing students, import into a section, admission numbering), ADR-0031 (details and their rules, sensitive details, import records, top rankers) |
+| Decisions | ADR-0020, ADR-0030 (branches, placements as periods, outgoing students, import into a section, admission numbering), ADR-0031 (details and their rules, sensitive details, import records, top rankers), ADR-0034 (promote chosen students or a whole section; add a missing next-year section from the promotion page) |
 | Switched on by | the super admin, per organization (module key `students`, needs `academic`) |
 
 ## In plain words
@@ -39,6 +39,9 @@
   - after the final year (Class 10, Senior, Long Term) the students **complete**
   - **a whole section, or only the students ticked**: all are ticked at first; untick students to hold them back (they stay in the old year, and can be promoted later)
   - the user can change any target and keep roll numbers (a roll number already taken in the new section is left empty)
+  - the targets are grouped by year: the **next year** first, then the **same year** (to repeat it), then any others; **Complete** last
+  - when the branch has no section to match in the next year yet (e.g. no Senior sections), the card says so and offers **Add section** there, pre-filled with the same name and code (needs `academic.structure.create` at the branch; others are told who can); once added, it is the suggestion
+  - the old placement ends on the last day of the "from" year (or the day it began, if that is later); an undo makes it current again
   - every applied promotion is recorded and can be **undone** once, all or nothing, while nothing changed since
 - **Import:**
   - choose **branch → year → the structure level by level → section** on the screen
@@ -68,7 +71,7 @@
 | POST / PATCH / DELETE | `/students/:id/guardians[/:guardianId]` | `students.student.update` |
 | POST | `/students/:id/enrolments` | `students.student.update`: place a current student without a section `{ academicYearId, classId, rollNo? }` |
 | PATCH | `/students/:id/enrolments/:enrolmentId` | `students.student.update`: `{ rollNo }` |
-| GET | `/promotions/preview?branchId=&fromYearId=&toYearId=` | `students.enrolment.promote` |
+| GET | `/promotions/preview?branchId=&fromYearId=&toYearId=` | `students.enrolment.promote`: per section its students, the suggestion, its year and next year (`yearClassId`, `nextYearClassId`), and `nextPlace` (where the matching next-year section would go, when it is missing); the target sections with their year (`yearClassId`, `yearLabel`) |
 | POST | `/promotions` | `students.enrolment.promote`: `{ branchId, fromYearId, toYearId, mapping: [{ fromSectionId, toSectionId?, complete?, studentIds? }], keepRollNumbers? }` (`studentIds`: only these students of the section) |
 | GET | `/promotions?branchId=` / POST `/promotions/:id/undo` | `students.enrolment.promote` |
 | POST | `/students/import` | `students.student.import` + `.create` at the section's branch: `{ academicYearId, sectionId, fileName?, dryRun?, rows }` → `{ total, importable, imported, excluded[], run }` |
@@ -91,7 +94,7 @@
 7. **Promotion:**
    - goes to a LATER year that isn't closed
    - students already placed in that year are left alone
-   - old placements become PROMOTED (or COMPLETED for those who complete)
+   - old placements become PROMOTED (or COMPLETED for those who complete) and end on the last day of the "from" year; an undo makes them current again
 8. Import saves the valid rows and excludes the rest with reasons (a dry run saves nothing); duplicates are excluded; at most 2000 rows; each import is recorded (IMP-0001 …) and can't be undone.
 9. Another organization sees none of it; every change goes to the audit log with its branch.
 
@@ -101,7 +104,7 @@
 - **Add student:** branch and section chosen step by step; every detail, grouped; father / mother / guardian
 - **Edit student** (`/students/:id/edit`): the same fields
 - **Top rankers:** tabs All / Expert / Medium learner / Slow learner, with the usual filters
-- **Promote:** branch, from year (the current one) and to year (the next); one card per section with its students to tick (all at first), the target section suggested; a sticky bar with the count; recent promotions with Undo
+- **Promote:** branch, from year (the current one) and to year (the next), shown as soon as one changes; one card per section with its students to tick (all at first), the target section suggested and the list grouped by year; **Add section** on a card whose next-year section is missing; a sticky bar with the count; recent promotions with Undo
 - **Import students:** where, then the file; the admission-number switch; the column list. **Import history** and one import's page (excluded rows, imported students with missing details, download excluded rows)
 - **Student settings:** admission numbers, document types
 - **A student's page:**

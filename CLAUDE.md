@@ -25,6 +25,7 @@ Two developers: the project owner and Claude, with interns and freshers joining.
 - **2026-10-13: student details, sensitive details, import records, top rankers** (ADR-0031): optional details with one set of strict rules (`students/student-rules.ts`) for the form, editing and import; `students.sensitive.view`; imports save the valid rows and record the excluded ones (IMP-0001 …, no file kept, no undo); top rankers with learner levels.
 - **2026-10-13: groups per branch** (ADR-0032): each branch of an Intermediate organization runs some of the organization's groups (`branch_groups`); sections only under those.
 - **2026-10-14: courses without specializations** (ADR-0033): a hidden "whole course" level (`classes.placeholder`), never shown in names; edit / delete courses and specializations (`/academic-structure/programmes/:id`).
+- **2026-11-10: promotion of chosen students or a whole section** (ADR-0034): `studentIds` per section; targets grouped by year; a missing next-year section is added from the promotion page (`nextPlace` in the preview); old placements end on the year's last day; roll-number clashes say who has the number. Also: a student moved on a day already marked keeps that mark (the new register takes it over, `markedIn`); duplicate names, emails and codes say what is taken although row security hides the column; audit-coverage exceptions for the course helpers. 127 e2e and 17 unit tests pass.
 - Update this section at the end of every working session.
 
 ## Keep it simple
