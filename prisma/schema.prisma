@@ -1,0 +1,940 @@
+// =================================================================================================
+// DATABASE SCHEMA: every table of EduPlatform, in one file.
+//
+// How to change it:
+//   1. edit this file
+//   2. npm run db:migration -- <what_changed>     → writes prisma/migrations/<date>_<what_changed>/migration.sql
+//   3. if you added a table with organization_id, add its row-security policy to that SQL file
+//      (copy the pattern from the first migration)
+//   4. npm run db:migrate                       → applies it to your database
+//
+// Naming: models are PascalCase here (Organization); tables and columns are snake_case in
+// PostgreSQL (organizations, organization_id) through @@map / @map.
+// =================================================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // The app connects as edu_app: a limited role that row security applies to.
+  url       = env("DATABASE_URL")
+  // Migrations connect as edu_owner, the only role allowed to change tables.
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// -------------------------------------------------------------------------------------------------
+// SUPER ADMIN SIDE: EduPlatform staff who manage all organizations.
+// -------------------------------------------------------------------------------------------------
+
+/// People at EduPlatform who use the super admin console. Not part of any organization.
+model SuperAdmin {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  name               String
+  email              String    @unique
+  passwordHash       String    @map("password_hash")
+  isActive           Boolean   @default(true) @map("is_active")
+  /// A password chosen by someone else (the seed): it must be changed at the next login.
+  mustChangePassword Boolean   @default(true) @map("must_change_password")
+  /// Failed logins in a row; at 5 the account is locked for 15 minutes (ADR-0028).
+  failedLogins       Int       @default(0) @map("failed_logins")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz
+  /// Two-step login: the authenticator app's secret, ENCRYPTED (src/common/secret-box.ts).
+  totpSecret         String?   @map("totp_secret")
+  totpEnabled        Boolean   @default(false) @map("totp_enabled")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  sessions LoginSession[]
+
+  @@map("super_admins")
+}
+
+/// The modules an organization can be given (Students, Attendance, ...). Filled by prisma/seed.ts.
+model Module {
+  key         String   @id // e.g. "students"
+  name        String
+  description String
+  /// Modules that must be switched on first, e.g. attendance needs ["academic", "students"].
+  dependsOn   String[] @map("depends_on")
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  organizations OrganizationModule[]
+
+  @@map("modules")
+}
+
+/// The PREDEFINED ROLES (Director, Principal, ...), managed by the super admin. Every
+/// organization gets a copy of each (Role.templateKey), which it may customize (ADR-0029).
+/// The built-in ones come from src/modules/roles/predefined-roles.ts when the app starts; the
+/// super admin can create more (ADR-0030).
+model RoleTemplate {
+  key         String   @id // e.g. "principal"
+  name        String
+  description String
+  permissions String[]
+  /// false for Parent and Student: those logins come from a student's record, not the Users page.
+  assignable  Boolean  @default(true)
+  /// true = comes with EduPlatform (predefined-roles.ts) and can't be deleted; false = created
+  /// by the super admin in the console.
+  builtIn     Boolean  @default(true) @map("built_in")
+  sortOrder   Int      @default(0) @map("sort_order")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  roles Role[]
+
+  @@map("role_templates")
+}
+
+// -------------------------------------------------------------------------------------------------
+// TENANTS: an organization (a school group, a college society, ...) and everything it owns.
+// Every table below has organization_id, and row security keeps organizations apart.
+// -------------------------------------------------------------------------------------------------
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED // its users can't log in; data is kept
+}
+
+/// What kind of institution an organization is (ADR-0030). It decides the academic structure's
+/// levels (src/modules/academic/presets.ts) and is chosen by the super admin.
+enum OrganizationType {
+  SCHOOL // Nursery ... Class 10: Class -> Section
+  INTERMEDIATE // Junior / Senior / Long Term -> Group -> Stream -> Section
+  DEGREE // Course -> Specialization -> Year -> Section
+  ENGINEERING // the same as DEGREE (B.Tech -> CSE -> 1st Year -> Section)
+}
+
+/// How a new student gets an admission number (ADR-0030).
+enum AdmissionNumbering {
+  AUTOMATIC // from the organization's pattern; numbers typed in are ignored
+  MANUAL // typed in the admission form / the import sheet; required
+}
+
+/// A customer of EduPlatform: one organization = one tenant, with one or more branches.
+model Organization {
+  id                       String             @id @default(uuid(7)) @db.Uuid
+  name                     String
+  /// Short unique name, e.g. "sri-vidya". Lowercase letters, digits and dashes.
+  slug                     String             @unique
+  /// Short code, e.g. "SVJC": used in admission numbers ({CODE}).
+  code                     String
+  type                     OrganizationType
+  contactName              String?            @map("contact_name")
+  contactEmail             String?            @map("contact_email")
+  contactPhone             String?            @map("contact_phone")
+  status                   OrganizationStatus @default(ACTIVE)
+  /// The names of the academic structure's levels, top to bottom (the number is fixed by the type;
+  /// the organization may rename them), e.g. ["Year", "Group", "Stream", "Section"].
+  levelNames               String[]           @map("level_names")
+  /// Days without classes every week: 0 = Sunday ... 6 = Saturday.
+  weeklyOffDays            Int[]              @default([0]) @map("weekly_off_days")
+  /// Decides what "today" is (attendance), e.g. "Asia/Kolkata".
+  timeZone                 String             @default("Asia/Kolkata") @map("time_zone")
+  /// Attendance: how many days back a past day may still be marked or corrected.
+  attendanceCorrectionDays Int                @default(7) @map("attendance_correction_days")
+  admissionNumbering       AdmissionNumbering @default(MANUAL) @map("admission_numbering")
+  /// For AUTOMATIC numbering, e.g. "{CODE}{YY}{SEQ:4}" -> "SVJC260001".
+  admissionNoPattern       String?            @map("admission_no_pattern")
+  createdAt                DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  modules   OrganizationModule[]
+  branches  Branch[]
+  roles     Role[]
+  users     User[]
+  userRoles UserRole[]
+
+  academicYears AcademicYear[]
+  classes       Class[]
+  subjects      Subject[]
+  classSubjects ClassSubject[]
+  holidays      Holiday[]
+
+  students           Student[]
+  studentStatuses    StudentStatusChange[]
+  promotionRuns      PromotionRun[]
+  importRuns         ImportRun[]
+  branchGroups       BranchGroup[]
+  attendanceRecords  AttendanceRecord[]
+  storedFiles        StoredFile[]
+  documentTypes      DocumentType[]
+  studentDocuments   StudentDocument[]
+  admissionSequences AdmissionSequence[]
+  guardians          Guardian[]
+  studentGuardians   StudentGuardian[]
+  enrolments         Enrolment[]
+
+  @@map("organizations")
+}
+
+/// Which modules the super admin switched on for an organization.
+model OrganizationModule {
+  organizationId String   @map("organization_id") @db.Uuid
+  moduleKey      String   @map("module_key")
+  enabled        Boolean  @default(true)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  module       Module       @relation(fields: [moduleKey], references: [key])
+
+  @@id([organizationId, moduleKey])
+  @@map("organization_modules")
+}
+
+/// Whether a branch is in use (ADR-0026). An INACTIVE branch keeps its records, which can still
+/// be read, but nothing new happens there; it is never deleted while it has data.
+enum PlaceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// A location of the organization, e.g. "KPHB" or "Dwarakanagar" (ADR-0030). Only the super admin
+/// adds, deactivates and deletes branches; the organization may rename them.
+model Branch {
+  id             String      @id @default(uuid(7)) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  name           String
+  /// Short code, unique in the organization, e.g. "KPHB" ({BRANCH} in admission numbers).
+  code           String
+  status         PlaceStatus @default(ACTIVE)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  userRoles    UserRole[]
+  classes      Class[]
+  holidays     Holiday[]
+  students     Student[]
+  enrolments   Enrolment[]
+  groups       BranchGroup[]
+
+  @@unique([organizationId, code])
+  @@map("branches")
+}
+
+/// Intermediate: the groups (MPC, BiPC, CEC, HEC) a branch runs, out of the organization's
+/// (ADR-0032). Sections at the branch can only be made under these groups.
+model BranchGroup {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  /// The group's code, e.g. "MPC" (the same group exists under Junior, Senior and Long Term).
+  groupCode      String   @map("group_code")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, groupCode])
+  @@index([organizationId])
+  @@map("branch_groups")
+}
+
+/// A set of permissions, e.g. "Organization admin" or "Teacher". Each organization has its own.
+model Role {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  description    String?
+  /// Permission keys, e.g. ["access.user.view", "students.student.create"].
+  /// The full list is in src/modules/roles/permissions.ts.
+  permissions    String[]
+  /// Set for a predefined role (copy of a RoleTemplate); empty for the organization's own roles.
+  templateKey    String?  @map("template_key")
+  /// The organization changed this predefined role's permissions (ADR-0029): the super admin's
+  /// changes no longer overwrite them, until it is reset to EduPlatform's version.
+  customized     Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  template     RoleTemplate? @relation(fields: [templateKey], references: [key], onDelete: Restrict)
+  users        UserRole[]
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, templateKey])
+  @@map("roles")
+}
+
+/// STAFF works in the web app with roles; PARENT and STUDENT use the portal and only see the
+/// students they are linked to (ADR-0022).
+enum UserKind {
+  STAFF
+  PARENT
+  STUDENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE // can't log in
+}
+
+/// A person who logs in to an organization: admins, office staff, teachers.
+model User {
+  id                 String     @id @default(uuid(7)) @db.Uuid
+  organizationId     String     @map("organization_id") @db.Uuid
+  name               String
+  /// Login email, unique across EduPlatform.
+  email              String     @unique
+  passwordHash       String     @map("password_hash")
+  status             UserStatus @default(ACTIVE)
+  kind               UserKind   @default(STAFF)
+  /// A parent's login: the guardian record (they see all of that guardian's children).
+  guardianId         String?    @unique @map("guardian_id") @db.Uuid
+  /// A student's login: their own record.
+  studentId          String?    @unique @map("student_id") @db.Uuid
+  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz
+  /// A temporary password from an admin: it must be changed at the next login (ADR-0028).
+  mustChangePassword Boolean    @default(true) @map("must_change_password")
+  /// Failed logins in a row; at 5 the account is locked for 15 minutes.
+  failedLogins       Int        @default(0) @map("failed_logins")
+  lockedUntil        DateTime?  @map("locked_until") @db.Timestamptz
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  roles        UserRole[]
+  sessions     LoginSession[]
+  guardian     Guardian?      @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+  student      Student?       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+/// Which roles a user has, and WHERE each one applies (a "role assignment", ADR-0030):
+///   no branch  -> the whole organization
+///   branchId   -> one branch only
+/// A user can have several, e.g. Principal AND Branch admin at KPHB, Senior faculty at two
+/// branches. They may do what each role allows, in that role's place.
+model UserRole {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  userId         String  @map("user_id") @db.Uuid
+  roleId         String  @map("role_id") @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  branchId       String? @map("branch_id") @db.Uuid
+
+  user         User         @relation(fields: [userId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([roleId])
+  @@index([organizationId])
+  @@index([branchId])
+  @@map("user_roles")
+}
+
+/// Who changed what, and when. Written by AuditService for every create, update and delete.
+/// Add-only: the app can't change or delete entries (ADR-0027).
+model AuditLog {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  /// The organization the change belongs to (empty for super admin actions on the platform).
+  organizationId String?  @map("organization_id") @db.Uuid
+  actorType      String   @map("actor_type") // "super_admin", "user" or "unknown" (failed login)
+  /// Empty only for a failed login with an unknown email.
+  actorId        String?  @map("actor_id") @db.Uuid
+  /// The person's name at the time of the change, so the log reads "Ravi Kumar", not an id.
+  actorName      String?  @map("actor_name")
+  /// The branch the change happened at, so branch admins see their own part of the log.
+  /// A plain id (no foreign key): the log stays even if the branch is deleted.
+  branchId       String?  @map("branch_id") @db.Uuid
+  action         String // e.g. "create", "update", "delete", "suspend"
+  entity         String // e.g. "branch"
+  entityId       String?  @map("entity_id")
+  details        Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([organizationId, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// -------------------------------------------------------------------------------------------------
+// ACADEMIC MODULE (ADR-0019, ADR-0030): academic years and the academic structure.
+// Only for organizations that have the Academic module switched on.
+// -------------------------------------------------------------------------------------------------
+
+enum AcademicYearStatus {
+  PLANNED
+  ACTIVE
+  CLOSED
+}
+
+/// The organization's academic year, e.g. "2026-27" from 1 June 2026 to 31 March 2027, shared by
+/// all branches. At most one is ACTIVE; years don't overlap.
+model AcademicYear {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  name           String
+  startsOn       DateTime           @map("starts_on") @db.Date
+  endsOn         DateTime           @map("ends_on") @db.Date
+  status         AcademicYearStatus @default(PLANNED)
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  enrolments   Enrolment[]
+
+  @@unique([organizationId, name])
+  @@map("academic_years")
+}
+
+/// THE ACADEMIC STRUCTURE (ADR-0030): one tree per organization, following the levels of its type
+/// (Organization.levelNames), e.g. for an Intermediate college:
+///   Junior (level 1, a year) -> MPC (2, a group) -> JEE Mains (3, a stream) -> JEE-A (4, a section)
+/// Everything above the last level belongs to the whole organization (branchId empty); SECTIONS
+/// (the last level) belong to a branch, and are where students are placed.
+model Class {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// Only for sections: the branch the section is at.
+  branchId       String?  @map("branch_id") @db.Uuid
+  /// Empty for a class of the top level.
+  parentId       String?  @map("parent_id") @db.Uuid
+  /// 1 = top level ... the number of levels = a section.
+  level          Int
+  name           String
+  /// Short code, unique among its siblings (per branch for sections), e.g. "MPC" or "A".
+  code           String
+  sortOrder      Int      @default(0) @map("sort_order")
+  isActive       Boolean  @default(true) @map("is_active")
+  /// Comes with the type (Junior, Senior, MPC, Regular, Class 1 ...): its code can't change.
+  builtIn        Boolean  @default(false) @map("built_in")
+  /// Intermediate: the Long Term year, and streams for long-term students (e.g. NEET Long Term).
+  longTerm       Boolean  @default(false) @map("long_term")
+  /// Degree / Engineering (ADR-0033): the hidden "whole course" level of a course without
+  /// specializations (B.Com -> 1st Year ...). Never shown in names ("B.Com › 1st Year › A").
+  placeholder    Boolean  @default(false)
+  /// For year-level classes: where students go at promotion (Class 9 -> Class 10, Junior ->
+  /// Senior). Empty = they complete after this year.
+  nextClassId    String?  @map("next_class_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  branch       Branch?        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  parent       Class?         @relation("ClassTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Class[]        @relation("ClassTree")
+  next         Class?         @relation("Progression", fields: [nextClassId], references: [id], onDelete: SetNull)
+  previous     Class[]        @relation("Progression")
+  subjects     ClassSubject[]
+  enrolments   Enrolment[]
+
+  @@index([organizationId])
+  @@index([branchId])
+  @@index([parentId])
+  @@map("classes")
+}
+
+/// A subject the organization teaches, e.g. Mathematics (MATHS).
+model Subject {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  code           String
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  classes      ClassSubject[]
+
+  @@unique([organizationId, code])
+  @@map("subjects")
+}
+
+/// Which subjects a class has. Attached at any level; the classes below inherit them
+/// (Maths on "MPC" = Maths in every MPC section of every branch).
+model ClassSubject {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  classId        String   @map("class_id") @db.Uuid
+  subjectId      String   @map("subject_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  class        Class        @relation(fields: [classId], references: [id], onDelete: Restrict)
+  subject      Subject      @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([classId, subjectId])
+  @@index([organizationId])
+  @@index([subjectId])
+  @@map("class_subjects")
+}
+
+/// A holiday (one day or a range) for the whole organization, or for one branch only.
+model Holiday {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// Empty = every branch.
+  branchId       String?  @map("branch_id") @db.Uuid
+  name           String
+  startsOn       DateTime @map("starts_on") @db.Date
+  endsOn         DateTime @map("ends_on") @db.Date
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, startsOn])
+  @@map("holidays")
+}
+
+// -------------------------------------------------------------------------------------------------
+// STUDENTS MODULE (ADR-0020, ADR-0030): students, their status history, guardians, enrolments.
+// Only for organizations that have the Students module switched on.
+// -------------------------------------------------------------------------------------------------
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNDISCLOSED
+}
+
+/// ACTIVE = a current student. The others are OUTGOING (ADR-0030): kept in full, but hidden from
+/// current lists, registers and promotion.
+enum StudentStatus {
+  ACTIVE
+  TRANSFERRED // took a transfer certificate, went to another school / college
+  DISCONTINUED // dropped out
+  COMPLETED // finished the final year (Class 10, Senior, Long Term, final year of a course)
+}
+
+/// A student of the organization, studying at one of its BRANCHES.
+model Student {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  /// The branch the student studies at (or last studied at); it decides who may see and change
+  /// the student.
+  branchId         String   @map("branch_id") @db.Uuid
+  /// Unique in the organization, e.g. "SVJC260001".
+  admissionNo      String   @map("admission_no")
+  admissionDate    DateTime @map("admission_date") @db.Date
+  /// As in official records; no forced first / last name split.
+  fullName         String   @map("full_name")
+  surname          String?
+  dateOfBirth      DateTime @map("date_of_birth") @db.Date
+  gender           Gender
+  bloodGroup       String?  @map("blood_group")
+  /// A 10-digit mobile number (ADR-0031).
+  phone            String?
+  alternatePhone   String?  @map("alternate_phone")
+  email            String?
+  /// Where the student lives now.
+  address          String?
+  permanentAddress String?  @map("permanent_address")
+  /// Locality, e.g. "Gajuwaka".
+  area             String?
+
+  /// SENSITIVE (ADR-0031): 12 digits, checked with the Aadhaar check digit; unique in the
+  /// organization. Shown masked without "students.sensitive.view".
+  aadhaar  String?
+  /// SENSITIVE: reservation category and sub-caste.
+  category ReservationCategory?
+  subCaste String?              @map("sub_caste")
+
+  residence   Residence?
+  busFacility Boolean    @default(false) @map("bus_facility")
+  /// Required when busFacility is true.
+  pickupPoint String?    @map("pickup_point")
+
+  /// Previous education (lateral entry, or the board exam before joining).
+  previousInstitution String?        @map("previous_institution")
+  previousBoard       PreviousBoard? @map("previous_board")
+  hallTicketNo        String?        @map("hall_ticket_no")
+  /// 0 to 100.
+  previousPercentage  Decimal?       @map("previous_percentage") @db.Decimal(5, 2)
+  /// e.g. "9.2" (GPA) or "A1".
+  previousGrade       String?        @map("previous_grade")
+
+  /// Admission / scholarship test.
+  admissionTestNo    String?  @map("admission_test_no")
+  admissionTestMarks Decimal? @map("admission_test_marks") @db.Decimal(6, 2)
+
+  /// SENSITIVE: health notes (allergies, conditions).
+  medicalCondition String? @map("medical_condition")
+  remarks          String?
+
+  /// Top rankers (ADR-0031): marked by staff, listed on their own page with the learner level.
+  topRanker    Boolean       @default(false) @map("top_ranker")
+  learnerLevel LearnerLevel? @map("learner_level")
+
+  /// The import that admitted this student, and the row in its sheet (ADR-0031).
+  importRunId String? @map("import_run_id") @db.Uuid
+  importRow   Int?    @map("import_row")
+
+  status    StudentStatus @default(ACTIVE)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization          @relation(fields: [organizationId], references: [id])
+  branch        Branch                @relation(fields: [branchId], references: [id])
+  importRun     ImportRun?            @relation(fields: [importRunId], references: [id])
+  statusChanges StudentStatusChange[]
+  guardians     StudentGuardian[]
+  enrolments    Enrolment[]
+  login         User?
+  documents     StudentDocument[]
+
+  @@unique([organizationId, admissionNo])
+  @@index([branchId])
+  @@index([organizationId, topRanker])
+  @@map("students")
+}
+
+enum ReservationCategory {
+  OC
+  BC_A
+  BC_B
+  BC_C
+  BC_D
+  BC_E
+  SC
+  ST
+  EWS
+  OTHER
+}
+
+enum Residence {
+  DAY_SCHOLAR
+  HOSTELLER
+}
+
+enum PreviousBoard {
+  SSC // State board, class 10
+  CBSE
+  ICSE
+  INTERMEDIATE // State board, class 12
+  IB
+  OTHER
+}
+
+enum LearnerLevel {
+  EXPERT
+  MEDIUM
+  SLOW
+}
+
+/// One import of a sheet (ADR-0031): where it went, who did it, how many rows were imported and
+/// which were excluded and why. The file itself is not kept.
+model ImportRun {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// 1, 2, 3 ... per organization; shown as IMP-0001.
+  number         Int
+  branchId       String   @map("branch_id") @db.Uuid
+  academicYearId String   @map("academic_year_id") @db.Uuid
+  sectionId      String   @map("section_id") @db.Uuid
+  fileName       String?  @map("file_name")
+  totalRows      Int      @map("total_rows")
+  importedCount  Int      @map("imported_count")
+  excludedCount  Int      @map("excluded_count")
+  /// [{ row, admissionNo, fullName, reasons[], values }] for the excluded rows only.
+  excludedRows   Json     @map("excluded_rows")
+  importedBy     String   @map("imported_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  students     Student[]
+
+  @@unique([organizationId, number])
+  @@index([branchId, createdAt])
+  @@map("import_runs")
+}
+
+/// Every status change of a student, with the date it takes effect and why.
+model StudentStatusChange {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  studentId      String         @map("student_id") @db.Uuid
+  fromStatus     StudentStatus? @map("from_status")
+  toStatus       StudentStatus  @map("to_status")
+  effectiveOn    DateTime       @map("effective_on") @db.Date
+  reason         String?
+  /// For a student who left: where they went, e.g. "Narayana Junior College".
+  destination    String?
+  changedBy      String         @map("changed_by") @db.Uuid
+  changedAt      DateTime       @default(now()) @map("changed_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@map("student_status_changes")
+}
+
+/// A parent or guardian. One guardian can be linked to several students (siblings).
+model Guardian {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  fullName       String   @map("full_name")
+  /// Not unique: parents often share a number.
+  phone          String?
+  email          String?
+  occupation     String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  students     StudentGuardian[]
+  login        User?
+
+  @@index([organizationId])
+  @@index([organizationId, phone])
+  @@map("guardians")
+}
+
+enum GuardianRelation {
+  FATHER
+  MOTHER
+  GUARDIAN
+  OTHER
+}
+
+/// Which guardians a student has, how they are related, and who is the main contact.
+model StudentGuardian {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  studentId      String           @map("student_id") @db.Uuid
+  guardianId     String           @map("guardian_id") @db.Uuid
+  relation       GuardianRelation
+  isPrimary      Boolean          @default(false) @map("is_primary")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  guardian     Guardian     @relation(fields: [guardianId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, guardianId])
+  @@index([organizationId])
+  @@index([guardianId])
+  @@map("student_guardians")
+}
+
+enum EnrolmentStatus {
+  ACTIVE // where the student is now
+  MOVED // ended by a section or branch change (endedOn)
+  PROMOTED // the year ended and the student moved on to the next year
+  COMPLETED // the student finished (the final year)
+  LEFT // the student left the organization (endedOn)
+}
+
+/// A PLACEMENT PERIOD (ADR-0030): a student in one SECTION of one branch, in one academic year,
+/// from enrolledOn until endedOn (empty = still there, or until the year's end). Changing section
+/// or branch ends the enrolment and starts a new one, so the history is never overwritten.
+/// At most one ACTIVE enrolment per student (a partial unique index in the migration).
+model Enrolment {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  studentId      String          @map("student_id") @db.Uuid
+  academicYearId String          @map("academic_year_id") @db.Uuid
+  branchId       String          @map("branch_id") @db.Uuid
+  classId        String          @map("class_id") @db.Uuid
+  rollNo         String?         @map("roll_no")
+  status         EnrolmentStatus @default(ACTIVE)
+  enrolledOn     DateTime        @map("enrolled_on") @db.Date
+  /// The last day in this section (moved / left on the next day); empty = not ended early.
+  endedOn        DateTime?       @map("ended_on") @db.Date
+  /// Why it started, e.g. "Cleared entrance test" for a section change.
+  reason         String?
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branchId], references: [id])
+  class        Class        @relation(fields: [classId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@index([classId, academicYearId])
+  @@map("enrolments")
+}
+
+/// The next running number of the organization's admission-number pattern, per scope (a branch
+/// id when the pattern has {BRANCH}, otherwise "") and period ("2026" when it restarts every year,
+/// "" when it never restarts).
+model AdmissionSequence {
+  organizationId String @map("organization_id") @db.Uuid
+  scope          String
+  period         String
+  nextValue      Int    @default(1) @map("next_value")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@id([organizationId, scope, period])
+  @@map("admission_sequences")
+}
+
+/// One applied promotion of a branch: what it changed, so it can be UNDONE.
+/// `items`: [{ studentId, oldEnrolmentId, newEnrolmentId | null (completed) }]
+model PromotionRun {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  branchId       String    @map("branch_id") @db.Uuid
+  fromYearId     String    @map("from_year_id") @db.Uuid
+  toYearId       String    @map("to_year_id") @db.Uuid
+  promoted       Int
+  completed      Int
+  items          Json
+  createdBy      String    @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  undoneAt       DateTime? @map("undone_at") @db.Timestamptz
+  undoneBy       String?   @map("undone_by") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([branchId, createdAt])
+  @@map("promotion_runs")
+}
+
+// -------------------------------------------------------------------------------------------------
+// ATTENDANCE MODULE (ADR-0021)
+// -------------------------------------------------------------------------------------------------
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  ON_LEAVE
+}
+
+/// One student's attendance for one day (period 0 = the whole day) in their section.
+/// Records are never overwritten: a change makes a NEW record (isCurrent) that points to the old
+/// one (correctedFromId), with a reason; the old one keeps isCurrent = false.
+model AttendanceRecord {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  organizationId   String           @map("organization_id") @db.Uuid
+  branchId         String           @map("branch_id") @db.Uuid
+  /// The section the student was in that day.
+  classId          String           @map("class_id") @db.Uuid
+  academicYearId   String           @map("academic_year_id") @db.Uuid
+  studentId        String           @map("student_id") @db.Uuid
+  date             DateTime         @db.Date
+  /// 0 = the whole day (period-wise marking later uses 1, 2, ...).
+  period           Int              @default(0)
+  status           AttendanceStatus
+  remark           String?
+  isCurrent        Boolean          @default(true) @map("is_current")
+  correctedFromId  String?          @map("corrected_from_id") @db.Uuid
+  correctionReason String?          @map("correction_reason")
+  markedBy         String           @map("marked_by") @db.Uuid
+  markedByName     String           @map("marked_by_name")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([classId, date])
+  @@index([studentId, date])
+  @@index([branchId, date])
+  @@map("attendance_records")
+}
+
+// -------------------------------------------------------------------------------------------------
+// FILES and STUDENT DOCUMENTS (ADR-0023)
+// -------------------------------------------------------------------------------------------------
+
+/// An uploaded file. The bytes are in the file storage (src/modules/files) under `storageKey`;
+/// this row is what the database knows about them. Only reachable through the API.
+model StoredFile {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  originalName   String   @map("original_name")
+  mimeType       String   @map("mime_type")
+  sizeBytes      Int      @map("size_bytes")
+  /// SHA-256 of the content, to spot duplicates and check integrity.
+  sha256         String
+  storageKey     String   @unique @map("storage_key")
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  document     StudentDocument?
+
+  @@index([organizationId])
+  @@map("stored_files")
+}
+
+/// What the organization collects from students, e.g. "Transfer certificate".
+model DocumentType {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  name            String
+  /// Shown as missing on a student's page until uploaded.
+  isRequired      Boolean  @default(false) @map("is_required")
+  /// Parents and students may see / download documents of this type in the portal.
+  visibleInPortal Boolean  @default(false) @map("visible_in_portal")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  documents    StudentDocument[]
+
+  @@unique([organizationId, name])
+  @@map("document_types")
+}
+
+enum DocumentStatus {
+  UPLOADED
+  VERIFIED
+  REJECTED
+}
+
+/// A document of a student: its type, the file, and whether staff verified it.
+model StudentDocument {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  studentId      String         @map("student_id") @db.Uuid
+  documentTypeId String         @map("document_type_id") @db.Uuid
+  fileId         String         @unique @map("file_id") @db.Uuid
+  status         DocumentStatus @default(UPLOADED)
+  /// e.g. why it was rejected.
+  note           String?
+  uploadedBy     String         @map("uploaded_by") @db.Uuid
+  uploadedByName String         @map("uploaded_by_name")
+  verifiedBy     String?        @map("verified_by") @db.Uuid
+  verifiedByName String?        @map("verified_by_name")
+  verifiedAt     DateTime?      @map("verified_at") @db.Timestamptz
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  documentType DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Restrict)
+  file         StoredFile   @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@map("student_documents")
+}
+
+/// One login (ADR-0028). The token carries the session's id and is only accepted while the
+/// session hasn't ended or expired: logging out ends it at once. Platform table (no row security):
+/// it is only ever read by its id, from a signed token.
+model LoginSession {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  superAdminId String?   @map("super_admin_id") @db.Uuid
+  userId       String?   @map("user_id") @db.Uuid
+  /// The address the login came from.
+  ip           String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz
+
+  superAdmin SuperAdmin? @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
+  user       User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([superAdminId])
+  @@index([userId])
+  @@map("login_sessions")
+}

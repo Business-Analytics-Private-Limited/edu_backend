@@ -1,0 +1,282 @@
+/**
+ * The predefined roles (Organization admin, Director, Principal, ...).
+ *
+ * How they work:
+ *   - role_templates holds ONE row per predefined role, with its permissions. Only the super
+ *     admin changes them (updateTemplate). The built-in ones come from predefined-roles.ts; the
+ *     super admin can create more (createTemplate) and delete those while nobody has them
+ *     (ADR-0030).
+ *   - every organization has its own COPY of each (a row in roles with templateKey set), because
+ *     users are linked to roles of their own organization. A change by the super admin is
+ *     written to every organization's copy at once, EXCEPT copies the organization customized
+ *     (changed its permissions itself, ADR-0029): those keep the organization's choice until it
+ *     resets them (roles.service.ts).
+ *   - organization admins assign the copies to users, may change their permissions (not the
+ *     Organization admin's, Parent's or Student's), and can't delete them.
+ *
+ * When the app starts (onApplicationBootstrap), this service makes sure every template exists,
+ * the Organization admin has every permission (also ones added in a new version), and every
+ * organization has an up-to-date copy of every template.
+ */
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
+import type { CurrentUser } from '../../common/current-user';
+import { Db, PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { CreatePredefinedRoleDto } from './dto/role.dto';
+import { ALL_PERMISSION_KEYS, isKnownPermission } from './permissions';
+import { ORG_ADMIN, PREDEFINED_ROLES } from './predefined-roles';
+
+@Injectable()
+export class PredefinedRolesService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(PredefinedRolesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  async onApplicationBootstrap() {
+    await this.prisma.forAllOrganizations((db) => this.ensureTemplates(db));
+    const organizations = await this.prisma.forAllOrganizations((db) =>
+      db.organization.findMany({ select: { id: true } }),
+    );
+    // One transaction per organization, so many organizations don't make one huge transaction.
+    for (const { id } of organizations) {
+      await this.prisma.forAllOrganizations((db) => this.copyToOrganization(db, id));
+    }
+    this.logger.log(`Predefined roles are up to date in ${organizations.length} organization(s)`);
+  }
+
+  /**
+   * The predefined roles, in display order (super admin console), each with the number of
+   * organizations that customized it (their copy keeps its own permissions).
+   */
+  listTemplates() {
+    return this.prisma.forAllOrganizations(async (db) => {
+      const [templates, customized] = await Promise.all([
+        db.roleTemplate.findMany({ orderBy: { sortOrder: 'asc' } }),
+        db.role.groupBy({ by: ['templateKey'], where: { customized: true }, _count: true }),
+      ]);
+      const countOf = new Map(customized.map((c) => [c.templateKey, c._count]));
+      return templates.map((t) => ({ ...t, customizedIn: countOf.get(t.key) ?? 0 }));
+    });
+  }
+
+  /**
+   * The super admin changes a predefined role's permissions, for every organization at once,
+   * except organizations that customized their copy (ADR-0029).
+   */
+  updateTemplate(key: string, permissions: string[], actor: CurrentUser) {
+    if (key === ORG_ADMIN) {
+      throw new BadRequestException('The Organization admin always has every permission');
+    }
+    const unknown = permissions.filter((p) => !isKnownPermission(p));
+    if (unknown.length > 0) {
+      throw new BadRequestException(`Unknown permissions: ${unknown.join(', ')}`);
+    }
+    return this.prisma.forAllOrganizations(async (db) => {
+      const before = await db.roleTemplate.findUnique({ where: { key } });
+      if (!before) throw new BadRequestException(`No predefined role "${key}"`);
+
+      const template = await db.roleTemplate.update({ where: { key }, data: { permissions } });
+      const copies = await db.role.updateMany({
+        where: { templateKey: key, customized: false },
+        data: { permissions },
+      });
+      const customizedIn = await db.role.count({ where: { templateKey: key, customized: true } });
+      await this.audit.log(db, actor, {
+        action: 'update',
+        entity: 'predefined_role',
+        entityId: key,
+        organizationId: null,
+        details: {
+          before: before.permissions,
+          after: permissions,
+          organizations: copies.count,
+          keptCustomized: customizedIn,
+        },
+      });
+      return { ...template, customizedIn };
+    });
+  }
+
+  /**
+   * Puts a built-in predefined role back to the starting permissions in predefined-roles.ts
+   * (e.g. after a new version improved them), for every organization at once.
+   */
+  resetTemplate(key: string, actor: CurrentUser) {
+    const role = PREDEFINED_ROLES.find((r) => r.key === key);
+    if (!role) {
+      throw new BadRequestException(
+        'Only the built-in roles have starting permissions to go back to',
+      );
+    }
+    return this.updateTemplate(key, role.permissions.filter(isKnownPermission), actor);
+  }
+
+  /**
+   * The super admin creates a new predefined role (ADR-0030): every organization gets a copy at
+   * once, which it may then customize for itself.
+   */
+  createTemplate(dto: CreatePredefinedRoleDto, actor: CurrentUser) {
+    const unknown = dto.permissions.filter((p) => !isKnownPermission(p));
+    if (unknown.length > 0) {
+      throw new BadRequestException(`Unknown permissions: ${unknown.join(', ')}`);
+    }
+    return this.prisma.forAllOrganizations(async (db) => {
+      const name = dto.name.trim();
+      const key = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      if (!key) throw new BadRequestException('The name needs letters or digits');
+      if (await db.roleTemplate.findFirst({ where: { OR: [{ key }, { name }] } })) {
+        throw new BadRequestException(`There is already a predefined role "${name}"`);
+      }
+      const last = await db.roleTemplate.aggregate({ _max: { sortOrder: true } });
+      const template = await db.roleTemplate.create({
+        data: {
+          key,
+          name,
+          description: dto.description.trim(),
+          permissions: dto.permissions,
+          assignable: true,
+          builtIn: false,
+          sortOrder: (last._max.sortOrder ?? 0) + 1,
+        },
+      });
+      const organizations = await db.organization.findMany({ select: { id: true } });
+      for (const { id } of organizations) await this.copyToOrganization(db, id);
+      await this.audit.log(db, actor, {
+        action: 'create',
+        entity: 'predefined_role',
+        entityId: key,
+        organizationId: null,
+        details: { name, permissions: dto.permissions, organizations: organizations.length },
+      });
+      return { ...template, customizedIn: 0 };
+    });
+  }
+
+  /** Deletes a predefined role the super admin created, while no user in any organization has it. */
+  deleteTemplate(key: string, actor: CurrentUser) {
+    return this.prisma.forAllOrganizations(async (db) => {
+      const template = await db.roleTemplate.findUnique({ where: { key } });
+      if (!template) throw new NotFoundException(`No predefined role "${key}"`);
+      if (template.builtIn) {
+        throw new BadRequestException('Roles that come with EduPlatform cannot be deleted');
+      }
+      const given = await db.userRole.count({ where: { role: { templateKey: key } } });
+      if (given > 0) {
+        throw new BadRequestException(
+          `${given} user(s) still have this role; it can be deleted once nobody has it`,
+        );
+      }
+      await db.role.deleteMany({ where: { templateKey: key } });
+      await db.roleTemplate.delete({ where: { key } });
+      await this.audit.log(db, actor, {
+        action: 'delete',
+        entity: 'predefined_role',
+        entityId: key,
+        organizationId: null,
+        details: { name: template.name },
+      });
+      return { deleted: true };
+    });
+  }
+
+  /**
+   * Gives an organization an up-to-date copy of every predefined role (used for a new
+   * organization, and at startup). Returns the copies by template key.
+   */
+  async copyToOrganization(db: Db, organizationId: string) {
+    const templates = await db.roleTemplate.findMany({ orderBy: { sortOrder: 'asc' } });
+    const copies: Record<string, string> = {};
+
+    for (const template of templates) {
+      const data = {
+        name: template.name,
+        description: template.description,
+        permissions: template.permissions,
+      };
+      const copy = await db.role.findFirst({
+        where: { organizationId, templateKey: template.key },
+      });
+      if (copy) {
+        // A customized copy keeps the organization's permissions (ADR-0029).
+        await db.role.update({
+          where: { id: copy.id },
+          data: copy.customized ? { name: data.name, description: data.description } : data,
+        });
+        copies[template.key] = copy.id;
+        continue;
+      }
+
+      // The organization may already have its own role with this name: keep it, renamed.
+      const sameName = await db.role.findFirst({
+        where: { organizationId, name: template.name, templateKey: null },
+      });
+      if (sameName) {
+        await db.role.update({
+          where: { id: sameName.id },
+          data: { name: `${sameName.name} (own)` },
+        });
+      }
+      const created = await db.role.create({
+        data: { ...data, organizationId, templateKey: template.key },
+      });
+      copies[template.key] = created.id;
+    }
+    return copies;
+  }
+
+  /**
+   * Creates missing built-in templates from predefined-roles.ts. Existing templates keep the
+   * permissions the super admin gave them (minus any that no longer exist); the Organization
+   * admin always gets the full list. Roles the super admin created are kept (only permissions
+   * that no longer exist are dropped), after the built-in ones.
+   */
+  private async ensureTemplates(db: Db) {
+    for (const [index, role] of PREDEFINED_ROLES.entries()) {
+      const fixed = {
+        name: role.name,
+        description: role.description,
+        assignable: role.assignable,
+        builtIn: true,
+        sortOrder: index + 1,
+      };
+      const existing = await db.roleTemplate.findUnique({ where: { key: role.key } });
+      if (!existing) {
+        await db.roleTemplate.create({
+          data: {
+            key: role.key,
+            ...fixed,
+            permissions: role.permissions.filter(isKnownPermission),
+          },
+        });
+        continue;
+      }
+      const permissions =
+        role.key === ORG_ADMIN
+          ? ALL_PERMISSION_KEYS
+          : existing.permissions.filter(isKnownPermission);
+      await db.roleTemplate.update({ where: { key: role.key }, data: { ...fixed, permissions } });
+    }
+    const custom = await db.roleTemplate.findMany({ where: { builtIn: false } });
+    for (const template of custom) {
+      await db.roleTemplate.update({
+        where: { key: template.key },
+        data: {
+          permissions: template.permissions.filter(isKnownPermission),
+          sortOrder: Math.max(template.sortOrder, PREDEFINED_ROLES.length + 1),
+        },
+      });
+    }
+  }
+}
