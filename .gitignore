@@ -1,0 +1,20 @@
+# Generated: rebuilt by npm install / npm run build
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local settings and secrets: never committed (copy .env.example to .env)
+.env
+.env.*
+!.env.example
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Uploaded files (student documents): never committed. See STORAGE_DIR in .env.example.
+storage/
