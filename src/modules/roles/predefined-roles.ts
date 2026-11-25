@@ -66,6 +66,17 @@ const BRANCH_ADMIN_PERMISSIONS = [
   'attendance.device.update',
   'attendance.report.view',
   'imports.job.view',
+  'evaluation.exam.view',
+  'evaluation.marks.view',
+  'evaluation.marks.enter',
+  'evaluation.marks.import',
+];
+
+/** Faculty see exams and enter marks for students of their branch. */
+const FACULTY_EVALUATION = [
+  'evaluation.exam.view',
+  'evaluation.marks.view',
+  'evaluation.marks.enter',
 ];
 
 export const PREDEFINED_ROLES: PredefinedRole[] = [
@@ -96,6 +107,10 @@ export const PREDEFINED_ROLES: PredefinedRole[] = [
         'students.enrolment.promote',
         'students.settings.view',
         'attendance.policy.update',
+        'evaluation.settings.view',
+        'evaluation.exam.create',
+        'evaluation.exam.update',
+        'evaluation.exam.delete',
       ]),
     ],
     assignable: true,
@@ -123,6 +138,7 @@ export const PREDEFINED_ROLES: PredefinedRole[] = [
       'attendance.record.mark',
       'attendance.record.correct',
       'attendance.report.view',
+      ...FACULTY_EVALUATION,
     ],
     assignable: true,
   },
@@ -139,6 +155,7 @@ export const PREDEFINED_ROLES: PredefinedRole[] = [
       'students.student.view',
       'attendance.record.view',
       'attendance.record.mark',
+      ...FACULTY_EVALUATION,
     ],
     assignable: true,
   },
@@ -158,6 +175,8 @@ export const PREDEFINED_ROLES: PredefinedRole[] = [
       'students.document.create',
       'students.document.update',
       'imports.job.view',
+      ...FACULTY_EVALUATION,
+      'evaluation.marks.import',
     ],
     assignable: true,
   },

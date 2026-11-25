@@ -45,6 +45,13 @@ const MODULES = [
     dependsOn: ['academic', 'students'],
     sortOrder: 5,
   },
+  {
+    key: 'evaluation',
+    name: 'Evaluation',
+    description: 'Exam types, exams with subjects and marks, marks upload, results',
+    dependsOn: ['academic', 'students'],
+    sortOrder: 6,
+  },
 ];
 
 async function main() {
