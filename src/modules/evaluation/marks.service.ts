@@ -32,6 +32,7 @@ import { AuditService } from '../audit/audit.service';
 import { SaveMarksDto, UploadMarksDto } from './dto/evaluation.dto';
 import { byRoll, participantsOf, type Participant } from './exam-scope';
 import { examContext, mayView, type ExamSubjectInfo } from './exams.service';
+import { gradesOf } from './grading';
 
 /** One mark to write. */
 interface MarkWrite {
@@ -439,42 +440,7 @@ export class MarksService {
           branchId: this.sectionOf(ctx.sections, sectionId).branchId,
         });
       }
-      // Ranks are over everyone in the exam, so they are the same whoever looks.
-      const participants = [
-        ...(
-          await participantsOf(
-            db,
-            ctx.exam,
-            ctx.sections.map((s) => s.id),
-          )
-        ).values(),
-      ];
-      const cells = await this.cellsOf(
-        db,
-        examId,
-        participants.map((p) => p.studentId),
-        ctx.subjects,
-      );
-      const rows = participants.map((p) => {
-        const own = cells.get(p.studentId) ?? new Map<string, Cell>();
-        // The student's subjects: their section's, and any they already have a mark in.
-        const theirs = ctx.subjects.filter(
-          (s) => ctx.sectionSubjects.get(p.classId)?.has(s.subjectId) || own.has(s.subjectId),
-        );
-        return {
-          ...p,
-          cells: own,
-          subjectIds: theirs.map((s) => s.subjectId),
-          ...resultOf(theirs, own),
-        };
-      });
-      const complete = rows.filter((r) => r.complete);
-      const examRank = rank(complete);
-      const sectionRank = new Map<string, number>();
-      for (const s of ctx.sections) {
-        for (const [id, r] of rank(complete.filter((c) => c.classId === s.id)))
-          sectionRank.set(id, r);
-      }
+      const { rows, examRank, sectionRank } = await computeResults(db, ctx);
       const shownIds = new Set(shown.map((s) => s.id));
       const label = new Map(ctx.sections.map((s) => [s.id, s.label]));
       const students = rows
@@ -495,12 +461,16 @@ export class MarksService {
           maxTotal: r.maxTotal,
           percentage: r.percentage,
           result: r.result,
+          subjectGrades: r.subjectGrades,
+          grade: r.grade,
+          gpa: r.gpa,
           sectionRank: sectionRank.get(r.studentId) ?? null,
           examRank: examRank.get(r.studentId) ?? null,
         }));
       const count = (result: string) => students.filter((s) => s.result === result).length;
       return {
         exam: { id: ctx.exam.id, name: ctx.exam.name, status: ctx.exam.status },
+        gradingScheme: ctx.scheme,
         subjects: ctx.subjects,
         sections: shown,
         summary: {
@@ -575,19 +545,8 @@ export class MarksService {
   }
 
   /** student id -> subject id -> mark. */
-  private async cellsOf(db: Db, examId: string, studentIds: string[], subjects: ExamSubjectInfo[]) {
-    const subjectOf = new Map(subjects.map((s) => [s.examSubjectId, s.subjectId]));
-    const marks = await db.examMark.findMany({ where: { examId, studentId: { in: studentIds } } });
-    const cells = new Map<string, Map<string, Cell>>();
-    for (const m of marks) {
-      const subjectId = subjectOf.get(m.examSubjectId);
-      if (!subjectId) continue;
-      if (!cells.has(m.studentId)) cells.set(m.studentId, new Map());
-      cells
-        .get(m.studentId)!
-        .set(subjectId, { status: m.status, marks: m.marks === null ? null : Number(m.marks) });
-    }
-    return cells;
+  private cellsOf(db: Db, examId: string, studentIds: string[], subjects: ExamSubjectInfo[]) {
+    return cellsOf(db, examId, studentIds, subjects);
   }
 
   /**
@@ -649,7 +608,71 @@ export class MarksService {
   }
 }
 
-function average(values: (number | null)[]): number | null {
+/** student id -> subject id -> mark. */
+async function cellsOf(db: Db, examId: string, studentIds: string[], subjects: ExamSubjectInfo[]) {
+  const subjectOf = new Map(subjects.map((s) => [s.examSubjectId, s.subjectId]));
+  const marks = await db.examMark.findMany({ where: { examId, studentId: { in: studentIds } } });
+  const cells = new Map<string, Map<string, Cell>>();
+  for (const m of marks) {
+    const subjectId = subjectOf.get(m.examSubjectId);
+    if (!subjectId) continue;
+    if (!cells.has(m.studentId)) cells.set(m.studentId, new Map());
+    cells
+      .get(m.studentId)!
+      .set(subjectId, { status: m.status, marks: m.marks === null ? null : Number(m.marks) });
+  }
+  return cells;
+}
+
+/**
+ * Every participant's result in an exam: their subjects, marks, totals, result, grades, and
+ * ranks in the exam and their section. Ranks are over EVERY participant (only those with
+ * complete marks get one), so they are the same whoever looks: results, report cards,
+ * overviews and the portal all use this.
+ */
+export async function computeResults(db: Db, ctx: ExamContext) {
+  const participants = [
+    ...(
+      await participantsOf(
+        db,
+        ctx.exam,
+        ctx.sections.map((s) => s.id),
+      )
+    ).values(),
+  ];
+  const cells = await cellsOf(
+    db,
+    ctx.exam.id,
+    participants.map((p) => p.studentId),
+    ctx.subjects,
+  );
+  const rows = participants.map((p) => {
+    const own = cells.get(p.studentId) ?? new Map<string, Cell>();
+    // The student's subjects: their section's, and any they already have a mark in.
+    const theirs = ctx.subjects.filter(
+      (s) => ctx.sectionSubjects.get(p.classId)?.has(s.subjectId) || own.has(s.subjectId),
+    );
+    const result = resultOf(theirs, own);
+    return {
+      ...p,
+      cells: own,
+      subjectIds: theirs.map((s) => s.subjectId),
+      ...result,
+      ...gradesOf(ctx.scheme, theirs, own, result.complete ? result.percentage : null),
+    };
+  });
+  const complete = rows.filter((r) => r.complete);
+  const examRank = rank(complete);
+  const sectionRank = new Map<string, number>();
+  for (const s of ctx.sections) {
+    for (const [id, r] of rank(complete.filter((c) => c.classId === s.id))) sectionRank.set(id, r);
+  }
+  return { rows, examRank, sectionRank };
+}
+
+export type ExamContext = Awaited<ReturnType<typeof examContext>>;
+
+export function average(values: (number | null)[]): number | null {
   const nums = values.filter((v): v is number => v !== null);
   return nums.length
     ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100

@@ -32,6 +32,8 @@ const ALLOWED: Record<string, string> = {
   'academic/branch-groups.ts :: giveBranchAllGroups': 'part of adding a branch, which logs',
   'evaluation/exams.service.ts :: replaceSubjects': 'part of update exam, which logs',
   'evaluation/marks.service.ts :: writeMarks': 'part of save and upload marks, which log',
+  'evaluation/grading-schemes.service.ts :: clearDefault':
+    'part of create / update grading scheme, which log',
   'roles/predefined-roles.service.ts :: copyToOrganization': 'part of creating an organization',
   'roles/predefined-roles.service.ts :: ensureTemplates': 'startup sync of the code, no person',
   'students/admission-numbers.ts :: admissionNumberFor': 'part of admission / import, which log',

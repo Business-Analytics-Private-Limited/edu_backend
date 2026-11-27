@@ -172,6 +172,11 @@ model Organization {
   examMarks    ExamMark[]
   marksUploads MarksUpload[]
 
+  chapters           Chapter[]
+  gradingSchemes     GradingScheme[]
+  gradingBands       GradingBand[]
+  reportCardSettings ReportCardSettings?
+
   @@map("organizations")
 }
 
@@ -448,9 +453,29 @@ model Subject {
 
   organization Organization   @relation(fields: [organizationId], references: [id])
   classes      ClassSubject[]
+  chapters     Chapter[]
 
   @@unique([organizationId, code])
   @@map("subjects")
+}
+
+/// The syllabus of a subject: its chapters in order (ADR-0036). Exams tick the chapters they cover.
+model Chapter {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  subjectId      String   @map("subject_id") @db.Uuid
+  name           String   @db.VarChar(150)
+  sortOrder      Int      @default(0) @map("sort_order")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  subject      Subject      @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([subjectId, name])
+  @@index([organizationId, subjectId])
+  @@map("chapters")
 }
 
 /// Which subjects a class has. Attached at any level; the classes below inherit them
@@ -987,28 +1012,31 @@ model ExamType {
 
 /// One exam: its type, year, dates, and the part of the structure (and branch) it is for.
 model Exam {
-  id             String     @id @default(uuid(7)) @db.Uuid
-  organizationId String     @map("organization_id") @db.Uuid
-  examTypeId     String     @map("exam_type_id") @db.Uuid
+  id              String     @id @default(uuid(7)) @db.Uuid
+  organizationId  String     @map("organization_id") @db.Uuid
+  examTypeId      String     @map("exam_type_id") @db.Uuid
   /// Plain id of the academic year.
-  academicYearId String     @map("academic_year_id") @db.Uuid
-  name           String
+  academicYearId  String     @map("academic_year_id") @db.Uuid
+  name            String
   /// Plain id of the structure node the exam is for (a year, group, stream or one section).
-  classId        String     @map("class_id") @db.Uuid
+  classId         String     @map("class_id") @db.Uuid
   /// Plain id of the branch; empty = every branch.
-  branchId       String?    @map("branch_id") @db.Uuid
-  startsOn       DateTime   @map("starts_on") @db.Date
-  endsOn         DateTime   @map("ends_on") @db.Date
-  status         ExamStatus @default(OPEN)
-  createdBy      String     @map("created_by") @db.Uuid
-  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  branchId        String?    @map("branch_id") @db.Uuid
+  startsOn        DateTime   @map("starts_on") @db.Date
+  endsOn          DateTime   @map("ends_on") @db.Date
+  status          ExamStatus @default(OPEN)
+  /// The grades used on results and report cards; empty = the organization's default scheme.
+  gradingSchemeId String?    @map("grading_scheme_id") @db.Uuid
+  createdBy       String     @map("created_by") @db.Uuid
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization  @relation(fields: [organizationId], references: [id])
-  examType     ExamType      @relation(fields: [examTypeId], references: [id])
-  subjects     ExamSubject[]
-  marks        ExamMark[]
-  uploads      MarksUpload[]
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  examType      ExamType       @relation(fields: [examTypeId], references: [id])
+  gradingScheme GradingScheme? @relation(fields: [gradingSchemeId], references: [id])
+  subjects      ExamSubject[]
+  marks         ExamMark[]
+  uploads       MarksUpload[]
 
   @@unique([organizationId, academicYearId, name])
   @@index([organizationId, academicYearId])
@@ -1027,6 +1055,8 @@ model ExamSubject {
   examDate       DateTime? @map("exam_date") @db.Date
   /// What the exam covers in this subject ("Ch 1-4, Trigonometry"); free text.
   portion        String?   @db.VarChar(300)
+  /// Plain ids of the syllabus chapters the exam covers in this subject (Academic module).
+  chapterIds     String[]  @default([]) @map("chapter_ids") @db.Uuid
   sortOrder      Int       @default(0) @map("sort_order")
 
   organization Organization @relation(fields: [organizationId], references: [id])
@@ -1086,4 +1116,64 @@ model MarksUpload {
   @@unique([organizationId, number])
   @@index([examId, createdAt])
   @@map("marks_uploads")
+}
+
+// -------------------------------------------------------------------------------------------------
+// EVALUATION PART 2 (ADR-0036): grading schemes and report card settings.
+// -------------------------------------------------------------------------------------------------
+
+/// The organization's ways of turning a percentage into a grade (A+, A, B ...) and grade point.
+model GradingScheme {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  /// The scheme used by exams that don't name one. At most one per organization.
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  bands        GradingBand[]
+  exams        Exam[]
+
+  @@unique([organizationId, name])
+  @@map("grading_schemes")
+}
+
+/// One grade of a scheme: from this percentage up (to the next band's start).
+model GradingBand {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  gradingSchemeId String   @map("grading_scheme_id") @db.Uuid
+  grade           String   @db.VarChar(10)
+  minPercentage   Decimal  @map("min_percentage") @db.Decimal(5, 2)
+  /// Optional grade point for a GPA (e.g. 10, 9, 8 ...).
+  gradePoint      Decimal? @map("grade_point") @db.Decimal(4, 2)
+  /// Optional words for the report card ("Outstanding").
+  remark          String?  @db.VarChar(60)
+
+  organization  Organization  @relation(fields: [organizationId], references: [id])
+  gradingScheme GradingScheme @relation(fields: [gradingSchemeId], references: [id], onDelete: Cascade)
+
+  @@unique([gradingSchemeId, grade])
+  @@unique([gradingSchemeId, minPercentage])
+  @@map("grading_bands")
+}
+
+/// How the organization's report cards look: title, a header line, signatures, a footer, a logo.
+model ReportCardSettings {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  organizationId  String   @unique @map("organization_id") @db.Uuid
+  title           String   @default("Progress report") @db.VarChar(80)
+  /// Under the organization's name, e.g. its address or affiliation.
+  headerLine      String?  @map("header_line") @db.VarChar(200)
+  footerNote      String?  @map("footer_note") @db.VarChar(300)
+  signatureLabels String[] @default(["Class teacher", "Principal", "Parent"]) @map("signature_labels")
+  /// Plain id of the logo in stored_files (Files module); PNG or JPG.
+  logoFileId      String?  @map("logo_file_id") @db.Uuid
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("report_card_settings")
 }

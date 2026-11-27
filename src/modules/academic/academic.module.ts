@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AcademicController } from './academic.controller';
 import { AcademicYearsService } from './academic-years.service';
 import { CalendarService } from './calendar.service';
+import { ChaptersService } from './chapters.service';
 import { StructureService } from './structure.service';
 import { SubjectsCalendarController } from './subjects-calendar.controller';
 import { SubjectsService } from './subjects.service';
@@ -13,6 +14,12 @@ import { SubjectsService } from './subjects.service';
  */
 @Module({
   controllers: [AcademicController, SubjectsCalendarController],
-  providers: [AcademicYearsService, StructureService, SubjectsService, CalendarService],
+  providers: [
+    AcademicYearsService,
+    StructureService,
+    SubjectsService,
+    CalendarService,
+    ChaptersService,
+  ],
 })
 export class AcademicModule {}

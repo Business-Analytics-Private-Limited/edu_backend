@@ -14,6 +14,7 @@ const subject = (code: string, maxMarks: number, passMarks: number): ExamSubject
   passMarks,
   examDate: null,
   portion: null,
+  chapters: [],
 });
 const MAT = subject('MAT', 100, 35);
 const PHY = subject('PHY', 50, 18);

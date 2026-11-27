@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Status | **Built (part 1)**; report cards, grading schemes and overviews come in part 2 |
+| Status | **Built**: part 1 (ADR-0035) and part 2 (ADR-0036): syllabus, grades, report cards, overviews, portal results |
 | Code | `src/modules/evaluation/` |
-| Tables | `exam_types`, `exams`, `exam_subjects`, `exam_marks`, `marks_uploads` |
-| Decisions | [ADR-0035](../adr/0035-evaluation-exams-and-marks.md) |
+| Tables | `exam_types`, `exams`, `exam_subjects`, `exam_marks`, `marks_uploads`, `grading_schemes`, `grading_bands`, `report_card_settings` (and `chapters` in Academic) |
+| Decisions | [ADR-0035](../adr/0035-evaluation-exams-and-marks.md), [ADR-0036](../adr/0036-evaluation-syllabus-grades-report-cards.md) |
 | Switched on by | the super admin, per organization (module key `evaluation`, needs `academic` and `students`) |
 
 ## In plain words
@@ -78,6 +78,27 @@
 - **Results:** summary (passed, failed, incomplete, average), each student's marks, total, %, result, ranks.
 - **Exam types:** add, switch off, delete (unused).
 
-## Next (part 2)
+## Part 2 (ADR-0036)
 
-Syllabus (chapters per subject, ticked per exam), grading schemes (marks → grades, GPA), report cards per student as PDF (with the organization's branding), bulk report cards per section, batch or campus, overviews per class, batch, campus and organization, results in the parent and student portal.
+- **Syllabus:** each subject's chapters, in order (Academic → a subject → Chapters). An exam ticks the chapters it covers per subject. A ticked chapter can be switched off but not deleted.
+- **Grades:** grading schemes ("from 90 % up: A+, grade point 10"). The first scheme is the default; an exam may choose another. Results show a grade per subject, an overall grade and a GPA (when every band has a grade point). ABSENT counts as 0 %; EXEMPT has no grade.
+- **Report cards:** settings (title, header line, signatures, footer, logo); a PDF for one student, or one PDF for a section, a branch or everything the user may see.
+- **Overviews:** an exam by branch, group and section, per subject, toppers, weakest subjects, grade spread; a year's exams side by side.
+- **Portal:** parents and students see LOCKED exams only: marks, total, %, grade, result, section rank, and the report card PDF.
+
+| Method | Path | Permission |
+|---|---|---|
+| GET / POST | `/subjects/:id/chapters` | `academic.subject.view` / `.update` |
+| PUT | `/subjects/:id/chapters/order` | `academic.subject.update` |
+| PATCH / DELETE | `/chapters/:id` | `academic.subject.update` (delete only if no exam ticked it) |
+| GET | `/grading-schemes` | `evaluation.exam.view` |
+| POST / PATCH / DELETE | `/grading-schemes[/:id]` | `evaluation.settings.update` (delete only if unused) |
+| GET / PUT | `/report-card-settings` | `evaluation.exam.view` / `evaluation.settings.update` |
+| GET / PUT / DELETE | `/report-card-settings/logo` | view / `evaluation.settings.update` (PNG or JPG, 5 MB) |
+| GET | `/exams/:id/report-cards?sectionId=&branchId=` | `evaluation.marks.view` (PDF, only branches the user may see) |
+| GET | `/exams/:id/report-cards/:studentId` | `evaluation.marks.view` at the student's branch (PDF) |
+| GET | `/exams/:id/overview` | `evaluation.marks.view` |
+| GET | `/exam-overview?academicYearId=` | `evaluation.marks.view` |
+| GET | `/portal/students/:id/exams[/:examId[/report-card]]` | portal login linked to the student |
+
+Rules tested in `test/evaluation-part2.e2e-spec.ts`.
