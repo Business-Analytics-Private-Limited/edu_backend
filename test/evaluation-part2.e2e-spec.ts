@@ -1,5 +1,5 @@
 /**
- * The Evaluation module, part 2 (ADR-0036): syllabus chapters ticked on exams, grading schemes
+ * The Evaluation module, part 2 (ADR-0037): syllabus chapters ticked on exams, grading schemes
  * and grades on results, report card settings and PDFs (one and in bulk), overviews, and
  * results in the parent / student portal. Also: permissions at branches and isolation.
  *

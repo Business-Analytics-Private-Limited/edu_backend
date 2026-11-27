@@ -1,5 +1,5 @@
 /**
- * REPORT CARDS (ADR-0036): the organization's report card settings (title, header line,
+ * REPORT CARDS (ADR-0037): the organization's report card settings (title, header line,
  * signatures, footer, logo) and the cards themselves as PDF: one student, or in bulk for a
  * section, a branch, or every section the user may see.
  *

@@ -63,7 +63,7 @@ export interface ExamSubjectInfo {
   passMarks: number;
   examDate: string | null;
   portion: string | null;
-  /** The syllabus chapters the exam covers in this subject (ADR-0036), in syllabus order. */
+  /** The syllabus chapters the exam covers in this subject (ADR-0037), in syllabus order. */
   chapters: { id: string; name: string }[];
 }
 

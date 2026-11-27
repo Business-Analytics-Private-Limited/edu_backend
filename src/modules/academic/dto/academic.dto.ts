@@ -252,7 +252,7 @@ export class UpdateSubjectDto {
   isActive?: boolean;
 }
 
-// --- Syllabus: chapters of a subject (ADR-0036) ---------------------------------------------------
+// --- Syllabus: chapters of a subject (ADR-0037) ---------------------------------------------------
 
 export class CreateChapterDto {
   /** @example Trigonometric ratios */

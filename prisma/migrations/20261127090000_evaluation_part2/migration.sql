@@ -1,4 +1,4 @@
--- ADR-0036: Evaluation part 2: syllabus chapters (Academic), grading schemes, report card settings.
+-- ADR-0037: Evaluation part 2: syllabus chapters (Academic), grading schemes, report card settings.
 -- Chapter ids on exam subjects are plain ids (no foreign key), like every other module's record in
 -- the Evaluation tables (ADR-0035), so the module can still become its own service.
 -- AlterTable

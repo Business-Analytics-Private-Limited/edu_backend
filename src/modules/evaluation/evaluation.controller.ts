@@ -23,7 +23,7 @@
  *   GET    /api/v1/exams/:id/uploads                   evaluation.marks.view
  *   GET    /api/v1/marks-uploads/:id                   evaluation.marks.view
  *
- * Part 2 (ADR-0036):
+ * Part 2 (ADR-0037):
  *   GET    /api/v1/grading-schemes                     evaluation.exam.view
  *   POST   /api/v1/grading-schemes                     evaluation.settings.update (organization)
  *   PATCH  /api/v1/grading-schemes/:id                 evaluation.settings.update
@@ -302,7 +302,7 @@ export class EvaluationController {
     return this.marks.getUpload(organizationId, id, user);
   }
 
-  // --- part 2: grading schemes (ADR-0036) ------------------------------------------------------------
+  // --- part 2: grading schemes (ADR-0037) ------------------------------------------------------------
 
   @Get('grading-schemes')
   @RequirePermission('evaluation.exam.view')

@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Status | **Built**: part 1 (ADR-0035) and part 2 (ADR-0036): syllabus, grades, report cards, overviews, portal results |
+| Status | **Built**: part 1 (ADR-0035) and part 2 (ADR-0037): syllabus, grades, report cards, overviews, portal results |
 | Code | `src/modules/evaluation/` |
 | Tables | `exam_types`, `exams`, `exam_subjects`, `exam_marks`, `marks_uploads`, `grading_schemes`, `grading_bands`, `report_card_settings` (and `chapters` in Academic) |
-| Decisions | [ADR-0035](../adr/0035-evaluation-exams-and-marks.md), [ADR-0036](../adr/0036-evaluation-syllabus-grades-report-cards.md) |
+| Decisions | [ADR-0035](../adr/0035-evaluation-exams-and-marks.md), [ADR-0037](../adr/0037-evaluation-syllabus-grades-report-cards.md) |
 | Switched on by | the super admin, per organization (module key `evaluation`, needs `academic` and `students`) |
 
 ## In plain words
@@ -78,7 +78,7 @@
 - **Results:** summary (passed, failed, incomplete, average), each student's marks, total, %, result, ranks.
 - **Exam types:** add, switch off, delete (unused).
 
-## Part 2 (ADR-0036)
+## Part 2 (ADR-0037)
 
 - **Syllabus:** each subject's chapters, in order (Academic → a subject → Chapters). An exam ticks the chapters it covers per subject. A ticked chapter can be switched off but not deleted.
 - **Grades:** grading schemes ("from 90 % up: A+, grade point 10"). The first scheme is the default; an exam may choose another. Results show a grade per subject, an overall grade and a GPA (when every band has a grade point). ABSENT counts as 0 %; EXEMPT has no grade.

@@ -6,7 +6,7 @@
  *   POST   /api/v1/subjects                             academic.subject.create   (organization)
  *   PATCH  /api/v1/subjects/:id                         academic.subject.update   (organization)
  *   DELETE /api/v1/subjects/:id                         academic.subject.delete   (organization)
- *   GET    /api/v1/subjects/:id/chapters                academic.subject.view     (syllabus, ADR-0036)
+ *   GET    /api/v1/subjects/:id/chapters                academic.subject.view     (syllabus, ADR-0037)
  *   POST   /api/v1/subjects/:id/chapters                academic.subject.update   (organization)
  *   PUT    /api/v1/subjects/:id/chapters/order          academic.subject.update
  *   PATCH  /api/v1/chapters/:id                         academic.subject.update
@@ -99,7 +99,7 @@ export class SubjectsCalendarController {
     return this.subjects.delete(organizationId, id, user);
   }
 
-  // --- Syllabus: chapters of a subject (ADR-0036) ---------------------------------------------------
+  // --- Syllabus: chapters of a subject (ADR-0037) ---------------------------------------------------
 
   @Get('subjects/:id/chapters')
   @RequirePermission('academic.subject.view')

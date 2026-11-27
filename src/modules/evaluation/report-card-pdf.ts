@@ -1,5 +1,5 @@
 /**
- * DRAWS REPORT CARDS AS A PDF (ADR-0036), one A4 page per student, with pdfkit.
+ * DRAWS REPORT CARDS AS A PDF (ADR-0037), one A4 page per student, with pdfkit.
  *
  * It only draws: the data comes ready from ReportCardsService (who may see what is checked
  * there). Layout, top to bottom: logo and the organization's name, the header line, the title

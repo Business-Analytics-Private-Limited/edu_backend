@@ -1,4 +1,4 @@
-# ADR-0036: Evaluation, part 2: syllabus, grades, report cards, overviews, portal results
+# ADR-0037: Evaluation, part 2: syllabus, grades, report cards, overviews, portal results
 
 Status: Accepted
 Date: 2026-11-27

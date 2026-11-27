@@ -1,5 +1,5 @@
 /**
- * SYLLABUS (ADR-0036): the chapters of each subject, in teaching order. Exams tick the chapters
+ * SYLLABUS (ADR-0037): the chapters of each subject, in teaching order. Exams tick the chapters
  * they cover (Evaluation module, `exam_subjects.chapter_ids`).
  *
  * Rules:

@@ -1,5 +1,5 @@
 /**
- * GRADING SCHEMES (ADR-0036): the organization's lists of grades (see grading.ts).
+ * GRADING SCHEMES (ADR-0037): the organization's lists of grades (see grading.ts).
  *
  * Rules:
  *   - schemes belong to the whole organization: managed with "evaluation.settings.update",

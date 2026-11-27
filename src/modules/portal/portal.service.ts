@@ -7,7 +7,7 @@
  *   attendance(id)  one student's attendance over a period (with the Attendance module)
  *   exams(id), examResult(id, examId), reportCard(id, examId)
  *                   results of LOCKED exams, and the report card PDF (with the Evaluation
- *                   module, ADR-0036). An exam still open is never shown: marks may change.
+ *                   module, ADR-0037). An exam still open is never shown: marks may change.
  *
  * Any other student id gives 404, exactly as if it didn't exist.
  */

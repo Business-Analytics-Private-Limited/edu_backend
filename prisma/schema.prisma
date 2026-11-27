@@ -459,7 +459,7 @@ model Subject {
   @@map("subjects")
 }
 
-/// The syllabus of a subject: its chapters in order (ADR-0036). Exams tick the chapters they cover.
+/// The syllabus of a subject: its chapters in order (ADR-0037). Exams tick the chapters they cover.
 model Chapter {
   id             String   @id @default(uuid(7)) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
@@ -1119,7 +1119,7 @@ model MarksUpload {
 }
 
 // -------------------------------------------------------------------------------------------------
-// EVALUATION PART 2 (ADR-0036): grading schemes and report card settings.
+// EVALUATION PART 2 (ADR-0037): grading schemes and report card settings.
 // -------------------------------------------------------------------------------------------------
 
 /// The organization's ways of turning a percentage into a grade (A+, A, B ...) and grade point.

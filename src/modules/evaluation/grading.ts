@@ -1,5 +1,5 @@
 /**
- * GRADES (ADR-0036): turning a percentage into a grade (A+, A, B ...) and a grade point.
+ * GRADES (ADR-0037): turning a percentage into a grade (A+, A, B ...) and a grade point.
  *
  * A grading scheme is a list of bands, each "from this percentage up": with bands A+ 90, A 75,
  * B 60, C 35, D 0, a student with 74.99 % gets B. Every scheme has a band starting at 0 %, so

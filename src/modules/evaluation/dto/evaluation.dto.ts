@@ -109,7 +109,7 @@ export class ExamSubjectDto {
   @Length(0, 300)
   portion?: string;
 
-  /** The syllabus chapters of this subject that the exam covers (ADR-0036). */
+  /** The syllabus chapters of this subject that the exam covers (ADR-0037). */
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(200)
@@ -289,7 +289,7 @@ export class UploadMarksDto {
   rows: Record<string, string>[];
 }
 
-// --- Part 2 (ADR-0036): grading schemes, report cards, overviews --------------------------------
+// --- Part 2 (ADR-0037): grading schemes, report cards, overviews --------------------------------
 
 /** One grade: from `minPercentage` up to the next band. */
 export class GradingBandDto {

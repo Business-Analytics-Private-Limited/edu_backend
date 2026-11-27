@@ -9,7 +9,7 @@ import { ReportCardsService } from './report-cards.service';
 
 /**
  * The Evaluation module (ADR-0035): exam types, exams with subjects, marks entry and CSV upload,
- * results; part 2 (ADR-0036): grading schemes, report cards, overviews. Its tables keep other modules' records as plain ids, so it can become its own service.
+ * results; part 2 (ADR-0037): grading schemes, report cards, overviews. Its tables keep other modules' records as plain ids, so it can become its own service.
  */
 @Module({
   controllers: [EvaluationController],
@@ -21,7 +21,7 @@ import { ReportCardsService } from './report-cards.service';
     ReportCardsService,
     OverviewService,
   ],
-  // The portal shows results and report cards to parents and students (ADR-0036).
+  // The portal shows results and report cards to parents and students (ADR-0037).
   exports: [ReportCardsService],
 })
 export class EvaluationModule {}

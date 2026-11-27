@@ -5,7 +5,7 @@
  *   GET    /api/v1/portal/me
  *   GET    /api/v1/portal/students/:id
  *   GET    /api/v1/portal/students/:id/attendance?from=&to=
- *   GET    /api/v1/portal/students/:id/exams                         (locked exams, ADR-0036)
+ *   GET    /api/v1/portal/students/:id/exams                         (locked exams, ADR-0037)
  *   GET    /api/v1/portal/students/:id/exams/:examId
  *   GET    /api/v1/portal/students/:id/exams/:examId/report-card     (PDF)
  *
