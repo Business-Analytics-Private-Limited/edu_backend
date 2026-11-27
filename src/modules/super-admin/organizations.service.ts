@@ -1,7 +1,8 @@
 /**
  * What the super admin can do with organizations: list, create (with its type, first admin and
- * branches), view, edit, suspend / activate, switch modules on and off, and add, close, reopen
- * and delete branches (only the super admin does that, ADR-0030).
+ * branches), view, edit, suspend / activate, switch modules on and off, add, close, reopen
+ * and delete branches (only the super admin does that, ADR-0030), and reset an organization
+ * admin's password when nobody in the organization can (ADR-0036).
  *
  * Super admins work across all organizations, so every query runs in forAllOrganizations.
  * Every change is written to the audit log in the same transaction.
@@ -25,6 +26,7 @@ import {
   ListOrganizationsQuery,
   UpdateOrganizationDto,
 } from './dto/organization.dto';
+import { issueTemporaryPassword } from '../users/temporary-password';
 import { checkModuleChange } from './module-rules';
 
 @Injectable()
@@ -218,6 +220,34 @@ export class OrganizationsService {
         organizationId: id,
       });
       return organization;
+    });
+  }
+
+  /**
+   * Resets an organization admin's password (ADR-0036), e.g. when the only admin forgot it.
+   * Only for the organization's admins: everyone else is reset by their own admins.
+   */
+  resetAdminPassword(id: string, userId: string, actor: CurrentUser) {
+    return this.prisma.forAllOrganizations(async (db) => {
+      const admin = await db.user.findFirst({
+        where: {
+          id: userId,
+          organizationId: id,
+          roles: { some: { role: { templateKey: ORG_ADMIN } } },
+        },
+        select: { id: true, name: true, email: true },
+      });
+      if (!admin) throw new NotFoundException('No such admin in this organization');
+      const temporaryPassword = await issueTemporaryPassword(db, admin.id);
+      // Never the password itself in the log.
+      await this.audit.log(db, actor, {
+        action: 'reset password',
+        entity: 'user',
+        entityId: admin.id,
+        organizationId: id,
+        details: { user: admin.name },
+      });
+      return { user: admin, temporaryPassword };
     });
   }
 

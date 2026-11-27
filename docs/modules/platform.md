@@ -35,6 +35,7 @@ Organization  "Sri Vidya Junior College"  (type Intermediate, code SVJC)
 | PATCH | `/super-admin/organizations/:id` | Name, code, contacts. The **type** can change only while the organization has no academic structure and no students. |
 | POST | `/super-admin/organizations/:id/suspend` / `activate` | A suspended organization's users can't log in (takes effect at once) |
 | PUT | `/super-admin/organizations/:id/modules/:moduleKey` | `{ enabled }`: switch a module on/off; a module needs the modules it depends on (`src/modules/super-admin/module-rules.ts`) |
+| POST | `/super-admin/organizations/:id/admins/:userId/reset-password` | A new temporary password for one of the organization's admins, answered once (ADR-0036); e.g. when the only admin forgot theirs |
 | POST | `/super-admin/organizations/:id/branches` | `{ name, code }`: add a branch |
 | POST | `/super-admin/organizations/:id/branches/:branchId/deactivate` | Close a branch: records stay, nothing new happens there, roles there stop working. Refused while current students study there. |
 | POST | `/super-admin/organizations/:id/branches/:branchId/activate` | Open it again |
