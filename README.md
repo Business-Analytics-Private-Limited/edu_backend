@@ -19,7 +19,7 @@ This repository is the **backend API**. The web app and the super admin console 
 | **Portal** (module) | Parents and students | Logins given by staff from a student's page; a parent's login covers all their children; they see details and attendance, and nothing of the staff side. |
 | **Academic** (module) | Organizations with the Academic module | Academic years for the whole organization; a structure shaped by the organization's type (School: Class → Section; Intermediate: Junior / Senior / Long Term → Group → Stream → Section; Degree / Engineering: Course → Specialization → Year → Section); sections per branch; subjects (attached to a class, inherited below); calendar with weekly off days and holidays. |
 
-Coming next: period-wise and biometric attendance, phone login for the portal, preparing a pilot, then attendance, parent portal, data import (see `docs/06-roadmap.md`). Module by module: [docs/modules/README.md](docs/modules/README.md).
+Coming next, in this order: password reset, period-wise attendance, biometric attendance, then the importer and a pilot; after that the move to microservices (ADR-0024, ADR-0035). See `docs/06-roadmap.md`. Module by module: [docs/modules/README.md](docs/modules/README.md).
 
 ## Getting started
 

@@ -2,19 +2,29 @@
 
 Each phase ends with something that runs and is tested. No phase starts until the previous one's exit check passes.
 
-## Where we are (2026-09-30)
+## Where we are (2026-11-27)
 
 | Phase | Status |
 |---|---|
 | 0. Design | Done |
 | 1. Foundation | Done, simplified (ADR-0015, ADR-0016): one NestJS app, Prisma, JWT login, local PostgreSQL, npm; no Docker / Redis / Keycloak yet |
-| 2. Platform core | **Done.** Super admin console and web app; organizations (with a type and code) and their branches; modules; users with several roles at places (organization / branch); predefined roles managed by the super admin; audit log with names and places (ADR-0017, ADR-0018) |
-| 3. Academic | **Done.** Academic years for the organization; one structure engine shaped by the organization's type (School / Intermediate / Degree / Engineering), sections per branch, progression; subjects (inherited down the tree), calendar (ADR-0030, replacing ADR-0019) |
-| 4. Students | **Done**, including documents with file storage (ADR-0023). Done so far: admission (with lateral entry), profile, status history, guardians (shared by siblings), placements as periods with a timeline, change section / branch from the profile, outgoing students and re-admission, promotion along the progression with undo, CSV import into a chosen section, automatic or typed admission numbers (ADR-0020, ADR-0030). |
-| 5. Attendance | **In progress.** Part 1 done: daily marking per section, corrections with reasons, correction window, overview, reports (ADR-0021). Next: period-wise marking, biometric devices |
-| 6. Portal | **In progress.** Part 1 done: parent and student logins linked to records, details and attendance (ADR-0022). Next: phone login, consent, notices |
+| 2. Platform core | **Done.** Super admin console and web app; organizations (with a type and code) and their branches; modules; users with several roles at places (organization / branch); predefined roles managed by the super admin, customizable per organization; audit log, add-only, with logins and document downloads; login security: lockout, sessions, forced password change, two-step login for super admins (ADR-0017, ADR-0018, ADR-0027 to ADR-0029) |
+| 3. Academic | **Done.** Academic years for the organization; one structure engine shaped by the organization's type (School / Intermediate / Degree / Engineering), sections per branch, groups per branch, courses with or without specializations, progression; subjects (inherited down the tree), calendar (ADR-0030, ADR-0032, ADR-0033) |
+| 4. Students | **Done.** Admission (with lateral entry), profile with optional and sensitive details, guardians (shared by siblings), documents, placements as periods with a timeline, change section / branch, outgoing students and re-admission, promotion of a branch, a section or chosen students (with undo), CSV import into a chosen section with import records, automatic or typed admission numbers, top rankers (ADR-0020, ADR-0023, ADR-0030, ADR-0031, ADR-0034) |
+| 5. Attendance | **In progress.** Part 1 done: daily marking per section, corrections with reasons, correction window, overview, reports; a student moved on a marked day keeps that mark (ADR-0021, ADR-0034). Next: period-wise marking, then biometric devices |
+| 6. Portal | **In progress.** Part 1 done: parent and student logins linked to records, a parent sees all their children, details and attendance (ADR-0022). Later: phone login, consent, notices |
+| Password reset | **Next.** Part of v1 (doc 1, section 1.5); built now in today's backend, not in M2 (ADR-0035) |
+| 7. Importer and pilot | Not started |
 
-**Next: architecture migration** ([ADR-0024](adr/0024-microservices-and-tenant-sharding.md), proposed). M0 Docker, gateway and logging → M1 tenant sharding (with a load test) → M2 Tenant and Identity services, including password reset. Then Files, events and Audit, Attendance, Students and Academic, and Portal become services one by one.
+### Order of work (ADR-0035)
+
+1. **Password reset:** an admin sets a temporary password for a user they manage (the forced change already exists); "forgot password" by email once a mail provider is chosen.
+2. **Period-wise attendance** (Phase 5, part 2). `attendance_records.period` already exists and is always 0 (the whole day) today.
+3. **Biometric attendance** (Phase 5, part 3): needs the first institutions' device models (open decision below).
+4. **Importer and pilot** (Phase 7).
+5. **Architecture migration** ([ADR-0024](adr/0024-microservices-and-tenant-sharding.md), accepted): M0 Docker, gateway and logging → M1 tenant sharding (with a load test) → M2 Tenant and Identity services. Then Files, events and Audit, Attendance, Students and Academic, and Portal become services one by one.
+
+Until M0 starts, ADR-0015 and ADR-0012 still describe how the backend is built.
 
 The original plan per phase is below; where it names Docker, Redis, Keycloak or outbox, see ADR-0015.
 

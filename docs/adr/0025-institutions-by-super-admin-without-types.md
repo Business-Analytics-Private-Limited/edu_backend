@@ -36,7 +36,7 @@ The project owner decided:
 - An organization that opens a new college asks EduPlatform to add it. This fits the commercial model: institutions are part of the subscription.
 - A junior college now renames its starting levels (Class → Section) or sets Year → Group → Section itself, once, before building classes. The operating procedure says so.
 - Codes are still unique in the organization, and still the institution's short name in admission numbers (`{CODE}`).
-- When the backend becomes microservices (ADR-0024, proposed), adding institutions belongs with the Academic service, called by the super admin's console.
+- When the backend becomes microservices (ADR-0024, accepted; after the v1 pilot, ADR-0035), adding institutions belongs with the Academic service, called by the super admin's console.
 
 ## Alternatives considered
 
