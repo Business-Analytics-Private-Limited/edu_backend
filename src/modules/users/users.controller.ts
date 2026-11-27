@@ -8,6 +8,7 @@
  *   PATCH  /api/v1/users/:id                                access.user.update   (name)
  *   POST   /api/v1/users/:id/deactivate                     access.user.update
  *   POST   /api/v1/users/:id/activate                       access.user.update
+ *   POST   /api/v1/users/:id/reset-password                 access.user.update   (ADR-0036)
  *   POST   /api/v1/users/:id/roles                          access.user.update   (give a role)
  *   DELETE /api/v1/users/:id/roles/:assignmentId            access.user.update   (take it away)
  */
@@ -16,6 +17,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -97,6 +99,19 @@ export class UsersController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.users.setStatus(organizationId, id, 'ACTIVE', user);
+  }
+
+  /** A new temporary password, answered once; the user must change it at the next login. */
+  @Post(':id/reset-password')
+  @RequirePermission('access.user.update')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  resetPassword(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.users.resetPassword(organizationId, id, user);
   }
 
   @Post(':id/roles')
