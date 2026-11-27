@@ -317,7 +317,7 @@ export class ExamsService {
           `There are no active sections under ${tree.label(dto.classId)}${branchId ? ' at this branch' : ''}`,
         );
       }
-      await this.checkSubjects(db, organizationId, dto.subjects);
+      await this.checkSubjects(db, organizationId, dto.subjects, dto.startsOn, dto.endsOn);
 
       const exam = await db.exam.create({
         data: {
@@ -365,7 +365,24 @@ export class ExamsService {
           dto.endsOn ?? iso(exam.endsOn),
         );
       }
-      if (dto.subjects) await this.replaceSubjects(db, organizationId, exam, dto.subjects);
+      if (dto.subjects) {
+        await this.replaceSubjects(db, organizationId, exam, dto.subjects, {
+          startsOn: dto.startsOn ?? iso(exam.startsOn),
+          endsOn: dto.endsOn ?? iso(exam.endsOn),
+        });
+      } else if (dto.startsOn || dto.endsOn) {
+        // New dates: the subjects' own dates must still lie inside them.
+        const startsOn = dto.startsOn ?? iso(exam.startsOn);
+        const endsOn = dto.endsOn ?? iso(exam.endsOn);
+        const outside = exam.subjects.find(
+          (s) => s.examDate && (iso(s.examDate) < startsOn || iso(s.examDate) > endsOn),
+        );
+        if (outside) {
+          throw new BadRequestException(
+            `A subject's date (${iso(outside.examDate!)}) is outside the new exam dates`,
+          );
+        }
+      }
       await db.exam.update({
         where: { id },
         data: {
@@ -456,8 +473,17 @@ export class ExamsService {
     return year;
   }
 
-  /** Each subject once, existing and active, with pass marks not above the maximum. */
-  private async checkSubjects(db: Db, organizationId: string, subjects: ExamSubjectDto[]) {
+  /**
+   * Each subject once, existing and active, with pass marks not above the maximum, and its date
+   * (if any) inside the exam's dates.
+   */
+  private async checkSubjects(
+    db: Db,
+    organizationId: string,
+    subjects: ExamSubjectDto[],
+    startsOn: string,
+    endsOn: string,
+  ) {
     const ids = subjects.map((s) => s.subjectId);
     if (new Set(ids).size !== ids.length) throw new BadRequestException('A subject appears twice');
     const found = await db.subject.findMany({ where: { organizationId, id: { in: ids } } });
@@ -470,6 +496,11 @@ export class ExamsService {
       if (s.passMarks > s.maxMarks) {
         throw new BadRequestException(
           `${byId.get(s.subjectId)!.name}: pass marks are above the maximum marks`,
+        );
+      }
+      if (s.examDate && (s.examDate < startsOn || s.examDate > endsOn)) {
+        throw new BadRequestException(
+          `${byId.get(s.subjectId)!.name}: the date ${s.examDate} is outside the exam (${startsOn} to ${endsOn})`,
         );
       }
     }
@@ -496,8 +527,9 @@ export class ExamsService {
     organizationId: string,
     exam: { id: string; subjects: { id: string; subjectId: string }[] },
     subjects: ExamSubjectDto[],
+    dates: { startsOn: string; endsOn: string },
   ) {
-    await this.checkSubjects(db, organizationId, subjects);
+    await this.checkSubjects(db, organizationId, subjects, dates.startsOn, dates.endsOn);
     const wanted = new Map(subjects.map((s, i) => [s.subjectId, { ...s, sortOrder: i }]));
     for (const current of exam.subjects) {
       const next = wanted.get(current.subjectId);

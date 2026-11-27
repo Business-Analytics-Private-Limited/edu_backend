@@ -48,6 +48,7 @@
 1. **Checked when an exam is created or changed:**
    - the dates lie inside the academic year, and the year isn't closed;
    - pass marks are not above the maximum;
+   - a subject's own date (if given) lies inside the exam's dates, also after the exam's dates change;
    - at least one active section takes part.
 2. A subject with marks can't be removed from an exam, and its maximum can't go below a mark already entered. An exam with marks can't be deleted.
 3. Marks need the permission at the student's or section's branch. In an upload, a row of another branch is left out with the reason.

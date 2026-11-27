@@ -74,13 +74,16 @@ const IGNORED_HEADINGS = new Set([
  * Throws a short reason when the value can't be used.
  */
 export function readMark(value: string | undefined, subject: ExamSubjectInfo): Cell | null {
-  const v = (value ?? '').trim().toUpperCase();
+  // String(): an API client may send 78 instead of "78".
+  const v = String(value ?? '')
+    .trim()
+    .toUpperCase();
   if (v === '' || v === '-') return null;
   if (v === 'AB' || v === 'A' || v === 'ABSENT') return { status: 'ABSENT', marks: null };
   if (v === 'EX' || v === 'EXEMPT') return { status: 'EXEMPT', marks: null };
   if (!/^\d+(\.\d{1,2})?$/.test(v)) {
     throw new Error(
-      `${subject.code} "${value!.trim()}" is not a mark (a number, AB for absent or EX for exempt)`,
+      `${subject.code} "${String(value).trim()}" is not a mark (a number, AB for absent or EX for exempt)`,
     );
   }
   const marks = Number(v);
@@ -242,19 +245,22 @@ export class MarksService {
         throw new BadRequestException([...new Set(problems)].slice(0, 10).join('; '));
       }
       const saved = await this.writeMarks(db, organizationId, examId, writes, actor);
+      // Counts only the marks that were really there (clearing an empty box removes nothing).
+      let cleared = 0;
       for (const c of clears) {
-        await db.examMark.deleteMany({
+        const removed = await db.examMark.deleteMany({
           where: { examSubjectId: c.examSubjectId, studentId: c.studentId },
         });
+        cleared += removed.count;
       }
       await this.audit.log(db, actor, {
         action: 'enter marks',
         entity: 'exam',
         entityId: examId,
         branchId: section.branchId,
-        details: { exam: ctx.exam.name, section: section.label, saved, cleared: clears.length },
+        details: { exam: ctx.exam.name, section: section.label, saved, cleared },
       });
-      return { saved, cleared: clears.length };
+      return { saved, cleared };
     });
   }
 
@@ -296,7 +302,10 @@ export class MarksService {
         const byAdmission = new Map(
           [...participants.values()].map((p) => [p.admissionNo.toUpperCase(), p]),
         );
-        const numbers = dto.rows.map((r) => (r[admissionHeading] ?? '').trim()).filter(Boolean);
+        // String(): admission numbers like 201602 may arrive as numbers from an API client.
+        const admissionOf = (r: Record<string, unknown>) =>
+          String(r[admissionHeading] ?? '').trim();
+        const numbers = dto.rows.map(admissionOf).filter(Boolean);
         const known = new Set(
           (
             await db.student.findMany({
@@ -312,7 +321,7 @@ export class MarksService {
         let readyRows = 0;
         dto.rows.forEach((values, index) => {
           const row = index + 2; // row 1 is the heading
-          const admissionNo = (values[admissionHeading] ?? '').trim();
+          const admissionNo = admissionOf(values);
           const reasons: string[] = [];
           const student: Participant | undefined = byAdmission.get(admissionNo.toUpperCase());
           if (!admissionNo) reasons.push('admission number is empty');
