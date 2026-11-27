@@ -15,11 +15,12 @@
   - has a type, an academic year, a name (unique in the year) and dates inside the year;
   - is **for a part of the structure**: a year (all its sections), a group, a stream, or one section;
   - is held at **one branch or every branch**;
-  - has its **subjects**, each with maximum and pass marks.
-- **Who takes part:** the students placed in the exam's sections during the exam dates. A student who changed section counts in the latest one.
+  - has its **subjects**, each with maximum and pass marks, an optional date and an optional **portion** ("Ch 1-4, Trigonometry").
+- **Each section has its own subjects:** those attached to it or to a class above it (Academic → subjects of a class). The New exam form offers the chosen part's subjects, ticked, with where each is attached. A section with no subjects attached takes every subject of the exam; a subject no section has attached is for every section.
+- **Who takes part:** the students placed in the exam's sections during the exam dates. A student who changed section counts in the latest one. Each student is expected to have marks in their section's subjects (plus any subject they already have a mark in).
 - **Marks:** per student and subject: a number (PRESENT), ABSENT, or EXEMPT (left out of the totals). Each mark keeps the student's section and branch at the time.
   - **By hand:** a section's grid.
-  - **By CSV:** `admissionNo` plus one column per subject code; `AB` absent, `EX` exempt, blank keeps the mark. Check first, then upload. Valid rows are saved; the rest are listed with reasons in the upload record (MKS-0001 …).
+  - **By CSV:** `admissionNo` plus one column per subject code; `AB` absent, `EX` exempt, blank or `-` keeps the mark (the template writes `-` for a subject the section doesn't have). Check first, then upload. Valid rows are saved; the rest are listed with reasons in the upload record (MKS-0001 …).
 - **Locking:** a locked exam takes no marks until it is unlocked.
 - **Results:** total, percentage, PASS / FAIL / INCOMPLETE, and ranks in the section and the whole exam (1, 2, 2, 4 for ties).
 
@@ -30,7 +31,8 @@
 | GET | `/exam-types` | `evaluation.exam.view` |
 | POST / PATCH / DELETE | `/exam-types[/:id]` | `evaluation.settings.update` for the whole organization |
 | GET | `/exams?academicYearId=&branchId=&examTypeId=&status=` | `evaluation.exam.view` |
-| POST | `/exams` | `evaluation.exam.create`: `{ examTypeId, academicYearId, name, classId, branchId?, startsOn, endsOn, subjects: [{ subjectId, maxMarks, passMarks, examDate? }] }`; for every branch it needs the permission for the whole organization |
+| GET | `/exams/subject-options?classId=&branchId=` | `evaluation.exam.create`: the chosen part's subjects (`sections` having each, `attachedTo`), `otherSubjects`, `sectionsWithoutSubjects` |
+| POST | `/exams` | `evaluation.exam.create`: `{ examTypeId, academicYearId, name, classId, branchId?, startsOn, endsOn, subjects: [{ subjectId, maxMarks, passMarks, examDate?, portion? }] }`; for every branch it needs the permission for the whole organization |
 | GET | `/exams/:id` | `evaluation.exam.view`: subjects, sections with students and marks entered |
 | PATCH | `/exams/:id` | `evaluation.exam.update`: name, type, dates, `subjects` (replaces the list; a subject with marks stays) |
 | DELETE | `/exams/:id` | `evaluation.exam.delete`: only without marks |
@@ -51,6 +53,7 @@
 3. Marks need the permission at the student's or section's branch. In an upload, a row of another branch is left out with the reason.
 4. A locked exam takes no marks.
 5. **Results:**
+   - over the student's subjects only (a subject the section doesn't have shows "n/a");
    - EXEMPT subjects don't count;
    - ABSENT, or below the pass marks, in a subject means FAIL;
    - a subject without marks means INCOMPLETE;
@@ -61,7 +64,9 @@
 ## Screens (web app → Evaluation)
 
 - **Exams:** filters by year and type; New exam.
-- **New exam:** type, year, name, branch (or every branch), "For" (a part of the structure or one section), dates, subjects with maximum and pass marks.
+- **New exam**, in two steps:
+  1. branch (or every branch) and "For" (a part of the structure or one section);
+  2. type, year, name, dates, and that part's subjects (ticked) with maximum and pass marks, date and portion.
 - **An exam:**
   - subjects;
   - every section with students and "marks in";
@@ -74,4 +79,4 @@
 
 ## Next (part 2)
 
-Grading schemes (marks → grades, GPA), report cards per student as PDF (with the organization's branding), bulk report cards per section, batch or campus, overviews per class, batch, campus and organization, results in the parent and student portal.
+Syllabus (chapters per subject, ticked per exam), grading schemes (marks → grades, GPA), report cards per student as PDF (with the organization's branding), bulk report cards per section, batch or campus, overviews per class, batch, campus and organization, results in the parent and student portal.

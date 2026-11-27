@@ -9,6 +9,7 @@
  *   DELETE /api/v1/exam-types/:id                      evaluation.settings.update
  *
  *   GET    /api/v1/exams?academicYearId=&branchId=&examTypeId=&status=   evaluation.exam.view
+ *   GET    /api/v1/exams/subject-options?classId=&branchId=  evaluation.exam.create
  *   POST   /api/v1/exams                               evaluation.exam.create
  *   GET    /api/v1/exams/:id                           evaluation.exam.view
  *   PATCH  /api/v1/exams/:id                           evaluation.exam.update
@@ -46,6 +47,7 @@ import {
   OptionalSectionQuery,
   SaveMarksDto,
   SectionQuery,
+  SubjectOptionsQuery,
   UpdateExamDto,
   UpdateExamTypeDto,
   UploadMarksDto,
@@ -113,6 +115,17 @@ export class EvaluationController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.exams.list(organizationId, query, user);
+  }
+
+  /** The subjects of the chosen part of the structure, for the New exam form. */
+  @Get('exams/subject-options')
+  @RequirePermission('evaluation.exam.create')
+  subjectOptions(
+    @OrganizationId() organizationId: string,
+    @Query() query: SubjectOptionsQuery,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.exams.subjectOptions(organizationId, query, user);
   }
 
   @Post('exams')

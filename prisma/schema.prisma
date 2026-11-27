@@ -1025,6 +1025,8 @@ model ExamSubject {
   maxMarks       Decimal   @map("max_marks") @db.Decimal(6, 2)
   passMarks      Decimal   @map("pass_marks") @db.Decimal(6, 2)
   examDate       DateTime? @map("exam_date") @db.Date
+  /// What the exam covers in this subject ("Ch 1-4, Trigonometry"); free text.
+  portion        String?   @db.VarChar(300)
   sortOrder      Int       @default(0) @map("sort_order")
 
   organization Organization @relation(fields: [organizationId], references: [id])

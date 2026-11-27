@@ -101,6 +101,12 @@ export class ExamSubjectDto {
   @IsOptional()
   @IsDateString({ strict: true })
   examDate?: string;
+
+  /** What the exam covers in this subject. @example Ch 1-4, Trigonometry */
+  @IsOptional()
+  @IsString()
+  @Length(0, 300)
+  portion?: string;
 }
 
 export class CreateExamDto {
@@ -187,6 +193,17 @@ export class ExamsQuery {
 }
 
 // --- Marks ---------------------------------------------------------------------------------------
+
+/** "Which subjects can this exam have?": the part of the structure and the branch. */
+export class SubjectOptionsQuery {
+  @IsUUID()
+  classId: string;
+
+  /** Empty = every branch. */
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+}
 
 export class SectionQuery {
   /** A section taking part in the exam. */

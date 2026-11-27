@@ -406,6 +406,133 @@ describe('Evaluation', () => {
     await api().delete(`/api/v1/exams/${kkp.body.id}`).set(as(admin)).expect(200);
   });
 
+  it('each section has its own subjects: offered on the form, expected in marks and results', async () => {
+    // Chemistry is attached to KKP's Section A only.
+    const chem = await api()
+      .post('/api/v1/subjects')
+      .set(as(admin))
+      .send({ code: 'CHEM', name: 'Chemistry' })
+      .expect(201);
+    ids.CHEM = chem.body.id;
+    await api()
+      .put(`/api/v1/classes/${ids.KKP_A}/subjects`)
+      .set(as(admin))
+      .send({ subjectIds: [ids.CHEM] })
+      .expect(200);
+
+    // AMP's section has no subjects yet: it is counted as "not set up" (it would take all).
+    const options = () =>
+      api().get(`/api/v1/exams/subject-options?classId=${ids.JR_MPC}`).set(as(admin)).expect(200);
+    const before = await options();
+    expect(before.body.sections).toBe(2);
+    expect(before.body.sectionsWithoutSubjects).toBe(1);
+    expect(before.body.subjects.map((s: { code: string }) => s.code)).toEqual(['CHEM']);
+
+    // Mathematics on the whole MPC group: every MPC section has it.
+    await api()
+      .put(`/api/v1/classes/${ids.JR_MPC}/subjects`)
+      .set(as(admin))
+      .send({ subjectIds: [ids.MAT] })
+      .expect(200);
+    const after = await options();
+    expect(after.body.sectionsWithoutSubjects).toBe(0);
+    expect(after.body.subjects).toEqual([
+      expect.objectContaining({
+        code: 'CHEM',
+        sections: 1,
+        attachedTo: [expect.stringContaining('Section A')],
+      }),
+      expect.objectContaining({
+        code: 'MAT',
+        sections: 2,
+        attachedTo: [expect.stringContaining('MPC')],
+      }),
+    ]);
+    expect(after.body.otherSubjects.map((s: { code: string }) => s.code)).toEqual(['PHY']);
+    await api()
+      .get(`/api/v1/exams/subject-options?classId=${ids.JR_MPC}`)
+      .set(as(jaya))
+      .expect(403);
+
+    // An exam with Mathematics (every section, with a portion) and Chemistry (KKP only).
+    const created = await api()
+      .post('/api/v1/exams')
+      .set(as(admin))
+      .send(
+        quarterly({
+          name: 'Unit test 1',
+          subjects: [
+            { subjectId: ids.MAT, maxMarks: 25, passMarks: 9, portion: ' Ch 1-4, Trigonometry ' },
+            { subjectId: ids.CHEM, maxMarks: 25, passMarks: 9 },
+          ],
+        }),
+      )
+      .expect(201);
+    const examId = created.body.id;
+    const exam = await api().get(`/api/v1/exams/${examId}`).set(as(admin)).expect(200);
+    expect(exam.body.subjects[0].portion).toBe('Ch 1-4, Trigonometry');
+    const section = (branch: string) =>
+      exam.body.sections.find((s: { id: string }) => s.id === ids[`${branch}_A`]);
+    expect(section('KKP').subjectIds.sort()).toEqual([ids.MAT, ids.CHEM].sort());
+    expect(section('KKP').marksExpected).toBe(6); // 3 students x 2 subjects
+    expect(section('AMP').subjectIds).toEqual([ids.MAT]);
+    expect(section('AMP').marksExpected).toBe(1);
+
+    // AMP's grid has no Chemistry column, and Chemistry can't be saved there.
+    const grid = await api()
+      .get(`/api/v1/exams/${examId}/marks?sectionId=${ids.AMP_A}`)
+      .set(as(admin))
+      .expect(200);
+    expect(grid.body.subjects.map((s: { code: string }) => s.code)).toEqual(['MAT']);
+    const refused = await api()
+      .put(`/api/v1/exams/${examId}/marks`)
+      .set(as(admin))
+      .send({
+        sectionId: ids.AMP_A,
+        entries: [{ studentId: student.Dev, subjectId: ids.CHEM, status: 'PRESENT', marks: 20 }],
+      })
+      .expect(400);
+    expect(refused.body.message).toContain('CHEM is not a subject of');
+
+    // Upload: Chemistry for Dev is left out with the reason; "-" means nothing to save.
+    const upload = await api()
+      .post(`/api/v1/exams/${examId}/marks/upload`)
+      .set(as(admin))
+      .send({
+        rows: [
+          { admissionNo: 'EVA1', MAT: '20', CHEM: '15' },
+          { admissionNo: 'EVA4', MAT: '18', CHEM: '12' },
+          { admissionNo: 'EVA2', MAT: '22', CHEM: '-' },
+        ],
+      })
+      .expect(200);
+    expect(upload.body.readyRows).toBe(2);
+    expect(upload.body.excluded).toEqual([
+      expect.objectContaining({
+        row: 3,
+        reasons: ["CHEM is not a subject of this student's section"],
+      }),
+    ]);
+    await api()
+      .post(`/api/v1/exams/${examId}/marks/upload`)
+      .set(as(admin))
+      .send({ rows: [{ admissionNo: 'EVA4', MAT: '18', CHEM: '-' }] })
+      .expect(200);
+
+    // Results: Dev is complete with Mathematics alone; Bhavya still misses Chemistry.
+    const results = await api().get(`/api/v1/exams/${examId}/results`).set(as(admin)).expect(200);
+    const of = (name: string) =>
+      results.body.students.find((s: { fullName: string }) => s.fullName === name);
+    expect(of('Dev')).toMatchObject({
+      subjectIds: [ids.MAT],
+      total: 18,
+      maxTotal: 25,
+      result: 'PASS',
+    });
+    expect(of('Anil')).toMatchObject({ total: 35, maxTotal: 50, result: 'PASS' });
+    expect(of('Bhavya').result).toBe('INCOMPLETE');
+  });
+
   it('works only with the module switched on, and another organization sees none of it', async () => {
     await api().get(`/api/v1/exams/${ids.EXAM}`).set(as(other)).expect(404);
     await api().get(`/api/v1/exams/${ids.EXAM}/results`).set(as(other)).expect(404);

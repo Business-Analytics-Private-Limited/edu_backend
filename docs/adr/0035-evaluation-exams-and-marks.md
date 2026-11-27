@@ -32,7 +32,9 @@ Each organization keeps its own list: name and short code (both unique), active 
 
 ### 3. Subjects with marks
 
-- Each exam lists its subjects (from the organization's subjects), each with **maximum marks**, **pass marks** and an optional date.
+- Each exam lists its subjects (from the organization's subjects), each with **maximum marks**, **pass marks**, an optional date and an optional **portion** (free text: what the exam covers, e.g. "Ch 1-4, Trigonometry").
+- **Each section has its own subjects** (decided with the owner, 2026-11-25). A section has the subjects attached to it or to a class above it (Academic → subjects of a class). The New exam form offers the subjects of the chosen part, ticked, showing where each is attached ("1 of 10 sections: … › BiPC"); the organization's other subjects are folded away. A student is expected to have marks only in their section's subjects (plus any subject they already have a mark in). Two fallbacks keep half-finished set-ups working: a section with **no subjects attached** takes every subject of the exam, and a subject of the exam that **no section has attached** is for every section.
+- A syllabus (chapters per subject, ticked per exam) is planned next, in the Academic module; the exam will store chapter ids as plain ids.
 - Marks are stored per student and subject, with a status:
   - **PRESENT** with marks (0 to the maximum, at most two decimals);
   - **ABSENT**;
@@ -44,7 +46,7 @@ Each organization keeps its own list: name and short code (both unique), active 
 - **By hand:** a section's grid (students × subjects), saved as one action.
 - **CSV upload per exam:**
   - The template has the column `admissionNo`, then one column per subject code (e.g. `MAT`, `PHY`). Name, section and roll number columns may be there and are ignored.
-  - Values: a number; `AB` or `A` = absent; `EX` = exempt; blank = leave as it is. So one subject teacher can upload just their column.
+  - Values: a number; `AB` or `A` = absent; `EX` = exempt; blank or `-` = leave as it is. So one subject teacher can upload just their column. The template writes `-` for a subject the student's section doesn't have; a mark there is left out with the reason.
   - **Check the file** saves nothing and lists what would be saved and what not. **Upload marks** saves the valid rows and records the upload (MKS-0001 …) with the rows left out and the reasons. This is the same pattern as the student import (ADR-0031).
   - A row is left out when:
     - the admission number is empty or unknown;

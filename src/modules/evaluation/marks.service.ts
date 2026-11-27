@@ -6,13 +6,18 @@
  * decimals at most), ABSENT, or EXEMPT (left out of the totals). It is stored with the student's
  * section and branch during the exam.
  *
+ * A student has marks only in the subjects of their section (exam-scope.ts, subjectsBySection),
+ * plus any subject they already have a mark in (so a mark entered before a class's subjects
+ * changed still shows and still counts).
+ *
  * CSV upload ("Check the file" / "Upload marks"):
  *   - columns: admissionNo, then one column per subject code (or name); name / section / roll
  *     columns are ignored; other unknown columns are reported and ignored;
- *   - values: a number; AB or A = absent; EX = exempt; blank = leave as it is;
+ *   - values: a number; AB or A = absent; EX = exempt; blank or - = leave as it is;
  *   - a row is left out, with its reasons, when the admission number is missing or unknown, the
  *     student isn't in this exam, the number appears twice, the user may not upload marks at the
- *     student's branch, or a value is not understood or above the maximum;
+ *     student's branch, or a value is not understood, above the maximum, or for a subject the
+ *     student's section doesn't have;
  *   - the valid rows are saved in one transaction and the upload is recorded (MKS-0001 ...).
  *
  * Permissions, at the student's / section's branch: evaluation.marks.view (grid, results),
@@ -70,7 +75,7 @@ const IGNORED_HEADINGS = new Set([
  */
 export function readMark(value: string | undefined, subject: ExamSubjectInfo): Cell | null {
   const v = (value ?? '').trim().toUpperCase();
-  if (v === '') return null;
+  if (v === '' || v === '-') return null;
   if (v === 'AB' || v === 'A' || v === 'ABSENT') return { status: 'ABSENT', marks: null };
   if (v === 'EX' || v === 'EXEMPT') return { status: 'EXEMPT', marks: null };
   if (!/^\d+(\.\d{1,2})?$/.test(v)) {
@@ -154,10 +159,13 @@ export class MarksService {
         students.map((s) => s.studentId),
         ctx.subjects,
       );
+      // The section's subjects, and any other subject a student of it already has a mark in.
+      const own = ctx.sectionSubjects.get(sectionId) ?? new Set<string>();
+      const withMarks = new Set([...cells.values()].flatMap((c) => [...c.keys()]));
       return {
         exam: { id: ctx.exam.id, name: ctx.exam.name, status: ctx.exam.status },
         section,
-        subjects: ctx.subjects,
+        subjects: ctx.subjects.filter((s) => own.has(s.subjectId) || withMarks.has(s.subjectId)),
         canEnter:
           ctx.exam.status === 'OPEN' &&
           can(actor, 'evaluation.marks.enter', { branchId: section.branchId }),
@@ -185,6 +193,8 @@ export class MarksService {
         ctx.sections.map((s) => s.id),
       );
       const subjectById = new Map(ctx.subjects.map((s) => [s.subjectId, s]));
+      const own = ctx.sectionSubjects.get(section.id) ?? new Set<string>();
+      const has = await this.existingMarks(db, examId);
 
       const problems: string[] = [];
       const writes: MarkWrite[] = [];
@@ -202,6 +212,13 @@ export class MarksService {
         }
         if (e.status === 'CLEAR') {
           clears.push({ examSubjectId: subject.examSubjectId, studentId: student.studentId });
+          continue;
+        }
+        if (
+          !own.has(subject.subjectId) &&
+          !has.has(`${subject.examSubjectId}|${student.studentId}`)
+        ) {
+          problems.push(`${subject.code} is not a subject of ${section.label}`);
           continue;
         }
         if (e.status === 'PRESENT' && (e.marks === undefined || e.marks > subject.maxMarks)) {
@@ -288,6 +305,7 @@ export class MarksService {
             })
           ).map((s) => s.admissionNo.toUpperCase()),
         );
+        const has = await this.existingMarks(db, examId);
         const seen = new Set<string>();
         const excluded: ExcludedMarksRow[] = [];
         const writes: MarkWrite[] = [];
@@ -314,7 +332,14 @@ export class MarksService {
           for (const [heading, subject] of subjectOf) {
             try {
               const cell = readMark(values[heading], subject);
-              if (cell && student) {
+              if (
+                cell &&
+                student &&
+                !ctx.sectionSubjects.get(student.classId)?.has(subject.subjectId) &&
+                !has.has(`${subject.examSubjectId}|${student.studentId}`)
+              ) {
+                reasons.push(`${subject.code} is not a subject of this student's section`);
+              } else if (cell && student) {
                 cells.push({
                   examSubjectId: subject.examSubjectId,
                   studentId: student.studentId,
@@ -421,11 +446,19 @@ export class MarksService {
         participants.map((p) => p.studentId),
         ctx.subjects,
       );
-      const rows = participants.map((p) => ({
-        ...p,
-        cells: cells.get(p.studentId) ?? new Map<string, Cell>(),
-        ...resultOf(ctx.subjects, cells.get(p.studentId) ?? new Map()),
-      }));
+      const rows = participants.map((p) => {
+        const own = cells.get(p.studentId) ?? new Map<string, Cell>();
+        // The student's subjects: their section's, and any they already have a mark in.
+        const theirs = ctx.subjects.filter(
+          (s) => ctx.sectionSubjects.get(p.classId)?.has(s.subjectId) || own.has(s.subjectId),
+        );
+        return {
+          ...p,
+          cells: own,
+          subjectIds: theirs.map((s) => s.subjectId),
+          ...resultOf(theirs, own),
+        };
+      });
       const complete = rows.filter((r) => r.complete);
       const examRank = rank(complete);
       const sectionRank = new Map<string, number>();
@@ -447,6 +480,7 @@ export class MarksService {
           fullName: r.fullName,
           rollNo: r.rollNo,
           section: { id: r.classId, label: label.get(r.classId) ?? '' },
+          subjectIds: r.subjectIds,
           marks: Object.fromEntries(r.cells),
           total: r.total,
           maxTotal: r.maxTotal,
@@ -520,6 +554,15 @@ export class MarksService {
   private assertOpen(exam: { status: string }) {
     if (exam.status !== 'OPEN')
       throw new BadRequestException('The exam is locked: unlock it to change marks');
+  }
+
+  /** "examSubjectId|studentId" of every mark of the exam. */
+  private async existingMarks(db: Db, examId: string) {
+    const marks = await db.examMark.findMany({
+      where: { examId },
+      select: { examSubjectId: true, studentId: true },
+    });
+    return new Set(marks.map((m) => `${m.examSubjectId}|${m.studentId}`));
   }
 
   /** student id -> subject id -> mark. */

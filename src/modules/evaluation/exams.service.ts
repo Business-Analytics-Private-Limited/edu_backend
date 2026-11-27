@@ -13,6 +13,11 @@
  *   - a LOCKED exam can't be changed (unlock it first);
  *   - a subject with marks can't be removed, and its maximum can't go below a mark entered;
  *   - an exam with marks can't be deleted (lock it instead).
+ *
+ * Subjects: the New exam form offers the subjects attached to the chosen part of the structure
+ * (subjectOptions). Each section is then expected to have marks only in ITS subjects (see
+ * subjectsBySection in exam-scope.ts, with its two fallbacks for half-finished set-ups).
+ * Each subject may carry a "portion" note: what the exam covers ("Ch 1-4, Trigonometry").
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ExamStatus, Prisma } from '@prisma/client';
@@ -23,8 +28,14 @@ import { ClassTree } from '../academic/class-tree';
 import { sectionLevel } from '../academic/presets';
 import { AuditService } from '../audit/audit.service';
 import { assertBranchInUse, findOrganization } from '../organization/places-in-use';
-import { CreateExamDto, ExamsQuery, ExamSubjectDto, UpdateExamDto } from './dto/evaluation.dto';
-import { participantsOf, sectionsOf, type ExamSection } from './exam-scope';
+import {
+  CreateExamDto,
+  ExamsQuery,
+  ExamSubjectDto,
+  SubjectOptionsQuery,
+  UpdateExamDto,
+} from './dto/evaluation.dto';
+import { participantsOf, sectionsOf, subjectsBySection, type ExamSection } from './exam-scope';
 
 const day = (value: string) => new Date(`${value}T00:00:00Z`);
 const iso = (date: Date) => date.toISOString().slice(0, 10);
@@ -50,6 +61,7 @@ export interface ExamSubjectInfo {
   maxMarks: number;
   passMarks: number;
   examDate: string | null;
+  portion: string | null;
 }
 
 /**
@@ -78,9 +90,17 @@ export async function examContext(db: Db, organizationId: string, id: string, ac
     maxMarks: Number(s.maxMarks),
     passMarks: Number(s.passMarks),
     examDate: s.examDate ? iso(s.examDate) : null,
+    portion: s.portion,
   }));
   const sections = sectionsOf(tree, exam, sectionLevel(organization.type));
-  return { exam, subjects, sections, tree };
+  /** Section id -> the subject ids it is expected to have marks in. */
+  const sectionSubjects = await subjectsBySection(
+    db,
+    tree,
+    sections,
+    subjects.map((s) => s.subjectId),
+  );
+  return { exam, subjects, sections, sectionSubjects, tree };
 }
 
 @Injectable()
@@ -136,7 +156,12 @@ export class ExamsService {
   /** One exam: subjects, and per section the students and how many marks are in. */
   get(organizationId: string, id: string, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const { exam, subjects, sections, tree } = await examContext(db, organizationId, id, actor);
+      const { exam, subjects, sections, sectionSubjects, tree } = await examContext(
+        db,
+        organizationId,
+        id,
+        actor,
+      );
       const [year, branch, participants, entered, uploads] = await Promise.all([
         db.academicYear.findFirst({ where: { id: exam.academicYearId } }),
         exam.branchId ? db.branch.findFirst({ where: { id: exam.branchId } }) : null,
@@ -171,11 +196,13 @@ export class ExamsService {
         sections: sections
           .map((s) => {
             const students = studentsIn.get(s.id) ?? 0;
+            const subjectIds = [...(sectionSubjects.get(s.id) ?? [])];
             return {
               ...s,
               branchName: branchName.get(s.branchId) ?? '',
+              subjectIds,
               students,
-              marksExpected: students * subjects.length,
+              marksExpected: students * subjectIds.length,
               marksEntered: enteredIn.get(s.id) ?? 0,
               canEnter:
                 exam.status === 'OPEN' &&
@@ -187,6 +214,72 @@ export class ExamsService {
             (a, b) => a.branchName.localeCompare(b.branchName) || a.label.localeCompare(b.label),
           ),
         uploadCount: uploads,
+      };
+    });
+  }
+
+  /**
+   * For the New exam form: the subjects of the chosen part of the structure. A subject is listed
+   * with how many of the exam's sections have it and where it is attached ("Junior › BiPC"), so
+   * an exam for a whole year shows each group's subjects. The organization's other active
+   * subjects come separately, for a subject that isn't attached to a class.
+   */
+  subjectOptions(organizationId: string, query: SubjectOptionsQuery, actor: CurrentUser) {
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      const tree = await ClassTree.load(db, organizationId);
+      const node = tree.get(query.classId);
+      if (!node) throw new NotFoundException('That part of the structure was not found');
+      const branchId = node.branchId ?? query.branchId ?? null;
+      assertCan(actor, 'evaluation.exam.create', { branchId });
+      const organization = await findOrganization(db, organizationId);
+      const sections = sectionsOf(
+        tree,
+        { classId: query.classId, branchId },
+        sectionLevel(organization.type),
+      );
+      const [subjects, links] = await Promise.all([
+        db.subject.findMany({
+          where: { organizationId, isActive: true },
+          orderBy: { name: 'asc' },
+        }),
+        db.classSubject.findMany({
+          where: { organizationId },
+          select: { classId: true, subjectId: true },
+        }),
+      ]);
+      // subject id -> the sections that have it, and the classes it is attached to.
+      const inSections = new Map<string, Set<string>>();
+      const attachedTo = new Map<string, Set<string>>();
+      let withoutSubjects = 0;
+      for (const section of sections) {
+        const pathIds = new Set(tree.path(section.id).map((c) => c.id));
+        if (!links.some((l) => pathIds.has(l.classId))) withoutSubjects++;
+        for (const l of links) {
+          if (!pathIds.has(l.classId)) continue;
+          if (!inSections.has(l.subjectId)) inSections.set(l.subjectId, new Set());
+          if (!attachedTo.has(l.subjectId)) attachedTo.set(l.subjectId, new Set());
+          inSections.get(l.subjectId)!.add(section.id);
+          attachedTo.get(l.subjectId)!.add(l.classId);
+        }
+      }
+      const brief = (s: { id: string; code: string; name: string }) => ({
+        id: s.id,
+        code: s.code,
+        name: s.name,
+      });
+      return {
+        appliesTo: { classId: node.id, label: tree.label(node.id) },
+        sections: sections.length,
+        /** Sections with no subjects attached yet: they take every subject of the exam. */
+        sectionsWithoutSubjects: withoutSubjects,
+        subjects: subjects
+          .filter((s) => inSections.has(s.id))
+          .map((s) => ({
+            ...brief(s),
+            sections: inSections.get(s.id)!.size,
+            attachedTo: [...attachedTo.get(s.id)!].map((id) => tree.label(id)).sort(),
+          })),
+        otherSubjects: subjects.filter((s) => !inSections.has(s.id)).map(brief),
       };
     });
   }
@@ -389,6 +482,7 @@ export class ExamsService {
       maxMarks: s.maxMarks,
       passMarks: s.passMarks,
       examDate: s.examDate ? day(s.examDate) : null,
+      portion: s.portion?.trim() || null,
       sortOrder: index,
     }));
   }
@@ -429,6 +523,7 @@ export class ExamsService {
           maxMarks: next.maxMarks,
           passMarks: next.passMarks,
           examDate: next.examDate ? day(next.examDate) : null,
+          portion: next.portion?.trim() || null,
           sortOrder: next.sortOrder,
         },
       });
@@ -443,6 +538,7 @@ export class ExamsService {
           maxMarks: s.maxMarks,
           passMarks: s.passMarks,
           examDate: s.examDate ? day(s.examDate) : null,
+          portion: s.portion?.trim() || null,
           sortOrder: s.sortOrder,
         })),
       });
