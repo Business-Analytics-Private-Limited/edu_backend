@@ -1,0 +1,82 @@
+# Module: evaluation (exam types, exams with subjects and marks, marks upload, results)
+
+| | |
+|---|---|
+| Status | **Built (part 1)**; report cards, grading schemes and overviews come in part 2 |
+| Code | `src/modules/evaluation/` |
+| Tables | `exam_types`, `exams`, `exam_subjects`, `exam_marks`, `marks_uploads` |
+| Decisions | [ADR-0035](../adr/0035-evaluation-exams-and-marks.md) |
+| Switched on by | the super admin, per organization (module key `evaluation`, needs `academic` and `students`) |
+
+## In plain words
+
+- **Exam types:** the organization's kinds of exam (Weekly test, Quarterly, Half-yearly, Grand test …), each with a short code. A type in use can be switched off but not deleted.
+- **An exam:**
+  - has a type, an academic year, a name (unique in the year) and dates inside the year;
+  - is **for a part of the structure**: a year (all its sections), a group, a stream, or one section;
+  - is held at **one branch or every branch**;
+  - has its **subjects**, each with maximum and pass marks, an optional date and an optional **portion** ("Ch 1-4, Trigonometry").
+- **Each section has its own subjects:** those attached to it or to a class above it (Academic → subjects of a class). The New exam form offers the chosen part's subjects, ticked, with where each is attached. A section with no subjects attached takes every subject of the exam; a subject no section has attached is for every section.
+- **Who takes part:** the students placed in the exam's sections during the exam dates. A student who changed section counts in the latest one. Each student is expected to have marks in their section's subjects (plus any subject they already have a mark in).
+- **Marks:** per student and subject: a number (PRESENT), ABSENT, or EXEMPT (left out of the totals). Each mark keeps the student's section and branch at the time.
+  - **By hand:** a section's grid.
+  - **By CSV:** `admissionNo` plus one column per subject code; `AB` absent, `EX` exempt, blank or `-` keeps the mark (the template writes `-` for a subject the section doesn't have). Check first, then upload. Valid rows are saved; the rest are listed with reasons in the upload record (MKS-0001 …).
+- **Locking:** a locked exam takes no marks until it is unlocked.
+- **Results:** total, percentage, PASS / FAIL / INCOMPLETE, and ranks in the section and the whole exam (1, 2, 2, 4 for ties).
+
+## API (`/api/v1`)
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/exam-types` | `evaluation.exam.view` |
+| POST / PATCH / DELETE | `/exam-types[/:id]` | `evaluation.settings.update` for the whole organization |
+| GET | `/exams?academicYearId=&branchId=&examTypeId=&status=` | `evaluation.exam.view` |
+| GET | `/exams/subject-options?classId=&branchId=` | `evaluation.exam.create`: the chosen part's subjects (`sections` having each, `attachedTo`), `otherSubjects`, `sectionsWithoutSubjects` |
+| POST | `/exams` | `evaluation.exam.create`: `{ examTypeId, academicYearId, name, classId, branchId?, startsOn, endsOn, subjects: [{ subjectId, maxMarks, passMarks, examDate?, portion? }] }`; for every branch it needs the permission for the whole organization |
+| GET | `/exams/:id` | `evaluation.exam.view`: subjects, sections with students and marks entered |
+| PATCH | `/exams/:id` | `evaluation.exam.update`: name, type, dates, `subjects` (replaces the list; a subject with marks stays) |
+| DELETE | `/exams/:id` | `evaluation.exam.delete`: only without marks |
+| POST | `/exams/:id/lock`, `/exams/:id/unlock` | `evaluation.exam.update` |
+| GET | `/exams/:id/marks?sectionId=` | `evaluation.marks.view` at the section's branch |
+| PUT | `/exams/:id/marks` | `evaluation.marks.enter`: `{ sectionId, entries: [{ studentId, subjectId, status: PRESENT\|ABSENT\|EXEMPT\|CLEAR, marks? }] }` |
+| POST | `/exams/:id/marks/upload` | `evaluation.marks.import`: `{ dryRun?, fileName?, rows: [{ heading: value }] }` → counts, rows left out with reasons, `upload` (MKS-0001) |
+| GET | `/exams/:id/results?sectionId=` | `evaluation.marks.view` |
+| GET | `/exams/:id/uploads`, `/marks-uploads/:id` | `evaluation.marks.view` |
+
+## Rules (tested in `test/evaluation.e2e-spec.ts`)
+
+1. **Checked when an exam is created or changed:**
+   - the dates lie inside the academic year, and the year isn't closed;
+   - pass marks are not above the maximum;
+   - at least one active section takes part.
+2. A subject with marks can't be removed from an exam, and its maximum can't go below a mark already entered. An exam with marks can't be deleted.
+3. Marks need the permission at the student's or section's branch. In an upload, a row of another branch is left out with the reason.
+4. A locked exam takes no marks.
+5. **Results:**
+   - over the student's subjects only (a subject the section doesn't have shows "n/a");
+   - EXEMPT subjects don't count;
+   - ABSENT, or below the pass marks, in a subject means FAIL;
+   - a subject without marks means INCOMPLETE;
+   - ranks are over all students of the exam with complete marks, so every screen shows the same rank.
+6. Every change is in the audit log. Another organization sees none of it (row security on all five tables).
+7. Students, sections, branches, years and subjects are stored as plain ids, so the module can become its own service (ADR-0024).
+
+## Screens (web app → Evaluation)
+
+- **Exams:** filters by year and type; New exam.
+- **New exam**, in two steps:
+  1. branch (or every branch) and "For" (a part of the structure or one section);
+  2. type, year, name, dates, and that part's subjects (ticked) with maximum and pass marks, date and portion.
+- **An exam:**
+  - subjects;
+  - every section with students and "marks in";
+  - Enter marks, Upload marks, Results, Lock / Unlock, Delete (without marks);
+  - the list of marks uploads.
+- **Marks:** a section's grid (number, AB, EX; empty a box to remove a mark).
+- **Upload marks:** download the template (the students, with marks so far), Check the file, Upload marks. The upload record lists the rows left out with their reasons.
+- **Results:** summary (passed, failed, incomplete, average), each student's marks, total, %, result, ranks.
+- **Exam types:** add, switch off, delete (unused).
+
+## Next (part 2)
+
+Syllabus (chapters per subject, ticked per exam), grading schemes (marks → grades, GPA), report cards per student as PDF (with the organization's branding), bulk report cards per section, batch or campus, overviews per class, batch, campus and organization, results in the parent and student portal.

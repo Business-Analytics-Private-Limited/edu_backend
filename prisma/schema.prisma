@@ -166,6 +166,12 @@ model Organization {
   studentGuardians   StudentGuardian[]
   enrolments         Enrolment[]
 
+  examTypes    ExamType[]
+  exams        Exam[]
+  examSubjects ExamSubject[]
+  examMarks    ExamMark[]
+  marksUploads MarksUpload[]
+
   @@map("organizations")
 }
 
@@ -937,4 +943,147 @@ model LoginSession {
   @@index([superAdminId])
   @@index([userId])
   @@map("login_sessions")
+}
+
+// -------------------------------------------------------------------------------------------------
+// EVALUATION MODULE (ADR-0035): exam types, exams with subjects, marks, marks uploads.
+// Students, sections, branches, years and subjects of other modules are kept as plain ids (no
+// foreign keys), so the module can become its own service (ADR-0024).
+// -------------------------------------------------------------------------------------------------
+
+/// OPEN = marks can be entered; LOCKED = no changes until unlocked.
+enum ExamStatus {
+  OPEN
+  LOCKED
+}
+
+/// PRESENT = has marks; ABSENT = was absent (counts as failed); EXEMPT = left out of the totals.
+enum MarkStatus {
+  PRESENT
+  ABSENT
+  EXEMPT
+}
+
+/// The organization's kinds of exam, e.g. Weekly test (WT), Quarterly (Q), Grand test (GT).
+model ExamType {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  /// Short code, unique in the organization, e.g. "UT".
+  code           String
+  description    String?
+  isActive       Boolean  @default(true) @map("is_active")
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  exams        Exam[]
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, code])
+  @@map("exam_types")
+}
+
+/// One exam: its type, year, dates, and the part of the structure (and branch) it is for.
+model Exam {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  examTypeId     String     @map("exam_type_id") @db.Uuid
+  /// Plain id of the academic year.
+  academicYearId String     @map("academic_year_id") @db.Uuid
+  name           String
+  /// Plain id of the structure node the exam is for (a year, group, stream or one section).
+  classId        String     @map("class_id") @db.Uuid
+  /// Plain id of the branch; empty = every branch.
+  branchId       String?    @map("branch_id") @db.Uuid
+  startsOn       DateTime   @map("starts_on") @db.Date
+  endsOn         DateTime   @map("ends_on") @db.Date
+  status         ExamStatus @default(OPEN)
+  createdBy      String     @map("created_by") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  examType     ExamType      @relation(fields: [examTypeId], references: [id])
+  subjects     ExamSubject[]
+  marks        ExamMark[]
+  uploads      MarksUpload[]
+
+  @@unique([organizationId, academicYearId, name])
+  @@index([organizationId, academicYearId])
+  @@map("exams")
+}
+
+/// A subject of an exam, with its maximum and pass marks.
+model ExamSubject {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  examId         String    @map("exam_id") @db.Uuid
+  /// Plain id of the subject (Academic module).
+  subjectId      String    @map("subject_id") @db.Uuid
+  maxMarks       Decimal   @map("max_marks") @db.Decimal(6, 2)
+  passMarks      Decimal   @map("pass_marks") @db.Decimal(6, 2)
+  examDate       DateTime? @map("exam_date") @db.Date
+  /// What the exam covers in this subject ("Ch 1-4, Trigonometry"); free text.
+  portion        String?   @db.VarChar(300)
+  sortOrder      Int       @default(0) @map("sort_order")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  marks        ExamMark[]
+
+  @@unique([examId, subjectId])
+  @@map("exam_subjects")
+}
+
+/// One student's mark in one subject of an exam, with their section and branch at the time.
+model ExamMark {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  examId         String     @map("exam_id") @db.Uuid
+  examSubjectId  String     @map("exam_subject_id") @db.Uuid
+  /// Plain ids (Students and Academic modules).
+  studentId      String     @map("student_id") @db.Uuid
+  classId        String     @map("class_id") @db.Uuid
+  branchId       String     @map("branch_id") @db.Uuid
+  status         MarkStatus
+  /// Set when PRESENT.
+  marks          Decimal?   @db.Decimal(6, 2)
+  enteredBy      String     @map("entered_by") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  examSubject  ExamSubject  @relation(fields: [examSubjectId], references: [id], onDelete: Cascade)
+
+  @@unique([examSubjectId, studentId])
+  @@index([examId, classId])
+  @@index([studentId])
+  @@map("exam_marks")
+}
+
+/// One CSV upload of marks: who, when, the counts and the rows left out with their reasons.
+model MarksUpload {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// 1, 2, 3 ... per organization; shown as MKS-0001.
+  number         Int
+  examId         String   @map("exam_id") @db.Uuid
+  fileName       String?  @map("file_name")
+  totalRows      Int      @map("total_rows")
+  savedCount     Int      @map("saved_count")
+  excludedCount  Int      @map("excluded_count")
+  /// [{ row, admissionNo, reasons[], values }] for the rows left out only.
+  excludedRows   Json     @map("excluded_rows")
+  uploadedBy     String   @map("uploaded_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, number])
+  @@index([examId, createdAt])
+  @@map("marks_uploads")
 }

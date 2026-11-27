@@ -51,6 +51,10 @@ const DUPLICATES: Record<string, string> = {
   Enrolment:
     'This roll number is already used in the section, or the student already has a current placement',
   AttendanceRecord: 'This student is already marked for this day',
+  ExamType: 'An exam type with this name or code already exists',
+  Exam: 'An exam with this name already exists in this academic year',
+  ExamSubject: 'This subject is already part of the exam',
+  MarksUpload: 'Another upload was saved at the same moment: try again',
 };
 
 /**

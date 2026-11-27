@@ -10,6 +10,7 @@ One document per module of EduPlatform: what it is for, its screens / endpoints 
 | academic | Academic years, the structure shaped by the organization's type, sections per branch, subjects, calendar | **Built** | [academic.md](academic.md) | `src/modules/academic` |
 | students | Admission, profiles, placements and their history, outgoing students, promotion, import, documents | **Built** | [students.md](students.md) | `src/modules/students` |
 | attendance | Daily attendance per section, corrections, reports (period-wise and biometric next) | **Built (part 1)** | [attendance.md](attendance.md) | `src/modules/attendance` |
+| evaluation | Exam types, exams for a part of the structure, marks by hand and by CSV, results with ranks | **Built (part 1)** | [evaluation.md](evaluation.md) | `src/modules/evaluation` |
 | portal | Parents and students see their children's / own details and attendance | **Built (part 1)** | [portal.md](portal.md) | `src/modules/portal` |
 | imports | Import students and other data from Excel / CSV | Design | [imports.md](imports.md) | — |
 | files | Storing uploaded files (student documents) | **Built** | [files.md](files.md) | `src/modules/files` |

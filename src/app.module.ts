@@ -22,6 +22,7 @@ import { AcademicModule } from './modules/academic/academic.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { EvaluationModule } from './modules/evaluation/evaluation.module';
 import { FilesModule } from './modules/files/files.module';
 import { HealthModule } from './modules/health/health.module';
 import { OrganizationModule } from './modules/organization/organization.module';
@@ -51,6 +52,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AcademicModule,
     StudentsModule,
     AttendanceModule,
+    EvaluationModule,
     PortalModule,
     RolesModule,
   ],

@@ -59,11 +59,11 @@ Every organization has these roles. Each is given to a user **at a place** (the 
 |---|---|---|---|
 | Organization admin | organization | organization | Everything, always (can't be changed, even by the super admin) |
 | Director | organization | organization | Every *view* in every branch, with filters by branch / class / group / stream / section; export students (branches are added by the super admin only) |
-| Principal | organization | branch | Everything a Branch admin can do, plus promotion, organization settings view and attendance rules |
-| Branch admin | organization | branch | Runs one branch: its staff, sections, students, documents and attendance (not roles) |
-| Senior faculty | organization | node (classes) | View academics and students, mark and correct attendance, attendance reports |
-| Junior faculty | organization | node (classes) | View academics and students, mark attendance |
-| DTP operator | organization | branch | Data entry: create/edit/import students and documents, no delete |
+| Principal | organization | branch | Everything a Branch admin can do, plus promotion, organization settings view, attendance rules, and creating, changing and deleting exams at their branch (ADR-0035) |
+| Branch admin | organization | branch | Runs one branch: its staff, sections, students, documents, attendance and marks (enter and upload; not roles) |
+| Senior faculty | organization | node (classes) | View academics and students, mark and correct attendance, attendance reports, see exams and enter marks |
+| Junior faculty | organization | node (classes) | View academics and students, mark attendance, see exams and enter marks |
+| DTP operator | organization | branch | Data entry: create/edit/import students and documents, enter and upload marks, no delete |
 | Parent | student record | guardian | View their children's profile, documents, attendance |
 | Student | student record | self | View their own profile, documents, attendance |
 

@@ -40,6 +40,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0032](0032-groups-per-branch.md) | Each branch runs some of the organization's groups (Intermediate) | Accepted |
 | [0033](0033-courses-without-specializations.md) | Courses without specializations (a hidden "whole course" level); editing and deleting courses | Accepted |
 | [0034](0034-promote-chosen-students-and-add-next-year-sections.md) | Promote chosen students or a whole section; add a missing next-year section from the promotion page | Accepted |
+| [0035](0035-evaluation-exams-and-marks.md) | Evaluation, part 1: exam types, exams with subjects, marks entry and CSV upload | Accepted |
 
 Template for new ADRs:
 

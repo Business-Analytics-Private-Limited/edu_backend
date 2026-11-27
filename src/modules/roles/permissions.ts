@@ -173,6 +173,33 @@ export const RESOURCES: ResourceInfo[] = [
     actions: ['view'],
   },
 
+  // Evaluation module (ADR-0035)
+  {
+    // Exam types (Weekly test, Quarterly ...): for the whole organization.
+    key: 'evaluation.settings',
+    module: 'evaluation',
+    group: 'Evaluation',
+    label: 'Exam types',
+    actions: ['view', 'update'],
+  },
+  {
+    // An exam for every branch needs the permission for the whole organization; for one branch,
+    // the permission at that branch.
+    key: 'evaluation.exam',
+    module: 'evaluation',
+    group: 'Evaluation',
+    label: 'Exams',
+    actions: CRUD,
+  },
+  {
+    // enter = type marks in a section's grid; import = upload a CSV of marks. At the student's branch.
+    key: 'evaluation.marks',
+    module: 'evaluation',
+    group: 'Evaluation',
+    label: 'Marks',
+    actions: ['view', 'enter', 'import'],
+  },
+
   // Data import module
   {
     key: 'imports.job',
