@@ -36,6 +36,7 @@ import {
   UpdateExamDto,
 } from './dto/evaluation.dto';
 import { participantsOf, sectionsOf, subjectsBySection, type ExamSection } from './exam-scope';
+import { toScheme, type Scheme } from './grading';
 
 const day = (value: string) => new Date(`${value}T00:00:00Z`);
 const iso = (date: Date) => date.toISOString().slice(0, 10);
@@ -62,24 +63,53 @@ export interface ExamSubjectInfo {
   passMarks: number;
   examDate: string | null;
   portion: string | null;
+  /** The syllabus chapters the exam covers in this subject (ADR-0037), in syllabus order. */
+  chapters: { id: string; name: string }[];
+}
+
+/** The scheme an exam uses: its own, or the organization's default (null = no grades). */
+export async function schemeOfExam(
+  db: Db,
+  organizationId: string,
+  gradingSchemeId: string | null,
+): Promise<Scheme | null> {
+  const row = await db.gradingScheme.findFirst({
+    where: gradingSchemeId
+      ? { id: gradingSchemeId, organizationId }
+      : { organizationId, isDefault: true },
+    include: { bands: true },
+  });
+  return row ? toScheme(row) : null;
 }
 
 /**
  * Everything the marks screens need about an exam: the exam, its subjects (with names), and the
  * sections that take part. Throws 404 when it doesn't exist or the user may not see it.
+ * `actor` null = no staff check: only for the portal, AFTER its own checks (ReportCardsService).
  */
-export async function examContext(db: Db, organizationId: string, id: string, actor: CurrentUser) {
+export async function examContext(
+  db: Db,
+  organizationId: string,
+  id: string,
+  actor: CurrentUser | null,
+) {
   const exam = await db.exam.findFirst({
     where: { id, organizationId },
     include: { subjects: { orderBy: { sortOrder: 'asc' } }, examType: true },
   });
-  if (!exam || !mayView(actor, exam)) throw new NotFoundException('Exam not found');
-  const [organization, tree, subjectRows] = await Promise.all([
+  if (!exam || (actor && !mayView(actor, exam))) throw new NotFoundException('Exam not found');
+  const [organization, tree, subjectRows, chapterRows, scheme] = await Promise.all([
     findOrganization(db, organizationId),
     ClassTree.load(db, organizationId),
     db.subject.findMany({
       where: { organizationId, id: { in: exam.subjects.map((s) => s.subjectId) } },
     }),
+    db.chapter.findMany({
+      where: { organizationId, id: { in: exam.subjects.flatMap((s) => s.chapterIds) } },
+      orderBy: { sortOrder: 'asc' },
+      select: { id: true, name: true },
+    }),
+    schemeOfExam(db, organizationId, exam.gradingSchemeId),
   ]);
   const subjectById = new Map(subjectRows.map((s) => [s.id, s]));
   const subjects: ExamSubjectInfo[] = exam.subjects.map((s) => ({
@@ -91,6 +121,7 @@ export async function examContext(db: Db, organizationId: string, id: string, ac
     passMarks: Number(s.passMarks),
     examDate: s.examDate ? iso(s.examDate) : null,
     portion: s.portion,
+    chapters: chapterRows.filter((c) => s.chapterIds.includes(c.id)),
   }));
   const sections = sectionsOf(tree, exam, sectionLevel(organization.type));
   /** Section id -> the subject ids it is expected to have marks in. */
@@ -100,7 +131,7 @@ export async function examContext(db: Db, organizationId: string, id: string, ac
     sections,
     subjects.map((s) => s.subjectId),
   );
-  return { exam, subjects, sections, sectionSubjects, tree };
+  return { exam, subjects, sections, sectionSubjects, tree, scheme, organization };
 }
 
 @Injectable()
@@ -156,7 +187,7 @@ export class ExamsService {
   /** One exam: subjects, and per section the students and how many marks are in. */
   get(organizationId: string, id: string, actor: CurrentUser) {
     return this.prisma.forOrganization(organizationId, async (db) => {
-      const { exam, subjects, sections, sectionSubjects, tree } = await examContext(
+      const { exam, subjects, sections, sectionSubjects, tree, scheme } = await examContext(
         db,
         organizationId,
         id,
@@ -192,6 +223,10 @@ export class ExamsService {
         startsOn: iso(exam.startsOn),
         endsOn: iso(exam.endsOn),
         status: exam.status,
+        /** The grades used (the exam's own, or the default); `own` = chosen for this exam. */
+        gradingScheme: scheme
+          ? { id: scheme.id, name: scheme.name, own: exam.gradingSchemeId !== null }
+          : null,
         subjects,
         sections: sections
           .map((s) => {
@@ -237,7 +272,7 @@ export class ExamsService {
         { classId: query.classId, branchId },
         sectionLevel(organization.type),
       );
-      const [subjects, links] = await Promise.all([
+      const [subjects, links, chapters] = await Promise.all([
         db.subject.findMany({
           where: { organizationId, isActive: true },
           orderBy: { name: 'asc' },
@@ -245,6 +280,12 @@ export class ExamsService {
         db.classSubject.findMany({
           where: { organizationId },
           select: { classId: true, subjectId: true },
+        }),
+        // The syllabus, so the form can offer each subject's chapters to tick.
+        db.chapter.findMany({
+          where: { organizationId, isActive: true },
+          orderBy: { sortOrder: 'asc' },
+          select: { id: true, name: true, subjectId: true },
         }),
       ]);
       // subject id -> the sections that have it, and the classes it is attached to.
@@ -266,6 +307,9 @@ export class ExamsService {
         id: s.id,
         code: s.code,
         name: s.name,
+        chapters: chapters
+          .filter((c) => c.subjectId === s.id)
+          .map((c) => ({ id: c.id, name: c.name })),
       });
       return {
         appliesTo: { classId: node.id, label: tree.label(node.id) },
@@ -317,7 +361,8 @@ export class ExamsService {
           `There are no active sections under ${tree.label(dto.classId)}${branchId ? ' at this branch' : ''}`,
         );
       }
-      await this.checkSubjects(db, organizationId, dto.subjects);
+      await this.checkSubjects(db, organizationId, dto.subjects, dto.startsOn, dto.endsOn);
+      if (dto.gradingSchemeId) await this.checkScheme(db, organizationId, dto.gradingSchemeId);
 
       const exam = await db.exam.create({
         data: {
@@ -329,6 +374,7 @@ export class ExamsService {
           branchId,
           startsOn: day(dto.startsOn),
           endsOn: day(dto.endsOn),
+          gradingSchemeId: dto.gradingSchemeId ?? null,
           createdBy: actor.id,
           subjects: { create: this.subjectRows(organizationId, dto.subjects) },
         },
@@ -356,6 +402,7 @@ export class ExamsService {
       if (exam.status === 'LOCKED')
         throw new BadRequestException('The exam is locked: unlock it first');
       if (dto.examTypeId) await this.checkType(db, organizationId, dto.examTypeId);
+      if (dto.gradingSchemeId) await this.checkScheme(db, organizationId, dto.gradingSchemeId);
       if (dto.startsOn || dto.endsOn) {
         await this.checkDates(
           db,
@@ -365,7 +412,24 @@ export class ExamsService {
           dto.endsOn ?? iso(exam.endsOn),
         );
       }
-      if (dto.subjects) await this.replaceSubjects(db, organizationId, exam, dto.subjects);
+      if (dto.subjects) {
+        await this.replaceSubjects(db, organizationId, exam, dto.subjects, {
+          startsOn: dto.startsOn ?? iso(exam.startsOn),
+          endsOn: dto.endsOn ?? iso(exam.endsOn),
+        });
+      } else if (dto.startsOn || dto.endsOn) {
+        // New dates: the subjects' own dates must still lie inside them.
+        const startsOn = dto.startsOn ?? iso(exam.startsOn);
+        const endsOn = dto.endsOn ?? iso(exam.endsOn);
+        const outside = exam.subjects.find(
+          (s) => s.examDate && (iso(s.examDate) < startsOn || iso(s.examDate) > endsOn),
+        );
+        if (outside) {
+          throw new BadRequestException(
+            `A subject's date (${iso(outside.examDate!)}) is outside the new exam dates`,
+          );
+        }
+      }
       await db.exam.update({
         where: { id },
         data: {
@@ -373,6 +437,8 @@ export class ExamsService {
           name: dto.name?.trim(),
           startsOn: dto.startsOn ? day(dto.startsOn) : undefined,
           endsOn: dto.endsOn ? day(dto.endsOn) : undefined,
+          // null = back to the organization's default scheme; undefined = unchanged.
+          gradingSchemeId: dto.gradingSchemeId,
         },
       });
       await this.audit.log(db, actor, {
@@ -435,6 +501,11 @@ export class ExamsService {
       throw new BadRequestException(`The exam type "${type.name}" is switched off`);
   }
 
+  private async checkScheme(db: Db, organizationId: string, id: string) {
+    const scheme = await db.gradingScheme.findFirst({ where: { id, organizationId } });
+    if (!scheme) throw new BadRequestException('Grading scheme not found');
+  }
+
   /** The year exists, isn't closed, and holds the dates. */
   private async checkDates(
     db: Db,
@@ -456,8 +527,19 @@ export class ExamsService {
     return year;
   }
 
-  /** Each subject once, existing and active, with pass marks not above the maximum. */
-  private async checkSubjects(db: Db, organizationId: string, subjects: ExamSubjectDto[]) {
+  /**
+   * Each subject once, existing and active, with pass marks not above the maximum, and its date
+   * (if any) inside the exam's dates.
+   */
+  private async checkSubjects(
+    db: Db,
+    organizationId: string,
+    subjects: ExamSubjectDto[],
+    startsOn: string,
+    endsOn: string,
+    /** Chapters already ticked on the exam: still allowed after being switched off. */
+    alreadyTicked: Set<string> = new Set(),
+  ) {
     const ids = subjects.map((s) => s.subjectId);
     if (new Set(ids).size !== ids.length) throw new BadRequestException('A subject appears twice');
     const found = await db.subject.findMany({ where: { organizationId, id: { in: ids } } });
@@ -472,6 +554,32 @@ export class ExamsService {
           `${byId.get(s.subjectId)!.name}: pass marks are above the maximum marks`,
         );
       }
+      if (s.examDate && (s.examDate < startsOn || s.examDate > endsOn)) {
+        throw new BadRequestException(
+          `${byId.get(s.subjectId)!.name}: the date ${s.examDate} is outside the exam (${startsOn} to ${endsOn})`,
+        );
+      }
+    }
+    // Chapters: each one of that subject's syllabus, and in use (unless already ticked).
+    const chapterIds = subjects.flatMap((s) => s.chapterIds ?? []);
+    if (chapterIds.length > 0) {
+      const chapters = await db.chapter.findMany({
+        where: { organizationId, id: { in: chapterIds } },
+      });
+      const chapterById = new Map(chapters.map((c) => [c.id, c]));
+      for (const s of subjects) {
+        for (const id of s.chapterIds ?? []) {
+          const chapter = chapterById.get(id);
+          if (!chapter || chapter.subjectId !== s.subjectId) {
+            throw new BadRequestException(
+              `${byId.get(s.subjectId)!.name}: a chapter is not in this subject's syllabus`,
+            );
+          }
+          if (!chapter.isActive && !alreadyTicked.has(id)) {
+            throw new BadRequestException(`The chapter "${chapter.name}" is switched off`);
+          }
+        }
+      }
     }
   }
 
@@ -483,6 +591,7 @@ export class ExamsService {
       passMarks: s.passMarks,
       examDate: s.examDate ? day(s.examDate) : null,
       portion: s.portion?.trim() || null,
+      chapterIds: s.chapterIds ?? [],
       sortOrder: index,
     }));
   }
@@ -494,10 +603,18 @@ export class ExamsService {
   private async replaceSubjects(
     db: Db,
     organizationId: string,
-    exam: { id: string; subjects: { id: string; subjectId: string }[] },
+    exam: { id: string; subjects: { id: string; subjectId: string; chapterIds: string[] }[] },
     subjects: ExamSubjectDto[],
+    dates: { startsOn: string; endsOn: string },
   ) {
-    await this.checkSubjects(db, organizationId, subjects);
+    await this.checkSubjects(
+      db,
+      organizationId,
+      subjects,
+      dates.startsOn,
+      dates.endsOn,
+      new Set(exam.subjects.flatMap((s) => s.chapterIds)),
+    );
     const wanted = new Map(subjects.map((s, i) => [s.subjectId, { ...s, sortOrder: i }]));
     for (const current of exam.subjects) {
       const next = wanted.get(current.subjectId);
@@ -524,6 +641,7 @@ export class ExamsService {
           passMarks: next.passMarks,
           examDate: next.examDate ? day(next.examDate) : null,
           portion: next.portion?.trim() || null,
+          chapterIds: next.chapterIds ?? [],
           sortOrder: next.sortOrder,
         },
       });
@@ -539,6 +657,7 @@ export class ExamsService {
           passMarks: s.passMarks,
           examDate: s.examDate ? day(s.examDate) : null,
           portion: s.portion?.trim() || null,
+          chapterIds: s.chapterIds ?? [],
           sortOrder: s.sortOrder,
         })),
       });

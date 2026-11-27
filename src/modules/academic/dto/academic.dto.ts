@@ -252,6 +252,46 @@ export class UpdateSubjectDto {
   isActive?: boolean;
 }
 
+// --- Syllabus: chapters of a subject (ADR-0037) ---------------------------------------------------
+
+export class CreateChapterDto {
+  /** @example Trigonometric ratios */
+  @IsString()
+  @Length(1, 150)
+  name: string;
+}
+
+/** Several chapters at once, one per line on the screen; added after the existing ones. */
+export class AddChaptersDto {
+  /** @example ["Sets", "Relations and functions", "Trigonometric ratios"] */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  @Length(1, 150, { each: true })
+  names: string[];
+}
+
+export class UpdateChapterDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 150)
+  name?: string;
+
+  /** false = not taught any more (kept for exams that ticked it). */
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class ReorderChaptersDto {
+  /** Every chapter id of the subject, in the new order. */
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  chapterIds: string[];
+}
+
 export class SetClassSubjectsDto {
   /** The class's own subjects; an empty list removes them all. */
   @IsArray()

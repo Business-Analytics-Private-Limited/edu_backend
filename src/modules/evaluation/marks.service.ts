@@ -32,6 +32,7 @@ import { AuditService } from '../audit/audit.service';
 import { SaveMarksDto, UploadMarksDto } from './dto/evaluation.dto';
 import { byRoll, participantsOf, type Participant } from './exam-scope';
 import { examContext, mayView, type ExamSubjectInfo } from './exams.service';
+import { gradesOf } from './grading';
 
 /** One mark to write. */
 interface MarkWrite {
@@ -74,13 +75,16 @@ const IGNORED_HEADINGS = new Set([
  * Throws a short reason when the value can't be used.
  */
 export function readMark(value: string | undefined, subject: ExamSubjectInfo): Cell | null {
-  const v = (value ?? '').trim().toUpperCase();
+  // String(): an API client may send 78 instead of "78".
+  const v = String(value ?? '')
+    .trim()
+    .toUpperCase();
   if (v === '' || v === '-') return null;
   if (v === 'AB' || v === 'A' || v === 'ABSENT') return { status: 'ABSENT', marks: null };
   if (v === 'EX' || v === 'EXEMPT') return { status: 'EXEMPT', marks: null };
   if (!/^\d+(\.\d{1,2})?$/.test(v)) {
     throw new Error(
-      `${subject.code} "${value!.trim()}" is not a mark (a number, AB for absent or EX for exempt)`,
+      `${subject.code} "${String(value).trim()}" is not a mark (a number, AB for absent or EX for exempt)`,
     );
   }
   const marks = Number(v);
@@ -242,19 +246,22 @@ export class MarksService {
         throw new BadRequestException([...new Set(problems)].slice(0, 10).join('; '));
       }
       const saved = await this.writeMarks(db, organizationId, examId, writes, actor);
+      // Counts only the marks that were really there (clearing an empty box removes nothing).
+      let cleared = 0;
       for (const c of clears) {
-        await db.examMark.deleteMany({
+        const removed = await db.examMark.deleteMany({
           where: { examSubjectId: c.examSubjectId, studentId: c.studentId },
         });
+        cleared += removed.count;
       }
       await this.audit.log(db, actor, {
         action: 'enter marks',
         entity: 'exam',
         entityId: examId,
         branchId: section.branchId,
-        details: { exam: ctx.exam.name, section: section.label, saved, cleared: clears.length },
+        details: { exam: ctx.exam.name, section: section.label, saved, cleared },
       });
-      return { saved, cleared: clears.length };
+      return { saved, cleared };
     });
   }
 
@@ -296,7 +303,10 @@ export class MarksService {
         const byAdmission = new Map(
           [...participants.values()].map((p) => [p.admissionNo.toUpperCase(), p]),
         );
-        const numbers = dto.rows.map((r) => (r[admissionHeading] ?? '').trim()).filter(Boolean);
+        // String(): admission numbers like 201602 may arrive as numbers from an API client.
+        const admissionOf = (r: Record<string, unknown>) =>
+          String(r[admissionHeading] ?? '').trim();
+        const numbers = dto.rows.map(admissionOf).filter(Boolean);
         const known = new Set(
           (
             await db.student.findMany({
@@ -312,7 +322,7 @@ export class MarksService {
         let readyRows = 0;
         dto.rows.forEach((values, index) => {
           const row = index + 2; // row 1 is the heading
-          const admissionNo = (values[admissionHeading] ?? '').trim();
+          const admissionNo = admissionOf(values);
           const reasons: string[] = [];
           const student: Participant | undefined = byAdmission.get(admissionNo.toUpperCase());
           if (!admissionNo) reasons.push('admission number is empty');
@@ -430,42 +440,7 @@ export class MarksService {
           branchId: this.sectionOf(ctx.sections, sectionId).branchId,
         });
       }
-      // Ranks are over everyone in the exam, so they are the same whoever looks.
-      const participants = [
-        ...(
-          await participantsOf(
-            db,
-            ctx.exam,
-            ctx.sections.map((s) => s.id),
-          )
-        ).values(),
-      ];
-      const cells = await this.cellsOf(
-        db,
-        examId,
-        participants.map((p) => p.studentId),
-        ctx.subjects,
-      );
-      const rows = participants.map((p) => {
-        const own = cells.get(p.studentId) ?? new Map<string, Cell>();
-        // The student's subjects: their section's, and any they already have a mark in.
-        const theirs = ctx.subjects.filter(
-          (s) => ctx.sectionSubjects.get(p.classId)?.has(s.subjectId) || own.has(s.subjectId),
-        );
-        return {
-          ...p,
-          cells: own,
-          subjectIds: theirs.map((s) => s.subjectId),
-          ...resultOf(theirs, own),
-        };
-      });
-      const complete = rows.filter((r) => r.complete);
-      const examRank = rank(complete);
-      const sectionRank = new Map<string, number>();
-      for (const s of ctx.sections) {
-        for (const [id, r] of rank(complete.filter((c) => c.classId === s.id)))
-          sectionRank.set(id, r);
-      }
+      const { rows, examRank, sectionRank } = await computeResults(db, ctx);
       const shownIds = new Set(shown.map((s) => s.id));
       const label = new Map(ctx.sections.map((s) => [s.id, s.label]));
       const students = rows
@@ -486,12 +461,16 @@ export class MarksService {
           maxTotal: r.maxTotal,
           percentage: r.percentage,
           result: r.result,
+          subjectGrades: r.subjectGrades,
+          grade: r.grade,
+          gpa: r.gpa,
           sectionRank: sectionRank.get(r.studentId) ?? null,
           examRank: examRank.get(r.studentId) ?? null,
         }));
       const count = (result: string) => students.filter((s) => s.result === result).length;
       return {
         exam: { id: ctx.exam.id, name: ctx.exam.name, status: ctx.exam.status },
+        gradingScheme: ctx.scheme,
         subjects: ctx.subjects,
         sections: shown,
         summary: {
@@ -566,19 +545,8 @@ export class MarksService {
   }
 
   /** student id -> subject id -> mark. */
-  private async cellsOf(db: Db, examId: string, studentIds: string[], subjects: ExamSubjectInfo[]) {
-    const subjectOf = new Map(subjects.map((s) => [s.examSubjectId, s.subjectId]));
-    const marks = await db.examMark.findMany({ where: { examId, studentId: { in: studentIds } } });
-    const cells = new Map<string, Map<string, Cell>>();
-    for (const m of marks) {
-      const subjectId = subjectOf.get(m.examSubjectId);
-      if (!subjectId) continue;
-      if (!cells.has(m.studentId)) cells.set(m.studentId, new Map());
-      cells
-        .get(m.studentId)!
-        .set(subjectId, { status: m.status, marks: m.marks === null ? null : Number(m.marks) });
-    }
-    return cells;
+  private cellsOf(db: Db, examId: string, studentIds: string[], subjects: ExamSubjectInfo[]) {
+    return cellsOf(db, examId, studentIds, subjects);
   }
 
   /**
@@ -640,7 +608,71 @@ export class MarksService {
   }
 }
 
-function average(values: (number | null)[]): number | null {
+/** student id -> subject id -> mark. */
+async function cellsOf(db: Db, examId: string, studentIds: string[], subjects: ExamSubjectInfo[]) {
+  const subjectOf = new Map(subjects.map((s) => [s.examSubjectId, s.subjectId]));
+  const marks = await db.examMark.findMany({ where: { examId, studentId: { in: studentIds } } });
+  const cells = new Map<string, Map<string, Cell>>();
+  for (const m of marks) {
+    const subjectId = subjectOf.get(m.examSubjectId);
+    if (!subjectId) continue;
+    if (!cells.has(m.studentId)) cells.set(m.studentId, new Map());
+    cells
+      .get(m.studentId)!
+      .set(subjectId, { status: m.status, marks: m.marks === null ? null : Number(m.marks) });
+  }
+  return cells;
+}
+
+/**
+ * Every participant's result in an exam: their subjects, marks, totals, result, grades, and
+ * ranks in the exam and their section. Ranks are over EVERY participant (only those with
+ * complete marks get one), so they are the same whoever looks: results, report cards,
+ * overviews and the portal all use this.
+ */
+export async function computeResults(db: Db, ctx: ExamContext) {
+  const participants = [
+    ...(
+      await participantsOf(
+        db,
+        ctx.exam,
+        ctx.sections.map((s) => s.id),
+      )
+    ).values(),
+  ];
+  const cells = await cellsOf(
+    db,
+    ctx.exam.id,
+    participants.map((p) => p.studentId),
+    ctx.subjects,
+  );
+  const rows = participants.map((p) => {
+    const own = cells.get(p.studentId) ?? new Map<string, Cell>();
+    // The student's subjects: their section's, and any they already have a mark in.
+    const theirs = ctx.subjects.filter(
+      (s) => ctx.sectionSubjects.get(p.classId)?.has(s.subjectId) || own.has(s.subjectId),
+    );
+    const result = resultOf(theirs, own);
+    return {
+      ...p,
+      cells: own,
+      subjectIds: theirs.map((s) => s.subjectId),
+      ...result,
+      ...gradesOf(ctx.scheme, theirs, own, result.complete ? result.percentage : null),
+    };
+  });
+  const complete = rows.filter((r) => r.complete);
+  const examRank = rank(complete);
+  const sectionRank = new Map<string, number>();
+  for (const s of ctx.sections) {
+    for (const [id, r] of rank(complete.filter((c) => c.classId === s.id))) sectionRank.set(id, r);
+  }
+  return { rows, examRank, sectionRank };
+}
+
+export type ExamContext = Awaited<ReturnType<typeof examContext>>;
+
+export function average(values: (number | null)[]): number | null {
   const nums = values.filter((v): v is number => v !== null);
   return nums.length
     ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100

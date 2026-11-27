@@ -22,6 +22,21 @@
  *   GET    /api/v1/exams/:id/results?sectionId=        evaluation.marks.view
  *   GET    /api/v1/exams/:id/uploads                   evaluation.marks.view
  *   GET    /api/v1/marks-uploads/:id                   evaluation.marks.view
+ *
+ * Part 2 (ADR-0037):
+ *   GET    /api/v1/grading-schemes                     evaluation.exam.view
+ *   POST   /api/v1/grading-schemes                     evaluation.settings.update (organization)
+ *   PATCH  /api/v1/grading-schemes/:id                 evaluation.settings.update
+ *   DELETE /api/v1/grading-schemes/:id                 evaluation.settings.update (only if unused)
+ *   GET    /api/v1/report-card-settings                evaluation.exam.view
+ *   PUT    /api/v1/report-card-settings                evaluation.settings.update
+ *   GET    /api/v1/report-card-settings/logo           evaluation.exam.view
+ *   PUT    /api/v1/report-card-settings/logo           evaluation.settings.update (PNG / JPG, 5 MB)
+ *   DELETE /api/v1/report-card-settings/logo           evaluation.settings.update
+ *   GET    /api/v1/exams/:id/report-cards?sectionId=&branchId=   evaluation.marks.view (one PDF)
+ *   GET    /api/v1/exams/:id/report-cards/:studentId   evaluation.marks.view (at the student's branch)
+ *   GET    /api/v1/exams/:id/overview                  evaluation.marks.view
+ *   GET    /api/v1/exam-overview?academicYearId=       evaluation.marks.view (a year's exams)
  */
 import {
   Body,
@@ -35,14 +50,26 @@ import {
   Post,
   Put,
   Query,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiProduces, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
+import { MAX_FILE_BYTES, type Upload } from '../files/files.service';
 import type { CurrentUser as CurrentUserType } from '../../common/current-user';
 import { RequirePermission } from '../../common/decorators/access.decorators';
 import { CurrentUser, OrganizationId } from '../../common/decorators/current-user.decorator';
 import {
   CreateExamDto,
   CreateExamTypeDto,
+  CreateGradingSchemeDto,
+  ReportCardSettingsDto,
+  ReportCardsQuery,
+  UpdateGradingSchemeDto,
+  YearOverviewQuery,
   ExamsQuery,
   OptionalSectionQuery,
   SaveMarksDto,
@@ -54,7 +81,21 @@ import {
 } from './dto/evaluation.dto';
 import { ExamTypesService } from './exam-types.service';
 import { ExamsService } from './exams.service';
+import { GradingSchemesService } from './grading-schemes.service';
 import { MarksService } from './marks.service';
+import { OverviewService } from './overview.service';
+import { ReportCardsService } from './report-cards.service';
+
+/** Sends a PDF made in memory as a download. */
+function sendPdf(res: Response, pdf: Buffer, fileName: string) {
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Length': String(pdf.length),
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    'Cache-Control': 'private, no-store',
+  });
+  return new StreamableFile(pdf);
+}
 
 @ApiTags('Evaluation')
 @ApiBearerAuth()
@@ -64,6 +105,9 @@ export class EvaluationController {
     private readonly types: ExamTypesService,
     private readonly exams: ExamsService,
     private readonly marks: MarksService,
+    private readonly schemes: GradingSchemesService,
+    private readonly reportCards: ReportCardsService,
+    private readonly overview: OverviewService,
   ) {}
 
   // --- exam types ----------------------------------------------------------------------------------
@@ -256,5 +300,151 @@ export class EvaluationController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.marks.getUpload(organizationId, id, user);
+  }
+
+  // --- part 2: grading schemes (ADR-0037) ------------------------------------------------------------
+
+  @Get('grading-schemes')
+  @RequirePermission('evaluation.exam.view')
+  listSchemes(@OrganizationId() organizationId: string, @CurrentUser() user: CurrentUserType) {
+    return this.schemes.list(organizationId, user);
+  }
+
+  @Post('grading-schemes')
+  @RequirePermission('evaluation.settings.update')
+  createScheme(
+    @OrganizationId() organizationId: string,
+    @Body() body: CreateGradingSchemeDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.schemes.create(organizationId, body, user);
+  }
+
+  @Patch('grading-schemes/:id')
+  @RequirePermission('evaluation.settings.update')
+  updateScheme(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateGradingSchemeDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.schemes.update(organizationId, id, body, user);
+  }
+
+  @Delete('grading-schemes/:id')
+  @RequirePermission('evaluation.settings.update')
+  deleteScheme(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.schemes.delete(organizationId, id, user);
+  }
+
+  // --- part 2: report cards ------------------------------------------------------------------------
+
+  @Get('report-card-settings')
+  @RequirePermission('evaluation.exam.view')
+  getReportCardSettings(
+    @OrganizationId() organizationId: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.reportCards.getSettings(organizationId, user);
+  }
+
+  @Put('report-card-settings')
+  @RequirePermission('evaluation.settings.update')
+  updateReportCardSettings(
+    @OrganizationId() organizationId: string,
+    @Body() body: ReportCardSettingsDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.reportCards.updateSettings(organizationId, body, user);
+  }
+
+  @Get('report-card-settings/logo')
+  @RequirePermission('evaluation.exam.view')
+  async getLogo(
+    @OrganizationId() organizationId: string,
+    @CurrentUser() user: CurrentUserType,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const opened = await this.reportCards.logo(organizationId, user);
+    res.set({
+      'Content-Type': opened.file.mimeType,
+      'Content-Length': String(opened.file.sizeBytes),
+      'Cache-Control': 'private, no-store',
+    });
+    return new StreamableFile(opened.stream as never);
+  }
+
+  @Put('report-card-settings/logo')
+  @RequirePermission('evaluation.settings.update')
+  @ApiConsumes('multipart/form-data')
+  // Kept in memory (at most 5 MB, one file); FilesService checks and stores it.
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_BYTES, files: 1 } }))
+  setLogo(
+    @OrganizationId() organizationId: string,
+    @UploadedFile() file: Upload | undefined,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.reportCards.setLogo(organizationId, file, user);
+  }
+
+  @Delete('report-card-settings/logo')
+  @RequirePermission('evaluation.settings.update')
+  removeLogo(@OrganizationId() organizationId: string, @CurrentUser() user: CurrentUserType) {
+    return this.reportCards.removeLogo(organizationId, user);
+  }
+
+  /** Report cards in one PDF: a section, a branch, or every section the user may see. */
+  @Get('exams/:id/report-cards')
+  @RequirePermission('evaluation.marks.view')
+  @ApiProduces('application/pdf')
+  async bulkReportCards(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: ReportCardsQuery,
+    @CurrentUser() user: CurrentUserType,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { pdf, fileName } = await this.reportCards.bulk(organizationId, id, query, user);
+    return sendPdf(res, pdf, fileName);
+  }
+
+  @Get('exams/:id/report-cards/:studentId')
+  @RequirePermission('evaluation.marks.view')
+  @ApiProduces('application/pdf')
+  async reportCard(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('studentId', ParseUUIDPipe) studentId: string,
+    @CurrentUser() user: CurrentUserType,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { pdf, fileName } = await this.reportCards.one(organizationId, id, studentId, user);
+    return sendPdf(res, pdf, fileName);
+  }
+
+  // --- part 2: overviews -----------------------------------------------------------------------------
+
+  @Get('exams/:id/overview')
+  @RequirePermission('evaluation.marks.view')
+  examOverview(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.overview.exam(organizationId, id, user);
+  }
+
+  @Get('exam-overview')
+  @RequirePermission('evaluation.marks.view')
+  yearOverview(
+    @OrganizationId() organizationId: string,
+    @Query() query: YearOverviewQuery,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.overview.year(organizationId, query, user);
   }
 }

@@ -41,6 +41,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0033](0033-courses-without-specializations.md) | Courses without specializations (a hidden "whole course" level); editing and deleting courses | Accepted |
 | [0034](0034-promote-chosen-students-and-add-next-year-sections.md) | Promote chosen students or a whole section; add a missing next-year section from the promotion page | Accepted |
 | [0035](0035-evaluation-exams-and-marks.md) | Evaluation, part 1: exam types, exams with subjects, marks entry and CSV upload | Accepted |
+| [0037](0037-evaluation-syllabus-grades-report-cards.md) | Evaluation, part 2: syllabus chapters, grading schemes, report cards, overviews, results in the portal | Accepted |
 
 Template for new ADRs:
 

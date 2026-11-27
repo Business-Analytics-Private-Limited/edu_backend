@@ -179,7 +179,7 @@ export const RESOURCES: ResourceInfo[] = [
     key: 'evaluation.settings',
     module: 'evaluation',
     group: 'Evaluation',
-    label: 'Exam types',
+    label: 'Exam types, grades and report cards',
     actions: ['view', 'update'],
   },
   {
