@@ -2,7 +2,7 @@
 
 Each file records one significant decision: the context, the decision, and its consequences. Accepted ADRs are not edited. To change a decision, write a new ADR that supersedes the old one and mark the old one `Superseded by ADR-XXXX` in this table.
 
-**Start with [ADR-0015](0015-simplified-backend.md)**: it describes how the backend is built today. [ADR-0024](0024-microservices-and-tenant-sharding.md) (proposed) describes where it is going: microservices, with organizations spread over several databases.
+**Start with [ADR-0015](0015-simplified-backend.md)**: it describes how the backend is built today. [ADR-0024](0024-microservices-and-tenant-sharding.md) (accepted) describes where it is going: microservices, with organizations spread over several databases. [ADR-0038](0035-finish-v1-before-the-microservices-migration.md) says when: after v1 is finished and piloted.
 
 | ADR | Title | Status |
 |---|---|---|
@@ -29,7 +29,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0021](0021-attendance.md) | Attendance: daily records per section, versions instead of overwrites, a correction window | Accepted |
 | [0022](0022-portal.md) | Parent and student portal: logins linked to records, no roles | Accepted |
 | [0023](0023-files-and-documents.md) | Files on the server's disk behind the API; student documents with types and review | Accepted |
-| [0024](0024-microservices-and-tenant-sharding.md) | Move to microservices, with tenants spread over several databases | **Proposed** (when accepted, supersedes ADR-0012 and ADR-0015) |
+| [0024](0024-microservices-and-tenant-sharding.md) | Move to microservices, with tenants spread over several databases | Accepted; starts after the v1 pilot (ADR-0038). Supersedes ADR-0012 and ADR-0015 when M0 starts |
 | [0025](0025-institutions-by-super-admin-without-types.md) | Institutions are added by the super admin, and have no type | Superseded by ADR-0030 (branches; organizations have a type) |
 | [0026](0026-deactivate-campuses-and-institutions.md) | Campuses and institutions are deactivated, not deleted | Accepted, now for branches (ADR-0030) |
 | [0027](0027-mandatory-add-only-audit-log.md) | The audit log is mandatory and add-only, and covers logins and document access | Accepted |
@@ -41,6 +41,9 @@ Each file records one significant decision: the context, the decision, and its c
 | [0033](0033-courses-without-specializations.md) | Courses without specializations (a hidden "whole course" level); editing and deleting courses | Accepted |
 | [0034](0034-promote-chosen-students-and-add-next-year-sections.md) | Promote chosen students or a whole section; add a missing next-year section from the promotion page | Accepted |
 | [0035](0035-evaluation-exams-and-marks.md) | Evaluation, part 1: exam types, exams with subjects, marks entry and CSV upload | Accepted |
+| [0036](0036-admin-issued-password-reset.md) | Admin-issued password reset with a generated temporary password | Accepted |
+| [0037](0037-evaluation-syllabus-grades-report-cards.md) | Evaluation, part 2: syllabus chapters, grading schemes, report cards, overviews, results in the portal | Accepted |
+| [0038](0038-finish-v1-before-the-microservices-migration.md) | Finish v1 in today's backend (password reset, period-wise and biometric attendance, pilot) before the microservices migration | Accepted |
 
 Template for new ADRs:
 

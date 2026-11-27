@@ -71,6 +71,7 @@ Starting permissions: `src/modules/roles/predefined-roles.ts`; afterwards the da
 | GET | `/users/:id` | `access.user.view` |
 | PATCH | `/users/:id` | `access.user.update` — name |
 | POST | `/users/:id/deactivate` / `activate` | `access.user.update` |
+| POST | `/users/:id/reset-password` | `access.user.update` — no body; answers `{ user, temporaryPassword }` once (ADR-0036) |
 | POST | `/users/:id/roles` | `access.user.update` — `{ roleId, branchId? }` |
 | DELETE | `/users/:id/roles/:assignmentId` | `access.user.update` |
 
@@ -84,6 +85,7 @@ Place: no `branchId` = whole organization; `branchId` = that branch only. One pe
 4. A user keeps at least one role; to block someone, deactivate them.
 5. Predefined roles can't be changed or deleted by organizations; Parent / Student can't be given from the Users page.
 6. Every change goes to the audit log.
+7. **Password reset** (ADR-0036, `test/password-reset.e2e-spec.ts`): same reach rule as renaming. The API generates the temporary password (shown once, never logged); the person must change it at the next login, all their sessions end and a lockout is lifted. Not for yourself (use Change password).
 
 ## How to check a permission in new code
 

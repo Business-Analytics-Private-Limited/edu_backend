@@ -6,6 +6,11 @@
  *   POST   /api/v1/subjects                             academic.subject.create   (organization)
  *   PATCH  /api/v1/subjects/:id                         academic.subject.update   (organization)
  *   DELETE /api/v1/subjects/:id                         academic.subject.delete   (organization)
+ *   GET    /api/v1/subjects/:id/chapters                academic.subject.view     (syllabus, ADR-0037)
+ *   POST   /api/v1/subjects/:id/chapters                academic.subject.update   (organization)
+ *   PUT    /api/v1/subjects/:id/chapters/order          academic.subject.update
+ *   PATCH  /api/v1/chapters/:id                         academic.subject.update
+ *   DELETE /api/v1/chapters/:id                         academic.subject.update   (only if no exam ticked it)
  *   GET    /api/v1/classes/:id/subjects                 academic.structure.view
  *   PUT    /api/v1/classes/:id/subjects                 academic.structure.update (class's place)
  *
@@ -31,8 +36,12 @@ import type { CurrentUser as CurrentUserType } from '../../common/current-user';
 import { RequirePermission } from '../../common/decorators/access.decorators';
 import { CurrentUser, OrganizationId } from '../../common/decorators/current-user.decorator';
 import { CalendarService } from './calendar.service';
+import { ChaptersService } from './chapters.service';
 import {
+  AddChaptersDto,
   CreateHolidayDto,
+  ReorderChaptersDto,
+  UpdateChapterDto,
   CreateSubjectDto,
   HolidayQuery,
   SetClassSubjectsDto,
@@ -48,6 +57,7 @@ export class SubjectsCalendarController {
   constructor(
     private readonly subjects: SubjectsService,
     private readonly calendar: CalendarService,
+    private readonly chapters: ChaptersService,
   ) {}
 
   // --- Subjects ----------------------------------------------------------------------------------
@@ -87,6 +97,61 @@ export class SubjectsCalendarController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.subjects.delete(organizationId, id, user);
+  }
+
+  // --- Syllabus: chapters of a subject (ADR-0037) ---------------------------------------------------
+
+  @Get('subjects/:id/chapters')
+  @RequirePermission('academic.subject.view')
+  listChapters(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.chapters.list(organizationId, id, user);
+  }
+
+  @Post('subjects/:id/chapters')
+  @RequirePermission('academic.subject.update')
+  addChapters(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: AddChaptersDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.chapters.add(organizationId, id, body, user);
+  }
+
+  @Put('subjects/:id/chapters/order')
+  @RequirePermission('academic.subject.update')
+  reorderChapters(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ReorderChaptersDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.chapters.reorder(organizationId, id, body, user);
+  }
+
+  @Patch('chapters/:id')
+  @RequirePermission('academic.subject.update')
+  updateChapter(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateChapterDto,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.chapters.update(organizationId, id, body, user);
+  }
+
+  @Delete('chapters/:id')
+  @RequirePermission('academic.subject.update')
+  deleteChapter(
+    @OrganizationId() organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.chapters.delete(organizationId, id, user);
   }
 
   @Get('classes/:id/subjects')

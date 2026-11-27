@@ -1,6 +1,6 @@
 /**
- * The staff users of an organization: list, add, edit, deactivate, activate, and give or take
- * away roles.
+ * The staff users of an organization: list, add, edit, deactivate, activate, give or take away
+ * roles, and reset a forgotten password (ADR-0036).
  *
  * A user has one or more ROLES, each at a PLACE (ADR-0030): the whole organization or one
  * branch. E.g. Kiran is "Senior faculty" at KPHB and at Ameerpet; Lakshmi is "Principal" AND
@@ -11,7 +11,8 @@
  *     a Branch admin sees their branch's staff, not the Organization admin;
  *   - you give a role at a place only if you have "access.user.create" / "access.user.update"
  *     there, AND every permission of that role there: nobody hands out more than they have;
- *   - you change a user's name or status only if ALL their roles are within your reach;
+ *   - you change a user's name or status, or reset their password, only if ALL their roles are
+ *     within your reach;
  *   - Parent / Student can't be given here (they come from a student's record);
  *   - the Organization admin role always applies to the whole organization, and the
  *     organization must always keep at least one ACTIVE Organization admin;
@@ -34,6 +35,7 @@ import { AuditService } from '../audit/audit.service';
 import { ORG_ADMIN } from '../roles/predefined-roles';
 import { CreateUserDto, ListUsersQuery, RoleAssignmentDto, UpdateUserDto } from './dto/user.dto';
 import { assertBranchInUse, findBranch } from '../organization/places-in-use';
+import { issueTemporaryPassword } from './temporary-password';
 
 /** User fields we read: everything except the password hash, with each role and its place. */
 const USER_FIELDS = {
@@ -176,6 +178,33 @@ export class UsersService {
         ...onePlace(placesOf(existing)),
       });
       return toPublicUser(user);
+    });
+  }
+
+  /**
+   * Resets a staff user's password (ADR-0036): a new temporary password, shown to the admin once,
+   * which the user must change at the next login. Their sessions end and a lockout is lifted.
+   * Your own password you change yourself (it needs the current one).
+   */
+  resetPassword(organizationId: string, id: string, actor: CurrentUser) {
+    if (id === actor.id) {
+      throw new BadRequestException('To change your own password, use Change password');
+    }
+    return this.prisma.forOrganization(organizationId, async (db) => {
+      const existing = await this.findVisibleUser(db, organizationId, id, actor);
+      // Whoever can reset a password can log in as that person, so the same rule as for name
+      // and status: all their roles must be within your reach.
+      this.checkCanChangeWholeUser(existing, actor);
+      const temporaryPassword = await issueTemporaryPassword(db, id);
+      // Never the password itself in the log.
+      await this.audit.log(db, actor, {
+        action: 'reset password',
+        entity: 'user',
+        entityId: id,
+        ...onePlace(placesOf(existing)),
+        details: { user: existing.name },
+      });
+      return { user: { id, name: existing.name, email: existing.email }, temporaryPassword };
     });
   }
 

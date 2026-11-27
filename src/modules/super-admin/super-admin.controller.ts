@@ -10,6 +10,7 @@
  *   POST  /api/v1/super-admin/organizations/:id/suspend
  *   POST  /api/v1/super-admin/organizations/:id/activate
  *   PUT   /api/v1/super-admin/organizations/:id/modules/:moduleKey
+ *   POST  /api/v1/super-admin/organizations/:id/admins/:userId/reset-password   (ADR-0036)
  *   POST   /api/v1/super-admin/organizations/:id/branches
  *   POST   /api/v1/super-admin/organizations/:id/branches/:branchId/deactivate
  *   POST   /api/v1/super-admin/organizations/:id/branches/:branchId/activate
@@ -22,6 +23,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -104,6 +106,18 @@ export class SuperAdminController {
     @CurrentUser() user: CurrentUserType,
   ) {
     return this.organizations.setModule(id, moduleKey, body.enabled, user);
+  }
+
+  /** A new temporary password for one of the organization's admins, answered once. */
+  @Post('organizations/:id/admins/:userId/reset-password')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  resetAdminPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: CurrentUserType,
+  ) {
+    return this.organizations.resetAdminPassword(id, userId, user);
   }
 
   @Post('organizations/:id/branches')

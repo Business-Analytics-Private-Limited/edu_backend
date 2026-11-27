@@ -1,9 +1,9 @@
 # ADR-0024: Move to microservices, with tenants spread over several databases
 
-Status: Proposed
+Status: Accepted (2026-11-27). It starts after the v1 pilot, and password reset is built before it: ADR-0038
 Date: 2026-10-01
 
-When accepted, this supersedes ADR-0015 (one NestJS app, one database) and ADR-0012 (no Docker). Everything else in ADR-0015 still applies inside each service: NestJS feature folders, Prisma, class-validator DTOs, Swagger from the code, Jest tests, and plain, readable code.
+When M0 starts, this supersedes ADR-0015 (one NestJS app, one database) and ADR-0012 (no Docker). Everything else in ADR-0015 still applies inside each service: NestJS feature folders, Prisma, class-validator DTOs, Swagger from the code, Jest tests, and plain, readable code.
 
 To avoid confusion with the product roadmap's phases (doc 6), the migration steps here are called **M0, M1, M2, …**
 

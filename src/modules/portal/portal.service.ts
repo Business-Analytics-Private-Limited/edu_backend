@@ -5,6 +5,9 @@
  *   me()            who is logged in and their students (a parent: all their children)
  *   student(id)     one student's profile: name, admission no, branch, current section
  *   attendance(id)  one student's attendance over a period (with the Attendance module)
+ *   exams(id), examResult(id, examId), reportCard(id, examId)
+ *                   results of LOCKED exams, and the report card PDF (with the Evaluation
+ *                   module, ADR-0037). An exam still open is never shown: marks may change.
  *
  * Any other student id gives 404, exactly as if it didn't exist.
  */
@@ -13,6 +16,7 @@ import type { CurrentUser } from '../../common/current-user';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClassTree } from '../academic/class-tree';
 import { percentage } from '../attendance/attendance.service';
+import { ReportCardsService } from '../evaluation/report-cards.service';
 import { PortalRangeQuery } from './dto/portal.dto';
 
 /** What a parent or student may see of a student. */
@@ -54,7 +58,10 @@ function withPlacement<
 
 @Injectable()
 export class PortalService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reportCards: ReportCardsService,
+  ) {}
 
   me(actor: CurrentUser) {
     return this.prisma.forOrganization(actor.organizationId!, async (db) => {
@@ -70,6 +77,7 @@ export class PortalService {
         name: actor.name,
         kind: actor.kind,
         attendance: actor.enabledModules.includes('attendance'),
+        results: actor.enabledModules.includes('evaluation'),
         students: students.map((s) => withPlacement(tree, s)),
       };
     });
@@ -126,6 +134,28 @@ export class PortalService {
         })),
       };
     });
+  }
+
+  exams(actor: CurrentUser, studentId: string) {
+    this.checkResults(actor, studentId);
+    return this.reportCards.portalExams(actor.organizationId!, studentId);
+  }
+
+  examResult(actor: CurrentUser, studentId: string, examId: string) {
+    this.checkResults(actor, studentId);
+    return this.reportCards.portalResult(actor.organizationId!, examId, studentId);
+  }
+
+  reportCard(actor: CurrentUser, studentId: string, examId: string) {
+    this.checkResults(actor, studentId);
+    return this.reportCards.forPortal(actor.organizationId!, examId, studentId);
+  }
+
+  private checkResults(actor: CurrentUser, studentId: string) {
+    this.checkLinked(actor, studentId);
+    if (!actor.enabledModules.includes('evaluation')) {
+      throw new ForbiddenException('Results are not switched on for your school');
+    }
   }
 
   /** 404 for any student the login isn't linked to. */

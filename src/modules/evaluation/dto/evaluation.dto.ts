@@ -6,6 +6,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -107,6 +108,14 @@ export class ExamSubjectDto {
   @IsString()
   @Length(0, 300)
   portion?: string;
+
+  /** The syllabus chapters of this subject that the exam covers (ADR-0037). */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  chapterIds?: string[];
 }
 
 export class CreateExamDto {
@@ -138,6 +147,11 @@ export class CreateExamDto {
   @IsDateString({ strict: true })
   endsOn: string;
 
+  /** The grades for results and report cards; leave out for the organization's default scheme. */
+  @IsOptional()
+  @IsUUID()
+  gradingSchemeId?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(30)
@@ -151,6 +165,11 @@ export class UpdateExamDto {
   @IsOptional()
   @IsUUID()
   examTypeId?: string;
+
+  /** The grades for results and report cards; null = the organization's default scheme. */
+  @IsOptional()
+  @IsUUID()
+  gradingSchemeId?: string | null;
 
   @IsOptional()
   @IsString()
@@ -268,4 +287,116 @@ export class UploadMarksDto {
   @ArrayMaxSize(5000)
   @IsObject({ each: true })
   rows: Record<string, string>[];
+}
+
+// --- Part 2 (ADR-0037): grading schemes, report cards, overviews --------------------------------
+
+/** One grade: from `minPercentage` up to the next band. */
+export class GradingBandDto {
+  /** @example A+ */
+  @IsString()
+  @Length(1, 10)
+  grade: string;
+
+  /** @example 90 */
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  minPercentage: number;
+
+  /** For a GPA. @example 10 */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(10)
+  gradePoint?: number;
+
+  /** Words for the report card. @example Outstanding */
+  @IsOptional()
+  @IsString()
+  @Length(0, 60)
+  remark?: string;
+}
+
+export class CreateGradingSchemeDto {
+  /** @example Board grades */
+  @IsString()
+  @Length(1, 80)
+  name: string;
+
+  /** Used by exams that don't name a scheme. */
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  /** One band must start at 0 %. */
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => GradingBandDto)
+  bands: GradingBandDto[];
+}
+
+export class UpdateGradingSchemeDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  name?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  /** Replaces every band. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => GradingBandDto)
+  bands?: GradingBandDto[];
+}
+
+export class ReportCardSettingsDto {
+  /** @example Progress report */
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  title?: string;
+
+  /** Under the organization's name. @example Affiliated to BIEAP, Code 12345 · Kukatpally, Hyderabad */
+  @IsOptional()
+  @IsString()
+  @Length(0, 200)
+  headerLine?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 300)
+  footerNote?: string;
+
+  /** Up to four signature lines at the foot. @example ["Class teacher", "Principal", "Parent"] */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(4)
+  @IsString({ each: true })
+  @Length(1, 30, { each: true })
+  signatureLabels?: string[];
+}
+
+/** Report cards in bulk: one section, or one branch, or (empty) every section the user may see. */
+export class ReportCardsQuery {
+  @IsOptional()
+  @IsUUID()
+  sectionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+}
+
+export class YearOverviewQuery {
+  @IsUUID()
+  academicYearId: string;
 }

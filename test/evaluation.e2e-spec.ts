@@ -533,6 +533,215 @@ describe('Evaluation', () => {
     expect(of('Bhavya').result).toBe('INCOMPLETE');
   });
 
+  // --- Added 2026-11-27: more checks of part 1 -------------------------------------------------
+
+  it('marks: JSON numbers in an upload, CLEAR counts only real marks, at most two decimals', async () => {
+    // An API client may send numbers instead of text; they are read like text.
+    const numeric = await api()
+      .post(`/api/v1/exams/${ids.EXAM}/marks/upload`)
+      .set(as(admin))
+      .send({ dryRun: true, rows: [{ admissionNo: 'EVA1', MAT: 88, PHY: 39.5 }] })
+      .expect(200);
+    expect(numeric.body).toMatchObject({ readyRows: 1, marksToSave: 2, excluded: [] });
+
+    const tooPrecise = await api()
+      .put(`/api/v1/exams/${ids.EXAM}/marks`)
+      .set(as(admin))
+      .send({
+        sectionId: ids.KKP_A,
+        entries: [
+          { studentId: student.Anil, subjectId: ids.MAT, status: 'PRESENT', marks: 50.125 },
+        ],
+      })
+      .expect(400);
+    expect(JSON.stringify(tooPrecise.body.message)).toMatch(/marks/);
+    await api()
+      .put(`/api/v1/exams/${ids.EXAM}/marks`)
+      .set(as(admin))
+      .send({
+        sectionId: ids.KKP_A,
+        entries: [{ studentId: student.Anil, subjectId: ids.MAT, status: 'PRESENT', marks: -1 }],
+      })
+      .expect(400);
+    const missing = await api()
+      .put(`/api/v1/exams/${ids.EXAM}/marks`)
+      .set(as(admin))
+      .send({
+        sectionId: ids.KKP_A,
+        entries: [{ studentId: student.Anil, subjectId: ids.MAT, status: 'PRESENT' }],
+      })
+      .expect(400);
+    expect(missing.body.message).toMatch(/marks are missing/);
+
+    // A temporary exam: a mark is entered, then cleared twice; only the first clear removes one.
+    const temp = await api()
+      .post('/api/v1/exams')
+      .set(as(admin))
+      .send(quarterly({ name: 'Clear test' }))
+      .expect(201);
+    const entry = (status: string, marks?: number) => ({
+      sectionId: ids.KKP_A,
+      entries: [{ studentId: student.Anil, subjectId: ids.MAT, status, marks }],
+    });
+    await api()
+      .put(`/api/v1/exams/${temp.body.id}/marks`)
+      .set(as(admin))
+      .send(entry('ABSENT'))
+      .expect(200);
+    const first = await api()
+      .put(`/api/v1/exams/${temp.body.id}/marks`)
+      .set(as(admin))
+      .send(entry('CLEAR'))
+      .expect(200);
+    expect(first.body).toEqual({ saved: 0, cleared: 1 });
+    const second = await api()
+      .put(`/api/v1/exams/${temp.body.id}/marks`)
+      .set(as(admin))
+      .send(entry('CLEAR'))
+      .expect(200);
+    expect(second.body).toEqual({ saved: 0, cleared: 0 });
+    // With no marks left, the exam can be deleted.
+    await api().delete(`/api/v1/exams/${temp.body.id}`).set(as(admin)).expect(200);
+  });
+
+  it("a subject's date must lie inside the exam, also when the exam's dates change", async () => {
+    const outside = await api()
+      .post('/api/v1/exams')
+      .set(as(admin))
+      .send(
+        quarterly({
+          name: 'Dated',
+          subjects: [{ subjectId: ids.MAT, maxMarks: 100, passMarks: 35, examDate: '2026-12-20' }],
+        }),
+      )
+      .expect(400);
+    expect(outside.body.message).toMatch(/outside the exam/);
+    const dated = await api()
+      .post('/api/v1/exams')
+      .set(as(admin))
+      .send(
+        quarterly({
+          name: 'Dated',
+          subjects: [{ subjectId: ids.MAT, maxMarks: 100, passMarks: 35, examDate: '2026-12-11' }],
+        }),
+      )
+      .expect(201);
+    const moved = await api()
+      .patch(`/api/v1/exams/${dated.body.id}`)
+      .set(as(admin))
+      .send({ endsOn: '2026-12-10' })
+      .expect(400);
+    expect(moved.body.message).toMatch(/outside the new exam dates/);
+    await api()
+      .patch(`/api/v1/exams/${dated.body.id}`)
+      .set(as(admin))
+      .send({ endsOn: '2026-12-08' })
+      .expect(400);
+    await api().delete(`/api/v1/exams/${dated.body.id}`).set(as(admin)).expect(200);
+  });
+
+  it("a branch's staff can't read another branch's marks, results or grid", async () => {
+    await api()
+      .get(`/api/v1/exams/${ids.EXAM}/marks?sectionId=${ids.AMP_A}`)
+      .set(as(jaya))
+      .expect(403);
+    await api()
+      .get(`/api/v1/exams/${ids.EXAM}/results?sectionId=${ids.AMP_A}`)
+      .set(as(ravi))
+      .expect(403);
+    await api().post(`/api/v1/exams/${ids.EXAM}/unlock`).set(as(jaya)).expect(403);
+    // Ravi's own branch is fine.
+    const own = await api()
+      .get(`/api/v1/exams/${ids.EXAM}/results?sectionId=${ids.KKP_A}`)
+      .set(as(ravi))
+      .expect(200);
+    expect(own.body.students).toHaveLength(3);
+  });
+
+  it('another organization can change nothing of this exam', async () => {
+    await api()
+      .put(`/api/v1/exams/${ids.EXAM}/marks`)
+      .set(as(other))
+      .send({
+        sectionId: ids.KKP_A,
+        entries: [{ studentId: student.Anil, subjectId: ids.MAT, status: 'PRESENT', marks: 1 }],
+      })
+      .expect(404);
+    await api()
+      .post(`/api/v1/exams/${ids.EXAM}/marks/upload`)
+      .set(as(other))
+      .send({ rows: [{ admissionNo: 'EVA1', MAT: '1' }] })
+      .expect(404);
+    await api().post(`/api/v1/exams/${ids.EXAM}/lock`).set(as(other)).expect(404);
+    await api().patch(`/api/v1/exams/${ids.EXAM}`).set(as(other)).send({ name: 'x' }).expect(404);
+    await api().delete(`/api/v1/exams/${ids.EXAM}`).set(as(other)).expect(404);
+    await api().get(`/api/v1/exams/${ids.EXAM}/uploads`).set(as(other)).expect(404);
+    const types = await api().get('/api/v1/exam-types').set(as(other)).expect(200);
+    expect(types.body).toEqual([]);
+    const audit = await api().get('/api/v1/audit-logs?pageSize=100').set(as(other)).expect(200);
+    expect(audit.body.items.some((e: { entity: string }) => e.entity === 'exam')).toBe(false);
+  });
+
+  it('every change to exams and marks is in the audit log', async () => {
+    const audit = await api().get('/api/v1/audit-logs?pageSize=100').set(as(admin)).expect(200);
+    const actions = new Set(
+      audit.body.items
+        .filter((e: { entity: string; entityId: string }) => e.entityId === ids.EXAM)
+        .map((e: { action: string }) => e.action),
+    );
+    for (const action of ['create', 'enter marks', 'upload marks', 'lock', 'unlock']) {
+      expect(actions).toContain(action);
+    }
+    expect(audit.body.items.some((e: { entity: string }) => e.entity === 'exam_type')).toBe(true);
+  });
+
+  it('a student who changes section before the exam takes it in the new section', async () => {
+    const parentId = await classId(app, admin, ['JR', 'MPC', 'REG']);
+    const b = await api()
+      .post(`/api/v1/branches/${ids.KKP}/sections`)
+      .set(as(admin))
+      .send({ parentId, name: 'Section B', code: 'B' })
+      .expect(201);
+    ids.KKP_B = b.body.id;
+    await api()
+      .post(`/api/v1/students/${student.Chitra}/change-section`)
+      .set(as(admin))
+      .send({ classId: ids.KKP_B, effectiveOn: '2026-12-01' })
+      .expect(200);
+    const exam = await api()
+      .post('/api/v1/exams')
+      .set(as(admin))
+      .send(quarterly({ name: 'After the move' }))
+      .expect(201);
+    expect(exam.body.sections).toBe(3);
+    const detail = await api().get(`/api/v1/exams/${exam.body.id}`).set(as(admin)).expect(200);
+    const count = (id: string) =>
+      detail.body.sections.find((s: { id: string }) => s.id === id).students;
+    expect([count(ids.KKP_A), count(ids.KKP_B)]).toEqual([2, 1]);
+    // Her marks go in Section B's grid, not A's.
+    await api()
+      .put(`/api/v1/exams/${exam.body.id}/marks`)
+      .set(as(admin))
+      .send({
+        sectionId: ids.KKP_A,
+        entries: [{ studentId: student.Chitra, subjectId: ids.MAT, status: 'PRESENT', marks: 50 }],
+      })
+      .expect(400);
+    await api()
+      .put(`/api/v1/exams/${exam.body.id}/marks`)
+      .set(as(admin))
+      .send({
+        sectionId: ids.KKP_B,
+        entries: [{ studentId: student.Chitra, subjectId: ids.MAT, status: 'PRESENT', marks: 50 }],
+      })
+      .expect(200);
+    const results = await api()
+      .get(`/api/v1/exams/${exam.body.id}/results?sectionId=${ids.KKP_B}`)
+      .set(as(admin))
+      .expect(200);
+    expect(results.body.students.map((s: { fullName: string }) => s.fullName)).toEqual(['Chitra']);
+  });
+
   it('works only with the module switched on, and another organization sees none of it', async () => {
     await api().get(`/api/v1/exams/${ids.EXAM}`).set(as(other)).expect(404);
     await api().get(`/api/v1/exams/${ids.EXAM}/results`).set(as(other)).expect(404);
