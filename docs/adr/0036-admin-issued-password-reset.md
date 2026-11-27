@@ -3,13 +3,13 @@
 Status: Accepted
 Date: 2026-11-27
 
-First item of the order of work in ADR-0035. Builds on ADR-0028 (forced password change, sessions, lockout).
+First item of the order of work in ADR-0038. Builds on ADR-0028 (forced password change, sessions, lockout).
 
 ## Context
 
 A staff member who forgets their password, or who has locked their account with 5 wrong tries, has no way back in. The only fix today is to edit the database by hand, which CLAUDE.md forbids. If the organization's only admin forgets their password, the whole organization is stuck.
 
-There is no mail provider yet, so "forgot password" by email can't be built now (ADR-0035).
+There is no mail provider yet, so "forgot password" by email can't be built now (ADR-0038).
 
 ## Decision
 
@@ -41,5 +41,5 @@ There is no mail provider yet, so "forgot password" by email can't be built now 
 ## Alternatives considered
 
 - **The admin types the temporary password** (like creating a user): simpler, but admins reuse the same easy password (e.g. "Welcome@123") for everyone, which anyone in the institution can guess before the person logs in.
-- **Email a reset link:** the right long-term way, but there is no mail provider yet (ADR-0035).
+- **Email a reset link:** the right long-term way, but there is no mail provider yet (ADR-0038).
 - **Keep the old password working until the new one is used:** then a reset can't stop someone who knows the old password; ending it at once is safer.

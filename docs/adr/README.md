@@ -2,7 +2,7 @@
 
 Each file records one significant decision: the context, the decision, and its consequences. Accepted ADRs are not edited. To change a decision, write a new ADR that supersedes the old one and mark the old one `Superseded by ADR-XXXX` in this table.
 
-**Start with [ADR-0015](0015-simplified-backend.md)**: it describes how the backend is built today. [ADR-0024](0024-microservices-and-tenant-sharding.md) (accepted) describes where it is going: microservices, with organizations spread over several databases. [ADR-0035](0035-finish-v1-before-the-microservices-migration.md) says when: after v1 is finished and piloted.
+**Start with [ADR-0015](0015-simplified-backend.md)**: it describes how the backend is built today. [ADR-0024](0024-microservices-and-tenant-sharding.md) (accepted) describes where it is going: microservices, with organizations spread over several databases. [ADR-0038](0035-finish-v1-before-the-microservices-migration.md) says when: after v1 is finished and piloted.
 
 | ADR | Title | Status |
 |---|---|---|
@@ -29,7 +29,7 @@ Each file records one significant decision: the context, the decision, and its c
 | [0021](0021-attendance.md) | Attendance: daily records per section, versions instead of overwrites, a correction window | Accepted |
 | [0022](0022-portal.md) | Parent and student portal: logins linked to records, no roles | Accepted |
 | [0023](0023-files-and-documents.md) | Files on the server's disk behind the API; student documents with types and review | Accepted |
-| [0024](0024-microservices-and-tenant-sharding.md) | Move to microservices, with tenants spread over several databases | Accepted; starts after the v1 pilot (ADR-0035). Supersedes ADR-0012 and ADR-0015 when M0 starts |
+| [0024](0024-microservices-and-tenant-sharding.md) | Move to microservices, with tenants spread over several databases | Accepted; starts after the v1 pilot (ADR-0038). Supersedes ADR-0012 and ADR-0015 when M0 starts |
 | [0025](0025-institutions-by-super-admin-without-types.md) | Institutions are added by the super admin, and have no type | Superseded by ADR-0030 (branches; organizations have a type) |
 | [0026](0026-deactivate-campuses-and-institutions.md) | Campuses and institutions are deactivated, not deleted | Accepted, now for branches (ADR-0030) |
 | [0027](0027-mandatory-add-only-audit-log.md) | The audit log is mandatory and add-only, and covers logins and document access | Accepted |
